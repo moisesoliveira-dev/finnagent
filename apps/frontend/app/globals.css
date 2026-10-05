@@ -1,26 +1,107 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #edf0f2;
+  --surface: #ffffff;
+  --surface-2: #f5f7f8;
+  --ink: #14202b;
+  --ink-2: #4a5866;
+  --line: #d9dfe4;
+  --brand: #0e5a52;
+  --brand-ink: #ffffff;
+  --brand-soft: #dcebe8;
+  --pending: #8a5a0b;
+  --pending-soft: #fbf0d9;
+  --pending-line: #e3a93b;
+  --pos: #1b7f4b;
+  --neg: #b8392f;
+  --event: #3a4fa3;
+  --event-soft: #e4e8f6;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0f161c;
+    --surface: #17212a;
+    --surface-2: #1d2833;
+    --ink: #e8edf1;
+    --ink-2: #9daab6;
+    --line: #2a3743;
+    --brand: #4db8a8;
+    --brand-ink: #06201c;
+    --brand-soft: #153630;
+    --pending: #e8b866;
+    --pending-soft: #33290f;
+    --pending-line: #c8912f;
+    --pos: #5cc98a;
+    --neg: #f0847a;
+    --event: #8fa2f0;
+    --event-soft: #1e2547;
   }
 }
 
+@theme inline {
+  --color-*: initial;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-pending: var(--pending);
+  --color-pending-soft: var(--pending-soft);
+  --color-pending-line: var(--pending-line);
+  --color-pos: var(--pos);
+  --color-neg: var(--neg);
+  --color-event: var(--event);
+  --color-event-soft: var(--event-soft);
+}
+
+@theme {
+  --breakpoint-*: initial;
+  --breakpoint-tab: 760px;
+  --breakpoint-desk: 1100px;
+  --font-display: var(--font-bricolage), "Segoe UI", system-ui, sans-serif;
+  --font-sans: var(--font-figtree), "Segoe UI", system-ui, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 18px;
+  --container-prose: 72ch;
+}
+
+html {
+  height: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
