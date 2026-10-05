@@ -1,0 +1,11 @@
+packages:
+  - apps/frontend
+  - apps/backend
+  - packages/*
+
+allowBuilds:
+  esbuild: false
+  protobufjs: false
+  sharp: false
+  unrs-resolver: false
+  workerd: false
