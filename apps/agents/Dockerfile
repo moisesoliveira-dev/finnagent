@@ -6,4 +6,4 @@ COPY apps/agents /app
 
 EXPOSE 8000
 
-CMD ["sleep", "infinity"]
+CMD ["sh", "-c", "python -m http.server \"$PORT\" --bind 0.0.0.0"]
