@@ -3,11 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import {
-  alinharUrlsDoBanco,
-  bancoConfigurado,
-  carregarEnv,
-} from "../carregar-env.js";
+import { alinharUrlsDoBanco, bancoConfigurado, carregarEnv } from "./carregar-env.js";
 
 carregarEnv();
 

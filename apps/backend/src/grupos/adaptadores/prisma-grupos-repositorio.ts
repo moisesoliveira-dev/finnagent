@@ -1,10 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { Grupo, Sessao } from "@finnagent/contracts";
 import type { Prisma } from "@prisma/client";
+import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
+import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, NaoEncontrado } from "../dominio/erros.js";
 import type { GruposRepositorio } from "../portas/grupos-repositorio.js";
-import { PrismaService } from "./prisma.service.js";
 
 @Injectable()
 export class PrismaGruposRepositorio implements GruposRepositorio {
@@ -195,10 +195,6 @@ function sessaoDe(row: {
   };
 }
 
-function marcaDe(payload: unknown) {
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
-}
-
 async function grupoDoTenant(tx: Prisma.TransactionClient, tenantId: string, id: string) {
   return tx.group.findFirst({ where: { id, tenantId } });
 }
@@ -232,30 +228,5 @@ async function nomeDeSessaoOcupado(
       name: { equals: name, mode: "insensitive" },
       ...(ignorarId ? { NOT: { id: ignorarId } } : {}),
     },
-  });
-}
-
-async function gravarOutbox(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  operation: string,
-  entityId: string,
-  payload: unknown,
-  marca = "",
-) {
-  const idempotencyKey = marca
-    ? `${tenantId}:${operation}:${entityId}:${marca}`
-    : `${tenantId}:${operation}:${entityId}`;
-  await tx.outbox.createMany({
-    data: [
-      {
-        id: randomUUID(),
-        tenantId,
-        operation,
-        idempotencyKey,
-        payload: JSON.stringify(payload),
-      },
-    ],
-    skipDuplicates: true,
   });
 }
