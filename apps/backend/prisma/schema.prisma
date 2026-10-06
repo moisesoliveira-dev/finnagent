@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Group {
+  id          String    @id
+  tenantId    String    @map("tenant_id")
+  name        String
+  description String    @default("")
+  sessions    Session[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("groups")
+}
+
+model Session {
+  id          String  @id
+  tenantId    String  @map("tenant_id")
+  groupId     String  @map("group_id")
+  name        String
+  description String  @default("")
+  cents       Int     @default(0)
+  group       Group   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, groupId, name])
+  @@index([tenantId])
+  @@map("sessions")
+}
+
+model Outbox {
+  id             String    @id
+  tenantId       String    @map("tenant_id")
+  operation      String
+  idempotencyKey String    @map("idempotency_key")
+  payload        String
+  publishedAt    DateTime? @map("published_at")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, publishedAt])
+  @@map("outbox")
+}
+
+model ConsumedEvent {
+  idempotencyKey String   @id @map("idempotency_key")
+  tenantId       String   @map("tenant_id")
+  consumedAt     DateTime @default(now()) @map("consumed_at")
+
+  @@map("consumed_events")
+}

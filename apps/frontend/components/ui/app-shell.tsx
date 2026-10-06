@@ -3,23 +3,33 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "./button";
-import { focusRing } from "./cn";
+import { cn, focusRing } from "./cn";
 
 const items = [
   { href: "/", label: "Hoje" },
   { href: "/agenda", label: "Agenda" },
   { href: "/financas", label: "Finanças" },
+  { href: "/grupos", label: "Grupos" },
   { href: "/ajustes", label: "Ajustes" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const assistant = pathname !== "/grupos" && !pathname.startsWith("/grupos/");
 
   return (
-    <div className="grid min-h-dvh grid-cols-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)] desk:grid-cols-[200px_minmax(0,1fr)_340px]">
+    <div
+      className={cn(
+        "grid min-h-dvh grid-cols-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]",
+        assistant && "desk:grid-cols-[200px_minmax(0,1fr)_340px]",
+      )}
+    >
       <nav
         aria-label="Principal"
-        className="flex items-center gap-1 overflow-x-auto border-b border-line p-3 tab:row-span-2 tab:flex-col tab:items-stretch tab:gap-6 tab:border-r tab:border-b-0 tab:p-4 desk:row-span-1"
+        className={cn(
+          "flex items-center gap-1 overflow-x-auto border-b border-line p-3 tab:row-span-2 tab:flex-col tab:items-stretch tab:gap-6 tab:border-r tab:border-b-0 tab:p-4",
+          assistant && "desk:row-span-1",
+        )}
       >
         <div className="px-3 font-display text-lg font-bold text-brand">Prumo</div>
         <ul className="flex gap-1 tab:flex-col">
@@ -44,6 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
         {children}
       </main>
+      {assistant ? (
       <aside
         aria-label="Assistente"
         className="flex flex-col gap-4 border-t border-line bg-surface p-6 tab:col-start-2 desk:col-start-3 desk:row-start-1 desk:border-t-0 desk:border-l"
@@ -72,6 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </form>
       </aside>
+      ) : null}
     </div>
   );
 }

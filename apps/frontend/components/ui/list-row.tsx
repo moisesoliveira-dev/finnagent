@@ -21,15 +21,17 @@ export function ListRow({
   title,
   meta,
   value,
+  action,
 }: {
-  time: string;
+  time?: string;
   title: string;
   meta?: React.ReactNode;
   value: React.ReactNode;
+  action?: React.ReactNode;
 } & VariantProps<typeof row>) {
   return (
     <li className={row({ kind })}>
-      <time className="text-sm text-ink-2">{time}</time>
+      {time ? <time className="text-sm text-ink-2">{time}</time> : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="font-medium">{title}</span>
         {meta ? (
@@ -37,6 +39,7 @@ export function ListRow({
         ) : null}
       </div>
       <span className="text-right">{value}</span>
+      {action}
     </li>
   );
 }

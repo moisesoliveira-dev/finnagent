@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
+import { Chip } from "./chip";
 
 const pending = cva("grid gap-3 rounded-md border p-4", {
   variants: {
@@ -23,6 +24,11 @@ export function PendingAction({
 } & VariantProps<typeof pending>) {
   return (
     <article className={pending({ state })}>
+      {(state ?? "open") === "open" ? (
+        <Chip tone="ai" className="justify-self-start font-normal">
+          Sugerido pela IA
+        </Chip>
+      ) : null}
       <strong className="font-semibold">{title}</strong>
       {children}
     </article>

@@ -9,6 +9,9 @@ node_modules
 !.yarn/versions
 
 .cursor
+.agents
+.claude
+.devin
 
 .env
 .env.*
