@@ -14,7 +14,7 @@ COPY . .
 
 WORKDIR /repo/apps/backend
 
-RUN pnpm exec nest build
+RUN pnpm exec prisma generate && pnpm exec nest build
 
 EXPOSE 3000
 
