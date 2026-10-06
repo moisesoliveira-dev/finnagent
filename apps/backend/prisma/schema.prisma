@@ -9,10 +9,11 @@ datasource db {
 }
 
 model Group {
-  id       String    @id
-  tenantId String    @map("tenant_id")
-  name     String
-  sessions Session[]
+  id          String    @id
+  tenantId    String    @map("tenant_id")
+  name        String
+  description String    @default("")
+  sessions    Session[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -20,12 +21,13 @@ model Group {
 }
 
 model Session {
-  id       String @id
-  tenantId String @map("tenant_id")
-  groupId  String @map("group_id")
-  name     String
-  cents    Int    @default(0)
-  group    Group  @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  id          String  @id
+  tenantId    String  @map("tenant_id")
+  groupId     String  @map("group_id")
+  name        String
+  description String  @default("")
+  cents       Int     @default(0)
+  group       Group   @relation(fields: [groupId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, groupId, name])
   @@index([tenantId])

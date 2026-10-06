@@ -1,0 +1,5 @@
+ALTER TABLE "groups" ADD COLUMN "description" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "sessions" ADD COLUMN "description" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "sessions" ALTER COLUMN "group_id" DROP NOT NULL;

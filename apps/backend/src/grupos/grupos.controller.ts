@@ -9,6 +9,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   Post,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -18,12 +19,25 @@ import { BancoIndisponivel, Conflito, NaoEncontrado } from "./dominio/erros.js";
 
 const tenantId = z.uuid();
 const nome = z.string().trim().min(1).max(80);
-const criarGrupo = z.object({ id: z.uuid(), name: nome });
+const descricao = z.string().trim().max(160);
+const centavos = z.number().int().gte(-2_147_483_648).lte(2_147_483_647);
+const criarGrupo = z.object({
+  id: z.uuid(),
+  name: nome,
+  description: descricao.optional().default(""),
+});
+const atualizarGrupo = z.object({ name: nome, description: descricao });
 const criarSessao = z.object({
   id: z.uuid(),
   groupId: z.uuid(),
   name: nome,
-  cents: z.number().int().gte(-2_147_483_648).lte(2_147_483_647),
+  description: descricao.optional().default(""),
+  cents: centavos.optional().default(0),
+});
+const atualizarSessao = z.object({
+  name: nome,
+  description: descricao,
+  groupId: z.uuid(),
 });
 
 @Controller()
@@ -40,9 +54,31 @@ export class GruposController {
     @Headers("x-tenant-id") tenant: string | undefined,
     @Body() body: unknown,
   ) {
-    const pedido = this.pedido(criarGrupo, body, "Dê um nome ao grupo.");
+    const pedido = this.pedidoGrupo(criarGrupo, body);
     return this.executar(() =>
-      this.grupos.criarGrupo(this.tenant(tenant), pedido.id, pedido.name),
+      this.grupos.criarGrupo(
+        this.tenant(tenant),
+        pedido.id,
+        pedido.name,
+        pedido.description,
+      ),
+    );
+  }
+
+  @Patch("grupos/:id")
+  atualizarGrupo(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const pedido = this.pedidoGrupo(atualizarGrupo, body);
+    return this.executar(() =>
+      this.grupos.atualizarGrupo(
+        this.tenant(tenant),
+        this.id(id),
+        pedido.name,
+        pedido.description,
+      ),
     );
   }
 
@@ -62,14 +98,33 @@ export class GruposController {
     @Headers("x-tenant-id") tenant: string | undefined,
     @Body() body: unknown,
   ) {
-    const pedido = this.pedidoSessao(body);
+    const pedido = this.pedidoSessao(criarSessao, body);
     return this.executar(() =>
       this.grupos.criarSessao(
         this.tenant(tenant),
         pedido.id,
         pedido.groupId,
         pedido.name,
+        pedido.description,
         pedido.cents,
+      ),
+    );
+  }
+
+  @Patch("sessoes/:id")
+  atualizarSessao(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const pedido = this.pedidoSessao(atualizarSessao, body);
+    return this.executar(() =>
+      this.grupos.atualizarSessao(
+        this.tenant(tenant),
+        this.id(id),
+        pedido.groupId,
+        pedido.name,
+        pedido.description,
       ),
     );
   }
@@ -97,13 +152,29 @@ export class GruposController {
     return parsed.data;
   }
 
-  private pedidoSessao(body: unknown) {
-    const parsed = criarSessao.safeParse(body);
+  private pedidoGrupo<T>(schema: z.ZodType<T>, body: unknown): T {
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      const campo = parsed.error.issues[0]?.path[0];
+      if (campo === "description") {
+        throw new BadRequestException("A descrição passa de 160 caracteres.");
+      }
+      throw new BadRequestException("Dê um nome ao grupo.");
+    }
+    return parsed.data;
+  }
+
+  private pedidoSessao<T>(schema: z.ZodType<T>, body: unknown): T {
+    const parsed = schema.safeParse(body);
     if (!parsed.success) {
       const campo = parsed.error.issues[0]?.path[0];
       if (campo === "name") throw new BadRequestException("Dê um nome à sessão.");
+      if (campo === "groupId") throw new BadRequestException("Escolha um grupo.");
+      if (campo === "description") {
+        throw new BadRequestException("A descrição passa de 160 caracteres.");
+      }
       if (campo === "cents") throw new BadRequestException("Informe o valor da sessão.");
-      throw new BadRequestException("Não foi possível criar a sessão.");
+      throw new BadRequestException("Não foi possível salvar a sessão.");
     }
     return parsed.data;
   }

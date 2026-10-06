@@ -17,6 +17,7 @@
   --neg: #b8392f;
   --event: #3a4fa3;
   --event-soft: #e4e8f6;
+  --overlay: #14202b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +38,7 @@
     --neg: #f0847a;
     --event: #8fa2f0;
     --event-soft: #1e2547;
+    --overlay: #05080c;
   }
 }
 
@@ -58,6 +60,7 @@
   --color-neg: var(--neg);
   --color-event: var(--event);
   --color-event-soft: var(--event-soft);
+  --color-overlay: var(--overlay);
 }
 
 @theme {

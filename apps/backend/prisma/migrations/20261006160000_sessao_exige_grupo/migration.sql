@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ALTER COLUMN "group_id" SET NOT NULL;

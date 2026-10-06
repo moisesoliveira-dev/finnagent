@@ -16,8 +16,30 @@ export class GruposService {
     return this.grupos.listar(tenantId);
   }
 
-  async criarGrupo(tenantId: string, id: string, name: string): Promise<Grupo> {
-    const resultado = await this.grupos.criarGrupo(tenantId, id, name);
+  async criarGrupo(
+    tenantId: string,
+    id: string,
+    name: string,
+    description: string,
+  ): Promise<Grupo> {
+    const resultado = await this.grupos.criarGrupo(tenantId, id, name, description);
+    if (resultado === "identificador") {
+      throw new Conflito("Esse identificador já pertence a outro grupo.");
+    }
+    if (resultado === "nome") {
+      throw new Conflito("Já existe um grupo com esse nome.");
+    }
+    return resultado;
+  }
+
+  async atualizarGrupo(
+    tenantId: string,
+    id: string,
+    name: string,
+    description: string,
+  ): Promise<Grupo> {
+    const resultado = await this.grupos.atualizarGrupo(tenantId, id, name, description);
+    if (resultado === "ausente") throw new NaoEncontrado("Grupo não encontrado.");
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outro grupo.");
     }
@@ -37,6 +59,7 @@ export class GruposService {
     id: string,
     groupId: string,
     name: string,
+    description: string,
     cents: number,
   ): Promise<Sessao> {
     const resultado = await this.grupos.criarSessao(
@@ -44,6 +67,7 @@ export class GruposService {
       id,
       groupId,
       name,
+      description,
       cents,
     );
     if (resultado === "identificador") {
@@ -53,7 +77,34 @@ export class GruposService {
       throw new Conflito("Esse grupo já tem uma sessão com esse nome.");
     }
     if (resultado === "grupo-ausente") {
-      throw new NaoEncontrado("Crie um grupo antes da sessão.");
+      throw new NaoEncontrado("Grupo não encontrado.");
+    }
+    return resultado;
+  }
+
+  async atualizarSessao(
+    tenantId: string,
+    id: string,
+    groupId: string,
+    name: string,
+    description: string,
+  ): Promise<Sessao> {
+    const resultado = await this.grupos.atualizarSessao(
+      tenantId,
+      id,
+      groupId,
+      name,
+      description,
+    );
+    if (resultado === "ausente") throw new NaoEncontrado("Sessão não encontrada.");
+    if (resultado === "identificador") {
+      throw new Conflito("Esse identificador já pertence a outra sessão.");
+    }
+    if (resultado === "nome") {
+      throw new Conflito("Esse grupo já tem uma sessão com esse nome.");
+    }
+    if (resultado === "grupo-ausente") {
+      throw new NaoEncontrado("Grupo não encontrado.");
     }
     return resultado;
   }

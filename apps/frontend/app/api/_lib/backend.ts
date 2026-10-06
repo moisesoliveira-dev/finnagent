@@ -19,6 +19,7 @@ export async function callBackend(path: string, init?: RequestInit) {
       },
       cache: "no-store",
     });
+    if (response.status === 204) return new Response(null, { status: 204 });
     const body = await response.text();
     return new Response(body, {
       status: response.status,
