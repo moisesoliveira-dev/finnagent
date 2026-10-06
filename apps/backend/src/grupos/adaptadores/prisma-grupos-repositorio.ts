@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import type { Grupo, Sessao } from "@finnagent/contracts";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
-import { BancoIndisponivel, NaoEncontrado } from "../dominio/erros.js";
+import { BancoIndisponivel, Conflito, NaoEncontrado } from "../dominio/erros.js";
 import type { GruposRepositorio } from "../portas/grupos-repositorio.js";
 
 @Injectable()
@@ -74,10 +74,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
           id: sessao.id,
           groupId: id,
         });
-        const apagadas = await tx.session.deleteMany({
-          where: { id: sessao.id, tenantId, groupId: id },
-        });
-        if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+        await apagarSessao(tx, sessao.id, tenantId, id);
       }
       await gravarOutbox(tx, tenantId, "remover-grupo", id, { id });
       const apagados = await tx.group.deleteMany({ where: { id, tenantId } });
@@ -163,8 +160,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
         id,
         groupId: sessao.groupId,
       });
-      const apagadas = await tx.session.deleteMany({ where: { id, tenantId } });
-      if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+      await apagarSessao(tx, id, tenantId);
       return true;
     });
   }
@@ -193,6 +189,25 @@ function sessaoDe(row: {
     description: row.description,
     cents: row.cents,
   };
+}
+
+async function apagarSessao(
+  tx: Prisma.TransactionClient,
+  id: string,
+  tenantId: string,
+  groupId?: string,
+) {
+  try {
+    const apagadas = await tx.session.deleteMany({
+      where: { id, tenantId, ...(groupId ? { groupId } : {}) },
+    });
+    if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2003" || error.code === "P2014")) {
+      throw new Conflito("Essa sessão tem lançamentos.");
+    }
+    throw error;
+  }
 }
 
 async function grupoDoTenant(tx: Prisma.TransactionClient, tenantId: string, id: string) {

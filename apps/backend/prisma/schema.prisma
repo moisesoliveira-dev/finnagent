@@ -28,10 +28,54 @@ model Session {
   description String  @default("")
   cents       Int     @default(0)
   group       Group   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  entries     Entry[]
 
   @@unique([tenantId, groupId, name])
   @@index([tenantId])
   @@map("sessions")
+}
+
+model Workflow {
+  tenantId String @id @map("tenant_id")
+  year     Int
+  month    Int
+  day      Int
+
+  @@map("workflows")
+}
+
+model Entry {
+  id            String        @id
+  tenantId      String        @map("tenant_id")
+  sessionId     String        @map("session_id")
+  type          String
+  description   String
+  justification String        @default("")
+  day           Int
+  cents         Int
+  startYear     Int           @map("start_year")
+  startMonth    Int           @map("start_month")
+  installments  Int?
+  position      Int           @default(0)
+  session       Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  amounts       EntryAmount[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("entries")
+}
+
+model EntryAmount {
+  entryId  String @map("entry_id")
+  tenantId String @map("tenant_id")
+  year     Int
+  month    Int
+  cents    Int
+  entry    Entry  @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([entryId, year, month])
+  @@index([tenantId])
+  @@map("entry_amounts")
 }
 
 model Outbox {
