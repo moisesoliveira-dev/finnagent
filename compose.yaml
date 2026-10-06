@@ -32,11 +32,15 @@ services:
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
-      DATABASE_URL: ${DATABASE_URL:-}
-      DIRECT_URL: ${DIRECT_URL:-}
+      DATABASE_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
+      DIRECT_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
     depends_on:
-      - redis
-      - agents
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      agents:
+        condition: service_started
 
   agents:
     build:
@@ -50,7 +54,7 @@ services:
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
-      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
@@ -58,7 +62,26 @@ services:
     ports:
       - "8000:8000"
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: finnagent
+      POSTGRES_PASSWORD: finnagent
+      POSTGRES_DB: finnagent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finnagent -d finnagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+
+volumes:
+  postgres_data:
