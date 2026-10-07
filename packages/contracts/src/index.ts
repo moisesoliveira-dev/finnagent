@@ -173,3 +173,51 @@ function centavosAgendados(entry: Lancamento, year: number, monthIndex: number) 
 function indice(year: number, monthIndex: number) {
   return year * 12 + monthIndex;
 }
+
+export const AGENDAS = ["Pessoal", "Trabalho"] as const;
+
+export type NomeAgenda = (typeof AGENDAS)[number];
+
+export const CATEGORIAS_COMPROMISSO = ["unico", "recorrente", "validade"] as const;
+
+export type CategoriaCompromisso = (typeof CATEGORIAS_COMPROMISSO)[number];
+
+export type EstadoGoogle = "desconectado" | "sincronizando" | "sincronizado" | "erro";
+
+export type LancamentoDoMes = {
+  id: string;
+  description: string;
+  day: number;
+  groupName: string;
+  sessionName: string;
+  cents: number;
+};
+
+export type Vinculo = {
+  entryId: string;
+  groupName: string;
+  sessionName: string;
+  cents: number;
+};
+
+export type Compromisso = {
+  id: string;
+  title: string;
+  year: number;
+  month: number;
+  day: number;
+  time: string | null;
+  calendar: NomeAgenda;
+  category: CategoriaCompromisso;
+  endYear: number | null;
+  endMonth: number | null;
+  endDay: number | null;
+  entryId: string | null;
+  link: Vinculo | null;
+};
+
+export type AgendaResposta = {
+  google: EstadoGoogle;
+  appointments: Compromisso[];
+  entries: LancamentoDoMes[];
+};

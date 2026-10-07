@@ -5,7 +5,7 @@ export function PageHeader({
   children,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   actions?: React.ReactNode;
   children?: React.ReactNode;
 }) {
