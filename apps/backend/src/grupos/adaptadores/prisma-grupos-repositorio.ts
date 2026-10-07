@@ -1,10 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { Grupo, Sessao } from "@finnagent/contracts";
-import type { Prisma } from "@prisma/client";
-import { BancoIndisponivel, NaoEncontrado } from "../dominio/erros.js";
+import { Prisma } from "@prisma/client";
+import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
+import { PrismaService } from "../../persistencia/prisma.service.js";
+import { BancoIndisponivel, Conflito, NaoEncontrado } from "../dominio/erros.js";
 import type { GruposRepositorio } from "../portas/grupos-repositorio.js";
-import { PrismaService } from "./prisma.service.js";
 
 @Injectable()
 export class PrismaGruposRepositorio implements GruposRepositorio {
@@ -74,10 +74,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
           id: sessao.id,
           groupId: id,
         });
-        const apagadas = await tx.session.deleteMany({
-          where: { id: sessao.id, tenantId, groupId: id },
-        });
-        if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+        await apagarSessao(tx, sessao.id, tenantId, id);
       }
       await gravarOutbox(tx, tenantId, "remover-grupo", id, { id });
       const apagados = await tx.group.deleteMany({ where: { id, tenantId } });
@@ -163,8 +160,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
         id,
         groupId: sessao.groupId,
       });
-      const apagadas = await tx.session.deleteMany({ where: { id, tenantId } });
-      if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+      await apagarSessao(tx, id, tenantId);
       return true;
     });
   }
@@ -195,8 +191,23 @@ function sessaoDe(row: {
   };
 }
 
-function marcaDe(payload: unknown) {
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
+async function apagarSessao(
+  tx: Prisma.TransactionClient,
+  id: string,
+  tenantId: string,
+  groupId?: string,
+) {
+  try {
+    const apagadas = await tx.session.deleteMany({
+      where: { id, tenantId, ...(groupId ? { groupId } : {}) },
+    });
+    if (apagadas.count !== 1) throw new NaoEncontrado("Sessão não encontrada.");
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2003" || error.code === "P2014")) {
+      throw new Conflito("Essa sessão tem lançamentos.");
+    }
+    throw error;
+  }
 }
 
 async function grupoDoTenant(tx: Prisma.TransactionClient, tenantId: string, id: string) {
@@ -232,30 +243,5 @@ async function nomeDeSessaoOcupado(
       name: { equals: name, mode: "insensitive" },
       ...(ignorarId ? { NOT: { id: ignorarId } } : {}),
     },
-  });
-}
-
-async function gravarOutbox(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  operation: string,
-  entityId: string,
-  payload: unknown,
-  marca = "",
-) {
-  const idempotencyKey = marca
-    ? `${tenantId}:${operation}:${entityId}:${marca}`
-    : `${tenantId}:${operation}:${entityId}`;
-  await tx.outbox.createMany({
-    data: [
-      {
-        id: randomUUID(),
-        tenantId,
-        operation,
-        idempotencyKey,
-        payload: JSON.stringify(payload),
-      },
-    ],
-    skipDuplicates: true,
   });
 }
