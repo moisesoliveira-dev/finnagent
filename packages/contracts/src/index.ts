@@ -359,3 +359,101 @@ export function calcularMeta(
     alcancada: falta === 0,
   };
 }
+
+export type RelatorioMes = {
+  month: number;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+};
+
+export type RelatorioGrupo = {
+  groupId: string;
+  name: string;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+};
+
+export type RelatorioTipo = {
+  type: TipoLancamento;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+};
+
+export type RelatorioResposta = {
+  year: number;
+  workflow: Workflow;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+  months: RelatorioMes[];
+  groups: RelatorioGrupo[];
+  types: RelatorioTipo[];
+};
+
+export function montarRelatorio(
+  entries: Lancamento[],
+  workflow: Workflow,
+  year: number,
+): RelatorioResposta | null {
+  const colunas = colunasDoAno(workflow, year);
+  if (colunas.length === 0) return null;
+
+  const months = colunas.map((monthIndex) => ({
+    month: monthIndex + 1,
+    ...totaisDoMes(entries, workflow, year, monthIndex),
+  }));
+  const entradas = months.reduce((total, mes) => total + mes.entradas, 0);
+  const saidas = months.reduce((total, mes) => total + mes.saidas, 0);
+  const grupos = new Map<string, RelatorioGrupo>();
+  const tipos = new Map<TipoLancamento, RelatorioTipo>();
+
+  for (const monthIndex of colunas) {
+    for (const entry of entries) {
+      const valor = centavosNoMes(entry, workflow, year, monthIndex);
+      if (valor === undefined || valor === 0) continue;
+      const grupo = grupos.get(entry.groupId) ?? {
+        groupId: entry.groupId,
+        name: entry.groupName,
+        entradas: 0,
+        saidas: 0,
+        sobra: 0,
+      };
+      const tipo = tipos.get(entry.type) ?? {
+        type: entry.type,
+        entradas: 0,
+        saidas: 0,
+        sobra: 0,
+      };
+      if (valor > 0) {
+        grupo.entradas += valor;
+        tipo.entradas += valor;
+      } else {
+        grupo.saidas += valor;
+        tipo.saidas += valor;
+      }
+      grupo.sobra = grupo.entradas + grupo.saidas;
+      tipo.sobra = tipo.entradas + tipo.saidas;
+      grupos.set(entry.groupId, grupo);
+      tipos.set(entry.type, tipo);
+    }
+  }
+
+  return {
+    year,
+    workflow,
+    entradas,
+    saidas,
+    sobra: entradas + saidas,
+    months,
+    groups: [...grupos.values()].sort(
+      (a, b) => a.saidas - b.saidas || a.name.localeCompare(b.name, "pt"),
+    ),
+    types: TIPOS_LANCAMENTO.flatMap((type) => {
+      const item = tipos.get(type);
+      return item ? [item] : [];
+    }),
+  };
+}
