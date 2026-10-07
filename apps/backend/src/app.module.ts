@@ -5,10 +5,11 @@ import { AgendaModule } from './agenda/agenda.module.js';
 import { ExtratosModule } from './extratos/extratos.module.js';
 import { FinancasModule } from './financas/financas.module.js';
 import { GruposModule } from './grupos/grupos.module.js';
+import { MetasModule } from './metas/metas.module.js';
 import { PersistenciaModule } from './persistencia/persistencia.module.js';
 
 @Module({
-  imports: [PersistenciaModule, GruposModule, FinancasModule, AgendaModule, ExtratosModule],
+  imports: [PersistenciaModule, GruposModule, FinancasModule, AgendaModule, ExtratosModule, MetasModule],
   controllers: [AppController],
   providers: [AppService],
 })
