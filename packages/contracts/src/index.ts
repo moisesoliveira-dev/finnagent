@@ -457,3 +457,146 @@ export function montarRelatorio(
     }),
   };
 }
+
+export const ESCOPOS_PAINEL = ["dia", "mes", "ano"] as const;
+
+export type EscopoPainel = (typeof ESCOPOS_PAINEL)[number];
+
+export type ItemPainel = {
+  id: string;
+  kind: "compromisso" | "lancamento";
+  year: number;
+  month: number;
+  day: number;
+  time: string | null;
+  title: string;
+  detail: string;
+  cents: number | null;
+};
+
+export type MesPainel = {
+  month: number;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+  compromissos: number;
+  lancamentos: number;
+};
+
+export type PainelResposta = {
+  scope: EscopoPainel;
+  year: number;
+  month: number | null;
+  day: number | null;
+  entradas: number;
+  saidas: number;
+  sobra: number;
+  compromissos: number;
+  lancamentos: number;
+  items: ItemPainel[];
+  months: MesPainel[];
+};
+
+export function montarPainel(
+  scope: EscopoPainel,
+  year: number,
+  month: number | null,
+  day: number | null,
+  workflow: Workflow,
+  entries: Lancamento[],
+  appointments: Compromisso[],
+): PainelResposta {
+  const meses = scope === "ano" ? Array.from({ length: 12 }, (_, indice) => indice + 1) : [month ?? 1];
+  const items: ItemPainel[] = [];
+  const months: MesPainel[] = [];
+  let entradas = 0;
+  let saidas = 0;
+  let compromissos = 0;
+  let lancamentos = 0;
+
+  const colunas = new Set(colunasDoAno(workflow, year));
+  for (const mes of meses) {
+    const ultimo = new Date(year, mes, 0).getDate();
+    const visivel = colunas.has(mes - 1);
+    let entradasMes = 0;
+    let saidasMes = 0;
+    let compromissosMes = 0;
+    let lancamentosMes = 0;
+    for (const entry of entries) {
+      if (!visivel) continue;
+      const cents = centavosNoMes(entry, workflow, year, mes - 1);
+      if (cents === undefined) continue;
+      const dia = Math.min(entry.day, ultimo);
+      if (scope === "dia" && dia !== day) continue;
+      lancamentosMes += 1;
+      if (cents > 0) entradasMes += cents;
+      else saidasMes += cents;
+      if (scope !== "ano") {
+        items.push({
+          id: entry.id,
+          kind: "lancamento",
+          year,
+          month: mes,
+          day: dia,
+          time: null,
+          title: entry.description,
+          detail: `${entry.groupName} · ${entry.sessionName}`,
+          cents,
+        });
+      }
+    }
+    for (const compromisso of appointments) {
+      if (compromisso.year !== year || compromisso.month !== mes) continue;
+      if (scope === "dia" && compromisso.day !== day) continue;
+      compromissosMes += 1;
+      if (scope !== "ano") {
+        items.push({
+          id: `${compromisso.id}-${year}-${mes}-${compromisso.day}`,
+          kind: "compromisso",
+          year,
+          month: mes,
+          day: compromisso.day,
+          time: compromisso.time,
+          title: compromisso.title,
+          detail: compromisso.calendar,
+          cents: compromisso.link?.cents ?? null,
+        });
+      }
+    }
+    entradas += entradasMes;
+    saidas += saidasMes;
+    compromissos += compromissosMes;
+    lancamentos += lancamentosMes;
+    if (scope === "ano") {
+      months.push({
+        month: mes,
+        entradas: entradasMes,
+        saidas: saidasMes,
+        sobra: entradasMes + saidasMes,
+        compromissos: compromissosMes,
+        lancamentos: lancamentosMes,
+      });
+    }
+  }
+
+  items.sort(
+    (a, b) =>
+      a.day - b.day ||
+      (a.time ?? "99:99").localeCompare(b.time ?? "99:99") ||
+      a.title.localeCompare(b.title, "pt"),
+  );
+
+  return {
+    scope,
+    year,
+    month: scope === "ano" ? null : month,
+    day: scope === "dia" ? day : null,
+    entradas,
+    saidas,
+    sobra: entradas + saidas,
+    compromissos,
+    lancamentos,
+    items,
+    months,
+  };
+}

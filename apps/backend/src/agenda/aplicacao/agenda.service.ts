@@ -24,6 +24,11 @@ export class AgendaService {
     private readonly financas: FinancasService,
   ) {}
 
+  async ocorrencias(tenantId: string, year: number, month: number) {
+    const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
+    return definicoes.flatMap((item) => ocorrenciasNoMes(item, year, month));
+  }
+
   async listar(tenantId: string, year: number, month: number): Promise<AgendaResposta> {
     const base = await this.financas.listar(tenantId);
     const entries = lancamentosDoMes(base, year, month);

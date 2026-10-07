@@ -8,6 +8,7 @@ import { AGENDA_REPOSITORIO } from "./portas/agenda-repositorio.js";
 
 @Module({
   imports: [PersistenciaModule, FinancasModule],
+  exports: [AgendaService],
   controllers: [AgendaController],
   providers: [
     PrismaAgendaRepositorio,
