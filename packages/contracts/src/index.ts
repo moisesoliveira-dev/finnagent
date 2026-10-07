@@ -311,3 +311,51 @@ export type ConferenciaResposta = {
   month: number;
   lines: LinhaConferencia[];
 };
+
+export type Meta = {
+  id: string;
+  name: string;
+  targetCents: number;
+  savedCents: number;
+  dueYear: number | null;
+  dueMonth: number | null;
+};
+
+export type MetasResposta = {
+  goals: Meta[];
+  surplusCents: number;
+  year: number;
+  month: number;
+};
+
+export type CalculoMeta = {
+  falta: number;
+  mesesNoPrazo: number | null;
+  porMes: number | null;
+  mesesNaSobra: number | null;
+  prazoPassou: boolean;
+  alcancada: boolean;
+};
+
+export function calcularMeta(
+  meta: Pick<Meta, "targetCents" | "savedCents" | "dueYear" | "dueMonth">,
+  hoje: { year: number; month: number },
+  sobraMensal: number,
+): CalculoMeta {
+  const falta = Math.max(meta.targetCents - meta.savedCents, 0);
+  let mesesNoPrazo: number | null = null;
+  let prazoPassou = false;
+  if (meta.dueYear !== null && meta.dueMonth !== null) {
+    const meses = (meta.dueYear - hoje.year) * 12 + (meta.dueMonth - hoje.month) + 1;
+    if (meses < 1) prazoPassou = true;
+    else mesesNoPrazo = meses;
+  }
+  return {
+    falta,
+    mesesNoPrazo,
+    porMes: mesesNoPrazo !== null && falta > 0 ? Math.ceil(falta / mesesNoPrazo) : null,
+    mesesNaSobra: sobraMensal > 0 && falta > 0 ? Math.ceil(falta / sobraMensal) : null,
+    prazoPassou,
+    alcancada: falta === 0,
+  };
+}

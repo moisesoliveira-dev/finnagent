@@ -158,6 +158,19 @@ model StatementLine {
   @@map("statement_lines")
 }
 
+model Goal {
+  id          String @id
+  tenantId    String @map("tenant_id")
+  name        String
+  targetCents Int    @map("target_cents")
+  savedCents  Int    @default(0) @map("saved_cents")
+  dueYear     Int?   @map("due_year")
+  dueMonth    Int?   @map("due_month")
+
+  @@index([tenantId])
+  @@map("goals")
+}
+
 model Outbox {
   id             String    @id
   tenantId       String    @map("tenant_id")
