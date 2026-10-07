@@ -49,7 +49,7 @@ function Item({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas"];
+  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios"];
   const assistant = !semAssistente.some(
     (rota) => pathname === rota || pathname.startsWith(`${rota}/`),
   );
@@ -74,6 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
           ))}
           <Item href="/metas" label="Metas" current={pathname === "/metas"} />
+          <Item href="/relatorios" label="Relatórios" current={pathname === "/relatorios"} />
           <li className="flex items-center gap-1 tab:flex-col tab:items-stretch">
             <span
               className={cn(

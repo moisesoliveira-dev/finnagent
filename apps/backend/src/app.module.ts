@@ -7,9 +7,18 @@ import { FinancasModule } from './financas/financas.module.js';
 import { GruposModule } from './grupos/grupos.module.js';
 import { MetasModule } from './metas/metas.module.js';
 import { PersistenciaModule } from './persistencia/persistencia.module.js';
+import { RelatoriosModule } from './relatorios/relatorios.module.js';
 
 @Module({
-  imports: [PersistenciaModule, GruposModule, FinancasModule, AgendaModule, ExtratosModule, MetasModule],
+  imports: [
+    PersistenciaModule,
+    GruposModule,
+    FinancasModule,
+    AgendaModule,
+    ExtratosModule,
+    MetasModule,
+    RelatoriosModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
