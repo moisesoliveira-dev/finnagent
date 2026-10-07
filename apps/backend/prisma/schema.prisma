@@ -60,6 +60,7 @@ model Entry {
   session       Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   amounts       EntryAmount[]
   appointments  Appointment[]
+  statementLines StatementLine[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -99,6 +100,62 @@ model Appointment {
   @@index([tenantId, year, month])
   @@index([tenantId])
   @@map("appointments")
+}
+
+model Account {
+  id         String      @id
+  tenantId   String      @map("tenant_id")
+  name       String
+  statements Statement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("accounts")
+}
+
+model Statement {
+  id                String          @id
+  tenantId          String          @map("tenant_id")
+  accountId         String          @map("account_id")
+  filename          String
+  format            String
+  status            String
+  message           String          @default("")
+  startDate         DateTime?       @map("start_date") @db.Date
+  endDate           DateTime?       @map("end_date") @db.Date
+  lineCount         Int             @map("line_count")
+  errorCount        Int             @map("error_count")
+  importedAt        DateTime        @map("imported_at")
+  content           Bytes
+  contentHash       String          @map("content_hash")
+  dateColumn        Int?            @map("date_column")
+  descriptionColumn Int?            @map("description_column")
+  amountColumn      Int?            @map("amount_column")
+  account           Account         @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: Restrict)
+  lines             StatementLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, accountId, startDate, endDate])
+  @@index([tenantId])
+  @@map("statements")
+}
+
+model StatementLine {
+  statementId String    @map("statement_id")
+  tenantId    String    @map("tenant_id")
+  line        Int
+  postedOn    DateTime? @map("posted_on") @db.Date
+  description String
+  cents       Int?
+  error       String    @default("")
+  entryId     String?   @map("entry_id")
+  statement   Statement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Cascade)
+  entry       Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([statementId, line])
+  @@index([tenantId])
+  @@map("statement_lines")
 }
 
 model Outbox {

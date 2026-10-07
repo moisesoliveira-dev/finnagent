@@ -8,6 +8,7 @@ const chip = cva(
       tone: {
         default: "border-line bg-surface-2 text-ink-2",
         ok: "border-transparent bg-brand-soft text-brand",
+        neg: "border-neg bg-transparent text-neg",
         ai: "border-pending-line bg-pending-soft text-pending",
       },
     },
