@@ -59,6 +59,7 @@ model Entry {
   position      Int           @default(0)
   session       Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   amounts       EntryAmount[]
+  appointments  Appointment[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -76,6 +77,28 @@ model EntryAmount {
   @@id([entryId, year, month])
   @@index([tenantId])
   @@map("entry_amounts")
+}
+
+model Appointment {
+  id        String  @id
+  tenantId  String  @map("tenant_id")
+  title     String
+  year      Int
+  month     Int
+  day       Int
+  hour      Int?
+  minute    Int?
+  calendar  String
+  category  String  @default("unico")
+  endYear   Int?    @map("end_year")
+  endMonth  Int?    @map("end_month")
+  endDay    Int?    @map("end_day")
+  entryId   String? @map("entry_id")
+  entry     Entry?  @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, year, month])
+  @@index([tenantId])
+  @@map("appointments")
 }
 
 model Outbox {

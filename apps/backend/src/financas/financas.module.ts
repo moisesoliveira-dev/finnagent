@@ -8,6 +8,7 @@ import { FINANCAS_REPOSITORIO } from "./portas/financas-repositorio.js";
 
 @Module({
   imports: [PersistenciaModule, GruposModule],
+  exports: [FinancasService],
   controllers: [FinancasController],
   providers: [
     PrismaFinancasRepositorio,

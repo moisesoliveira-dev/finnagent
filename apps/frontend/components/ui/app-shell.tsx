@@ -15,7 +15,10 @@ const items = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const assistant = pathname !== "/grupos" && !pathname.startsWith("/grupos/");
+  const semAssistente = ["/grupos", "/agenda", "/financas"];
+  const assistant = !semAssistente.some(
+    (rota) => pathname === rota || pathname.startsWith(`${rota}/`),
+  );
 
   return (
     <div
