@@ -6,11 +6,10 @@ import { Button } from "./button";
 import { cn, focusRing } from "./cn";
 
 const items = [
-  { href: "/", label: "Hoje" },
+  { href: "/", label: "Dashboard" },
   { href: "/agenda", label: "Agenda" },
   { href: "/financas", label: "Finanças" },
   { href: "/grupos", label: "Grupos" },
-  { href: "/ajustes", label: "Ajustes" },
 ];
 
 const extratos = [
@@ -50,9 +49,9 @@ function Item({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios"];
-  const assistant = !semAssistente.some(
-    (rota) => pathname === rota || pathname.startsWith(`${rota}/`),
-  );
+  const assistant =
+    pathname !== "/" &&
+    !semAssistente.some((rota) => pathname === rota || pathname.startsWith(`${rota}/`));
 
   return (
     <div
