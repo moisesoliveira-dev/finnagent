@@ -221,3 +221,93 @@ export type AgendaResposta = {
   appointments: Compromisso[];
   entries: LancamentoDoMes[];
 };
+
+export const LIMITE_EXTRATO_BYTES = 5 * 1024 * 1024;
+
+export const FORMATOS_EXTRATO = ["ofx", "csv"] as const;
+
+export type FormatoExtrato = (typeof FORMATOS_EXTRATO)[number];
+
+export const STATUS_EXTRATO = ["importado", "com_erros", "processando", "falhou"] as const;
+
+export type StatusExtrato = (typeof STATUS_EXTRATO)[number];
+
+export type MapeamentoExtrato = {
+  date: number;
+  description: number;
+  amount: number;
+};
+
+export type Conta = {
+  id: string;
+  name: string;
+};
+
+export type LinhaExtrato = {
+  line: number;
+  date: string | null;
+  description: string;
+  cents: number | null;
+  error: string;
+};
+
+export type Extrato = {
+  id: string;
+  filename: string;
+  format: FormatoExtrato;
+  accountId: string;
+  accountName: string;
+  startDate: string | null;
+  endDate: string | null;
+  lineCount: number;
+  errorCount: number;
+  status: StatusExtrato;
+  message: string;
+  importedAt: string;
+};
+
+export type ExtratosResposta = {
+  accounts: Conta[];
+  statements: Extrato[];
+};
+
+export type PreviaExtrato = {
+  format: FormatoExtrato;
+  columns: string[];
+  mapping: MapeamentoExtrato | null;
+  lines: LinhaExtrato[];
+};
+
+export type LinhasExtrato = {
+  lines: LinhaExtrato[];
+  total: number;
+  matched: number;
+};
+
+export type VinculoCruzado = {
+  entryId: string;
+  description: string;
+  groupName: string;
+  sessionName: string;
+  day: number;
+  cents: number;
+};
+
+export type LinhaConferencia = {
+  statementId: string;
+  line: number;
+  date: string;
+  description: string;
+  cents: number;
+  accountName: string;
+  filename: string;
+  entryId: string | null;
+  link: VinculoCruzado | null;
+  suggestion: VinculoCruzado | null;
+};
+
+export type ConferenciaResposta = {
+  year: number;
+  month: number;
+  lines: LinhaConferencia[];
+};

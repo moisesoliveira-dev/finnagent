@@ -13,9 +13,43 @@ const items = [
   { href: "/ajustes", label: "Ajustes" },
 ];
 
+const extratos = [
+  { href: "/extratos", label: "Importações" },
+  { href: "/extratos/conferencia", label: "Conferência" },
+];
+
+function Item({
+  href,
+  label,
+  current,
+  nested = false,
+}: {
+  href: string;
+  label: string;
+  current: boolean;
+  nested?: boolean;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        aria-current={current ? "page" : undefined}
+        className={cn(
+          "flex min-h-10 items-center rounded-sm px-3 py-2 font-medium text-ink-2 no-underline",
+          focusRing,
+          nested && "tab:pl-6",
+          current && "bg-brand-soft font-semibold text-brand",
+        )}
+      >
+        {label}
+      </Link>
+    </li>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const semAssistente = ["/grupos", "/agenda", "/financas"];
+  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos"];
   const assistant = !semAssistente.some(
     (rota) => pathname === rota || pathname.startsWith(`${rota}/`),
   );
@@ -36,22 +70,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <div className="px-3 font-display text-lg font-bold text-brand">Prumo</div>
         <ul className="flex gap-1 tab:flex-col">
-          {items.map((item) => {
-            const current = pathname === item.href;
-            return (
-              <li key={item.href}>
-                <Link
+          {items.slice(0, 3).map((item) => (
+            <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
+          ))}
+          <li className="flex items-center gap-1 tab:flex-col tab:items-stretch">
+            <span
+              className={cn(
+                "px-3 py-2 text-sm font-semibold",
+                pathname === "/extratos" || pathname.startsWith("/extratos/") ? "text-brand" : "text-ink",
+              )}
+            >
+              Extratos
+            </span>
+            <ul className="flex gap-1 tab:flex-col">
+              {extratos.map((item) => (
+                <Item
+                  key={item.href}
                   href={item.href}
-                  aria-current={current ? "page" : undefined}
-                  className={`flex min-h-10 items-center rounded-sm px-3 py-2 font-medium text-ink-2 no-underline ${focusRing} ${
-                    current ? "bg-brand-soft font-semibold text-brand" : ""
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
+                  label={item.label}
+                  current={pathname === item.href}
+                  nested
+                />
+              ))}
+            </ul>
+          </li>
+          {items.slice(3).map((item) => (
+            <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
+          ))}
         </ul>
       </nav>
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
