@@ -177,6 +177,7 @@ model Outbox {
   operation      String
   idempotencyKey String    @map("idempotency_key")
   payload        String
+  occurredAt     DateTime  @default(now()) @map("occurred_at")
   publishedAt    DateTime? @map("published_at")
 
   @@unique([tenantId, idempotencyKey])

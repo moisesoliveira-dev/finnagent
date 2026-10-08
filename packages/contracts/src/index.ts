@@ -600,3 +600,225 @@ export function montarPainel(
     months,
   };
 }
+
+export const CATEGORIAS_EVENTO = [
+  {
+    code: "financeiro",
+    name: "Financeiro",
+    description: "Lançamentos, sessões, grupos e metas",
+    active: true,
+  },
+  {
+    code: "agenda",
+    name: "Agenda",
+    description: "Compromissos e a agenda",
+    active: true,
+  },
+  {
+    code: "extratos",
+    name: "Extratos",
+    description: "Importação e leitura de extratos",
+    active: true,
+  },
+  {
+    code: "agente",
+    name: "Agente",
+    description: "Ações propostas e confirmadas pela IA",
+    active: true,
+  },
+  {
+    code: "sistema",
+    name: "Sistema",
+    description: "Rotinas e falhas internas",
+    active: false,
+  },
+] as const;
+
+export type CodigoCategoriaEvento = (typeof CATEGORIAS_EVENTO)[number]["code"];
+
+export const STATUS_EVENTO = ["pendente", "processando", "concluído", "com falha"] as const;
+
+export type StatusEvento = (typeof STATUS_EVENTO)[number];
+
+export const RESULTADOS_HISTORICO = ["sucesso", "falha", "iniciado"] as const;
+
+export type ResultadoHistorico = (typeof RESULTADOS_HISTORICO)[number];
+
+export type Evento = {
+  id: string;
+  type: string;
+  category: CodigoCategoriaEvento;
+  origin: string;
+  aggregate: string;
+  status: StatusEvento;
+  occurredAt: string;
+  correlationId: string | null;
+  causationId: string | null;
+  idempotencyKey: string;
+  schemaVersion: number;
+  payload: unknown;
+};
+
+export type HistoricoEvento = {
+  eventId: string;
+  eventType: string;
+  consumer: string;
+  result: ResultadoHistorico;
+  attempt: number;
+  durationMs: number | null;
+  occurredAt: string;
+  error: string;
+};
+
+export type EventosResposta = {
+  categories: Array<(typeof CATEGORIAS_EVENTO)[number]>;
+  events: Evento[];
+  history: HistoricoEvento[];
+};
+
+export type LinhaOutbox = {
+  id: string;
+  operation: string;
+  idempotencyKey: string;
+  payload: string;
+  occurredAt: string;
+  publishedAt: string | null;
+};
+
+export type LinhaConsumo = {
+  idempotencyKey: string;
+  consumedAt: string;
+};
+
+const FINANCEIRO = new Set([
+  "definir-workflow",
+  "criar-lancamento",
+  "criar-grupo",
+  "atualizar-grupo",
+  "remover-grupo",
+  "criar-sessao",
+  "atualizar-sessao",
+  "remover-sessao",
+  "criar-meta",
+  "excluir-meta",
+]);
+
+const EXTRATOS = new Set([
+  "importar-extrato",
+  "reprocessar-extrato",
+  "cruzar-linha",
+  "excluir-extrato",
+]);
+
+const NOME_AGREGADO: Record<string, string> = {
+  "definir-workflow": "Fluxo",
+  "criar-lancamento": "Lançamento",
+  "criar-grupo": "Grupo",
+  "atualizar-grupo": "Grupo",
+  "remover-grupo": "Grupo",
+  "criar-sessao": "Sessão",
+  "atualizar-sessao": "Sessão",
+  "remover-sessao": "Sessão",
+  "criar-meta": "Meta",
+  "excluir-meta": "Meta",
+  "criar-compromisso": "Compromisso",
+  "importar-extrato": "Extrato",
+  "reprocessar-extrato": "Extrato",
+  "cruzar-linha": "Linha de extrato",
+  "excluir-extrato": "Extrato",
+};
+
+export function montarEventos(linhas: LinhaOutbox[], consumos: LinhaConsumo[]): EventosResposta {
+  const consumido = new Map(consumos.map((linha) => [linha.idempotencyKey, linha]));
+  const events = linhas.map((linha) => eventoDe(linha, consumido.has(linha.idempotencyKey)));
+  const porChave = new Map(linhas.map((linha, indice) => [linha.idempotencyKey, events[indice]]));
+  const history = consumos.flatMap((consumo) => {
+    const montado = porChave.get(consumo.idempotencyKey);
+    if (!montado) return [];
+    return [
+      {
+        eventId: montado.id,
+        eventType: montado.type,
+        consumer: "Publicar outbox",
+        result: "sucesso" as const,
+        attempt: 1,
+        durationMs: null,
+        occurredAt: consumo.consumedAt,
+        error: "",
+      },
+    ];
+  });
+  events.sort((a, b) => compararRecente(a.occurredAt, b.occurredAt));
+  history.sort((a, b) => compararRecente(a.occurredAt, b.occurredAt));
+  return { categories: [...CATEGORIAS_EVENTO], events, history };
+}
+
+function eventoDe(linha: LinhaOutbox, publicadoEConsumido: boolean): Evento {
+  const bruto = lerJson(linha.payload);
+  return {
+    id: linha.id,
+    type: linha.operation,
+    category: categoriaDe(linha.operation),
+    origin:
+      linha.operation === "importar-extrato" || linha.operation === "reprocessar-extrato"
+        ? "importação"
+        : "sistema",
+    aggregate: agregadoDe(linha.operation, bruto),
+    status: !linha.publishedAt ? "pendente" : publicadoEConsumido ? "concluído" : "processando",
+    occurredAt: linha.occurredAt,
+    correlationId: null,
+    causationId: null,
+    idempotencyKey: linha.idempotencyKey,
+    schemaVersion: 1,
+    payload: mascararValor(bruto),
+  };
+}
+
+function compararRecente(a: string, b: string) {
+  if (a === b) return 0;
+  return a < b ? 1 : -1;
+}
+
+function categoriaDe(operation: string): CodigoCategoriaEvento {
+  if (FINANCEIRO.has(operation)) return "financeiro";
+  if (operation === "criar-compromisso") return "agenda";
+  if (EXTRATOS.has(operation)) return "extratos";
+  return "sistema";
+}
+
+function agregadoDe(operation: string, payload: unknown) {
+  const nome = NOME_AGREGADO[operation] ?? "Registro";
+  if (!payload || typeof payload !== "object") return nome;
+  const registro = payload as { id?: unknown; statementId?: unknown };
+  const id = typeof registro.id === "string" ? registro.id : typeof registro.statementId === "string" ? registro.statementId : "";
+  return id ? `${nome} · ${id}` : nome;
+}
+
+function lerJson(texto: string): unknown {
+  try {
+    return JSON.parse(texto) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function mascararValor(valor: unknown): unknown {
+  if (Array.isArray(valor)) return valor.map(mascararValor);
+  if (valor && typeof valor === "object") {
+    return Object.fromEntries(
+      Object.entries(valor as Record<string, unknown>).map(([chave, item]) => [
+        chave,
+        sensivel(chave) ? "••••" : mascararValor(item),
+      ]),
+    );
+  }
+  if (typeof valor === "string" && /^\d{6,}$/.test(valor)) return "••••";
+  return valor;
+}
+
+function sensivel(chave: string) {
+  return (
+    /(token|senha|password|secret|authorization|cpf)/i.test(chave) ||
+    /^(conta|account|cartao|cartão)$/i.test(chave)
+  );
+}
