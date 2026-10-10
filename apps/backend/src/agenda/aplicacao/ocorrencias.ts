@@ -1,4 +1,5 @@
 import type { CategoriaCompromisso, Compromisso } from "@finnagent/contracts";
+import { instanteNoFuso, partesNoFuso } from "../dominio/fuso.js";
 
 export function mensagemDaCategoria(
   pedido: {
@@ -10,19 +11,17 @@ export function mensagemDaCategoria(
     endMonth: number | null;
     endDay: number | null;
   },
-  anoAtual: number,
 ) {
   if (!diaExiste(pedido.year, pedido.month, pedido.day)) return "Esse dia não existe nesse mês.";
-  if (pedido.category === "recorrente") {
-    if (pedido.year !== anoAtual) return "O recorrente fica só no ano atual.";
+  if (pedido.category === "periodical") {
     if (pedido.endYear != null || pedido.endMonth != null || pedido.endDay != null) {
-      return "O recorrente termina em dezembro deste ano.";
+      return "O periódico não tem validade.";
     }
     return null;
   }
-  if (pedido.category === "unico") {
+  if (pedido.category === "fixed") {
     if (pedido.endYear != null || pedido.endMonth != null || pedido.endDay != null) {
-      return "O único não tem período.";
+      return "O fixo não tem validade.";
     }
     return null;
   }
@@ -40,27 +39,19 @@ export function mensagemDaCategoria(
 
 export function ocorrenciasNoMes(definicao: Compromisso, year: number, month: number) {
   const ultimo = new Date(year, month, 0).getDate();
-  if (definicao.category === "unico") {
+  if (definicao.category === "fixed") {
     if (definicao.year !== year || definicao.month !== month) return [];
     return [noDia(definicao, year, month, definicao.day)];
   }
-  if (definicao.category === "recorrente") {
-    if (definicao.year !== year || month < definicao.month) return [];
-    const day = month === definicao.month ? definicao.day : Math.min(definicao.day, ultimo);
-    return [noDia(definicao, year, month, day)];
+  if (numero(year, month, ultimo) < numero(definicao.year, definicao.month, definicao.day)) return [];
+  const day = year === definicao.year && month === definicao.month ? definicao.day : Math.min(definicao.day, ultimo);
+  const data = numero(year, month, day);
+  if (data < numero(definicao.year, definicao.month, definicao.day)) return [];
+  if (definicao.category === "time") {
+    if (definicao.endYear == null || definicao.endMonth == null || definicao.endDay == null) return [];
+    if (data > numero(definicao.endYear, definicao.endMonth, definicao.endDay)) return [];
   }
-  if (definicao.endYear == null || definicao.endMonth == null || definicao.endDay == null) return [];
-  const inicio = Math.max(numero(definicao.year, definicao.month, definicao.day), numero(year, month, 1));
-  const fim = Math.min(
-    numero(definicao.endYear, definicao.endMonth, definicao.endDay),
-    numero(year, month, ultimo),
-  );
-  const ocorrencias: Compromisso[] = [];
-  for (let cursor = inicio; cursor <= fim; cursor += 1) {
-    const data = deNumero(cursor);
-    if (data.year === year && data.month === month) ocorrencias.push(noDia(definicao, year, month, data.day));
-  }
-  return ocorrencias;
+  return [noDia(definicao, year, month, day)];
 }
 
 function diaExiste(year: number, month: number, day: number) {
@@ -71,14 +62,26 @@ function numero(year: number, month: number, day: number) {
   return year * 10000 + month * 100 + day;
 }
 
-function deNumero(valor: number) {
-  return {
-    year: Math.floor(valor / 10000),
-    month: Math.floor((valor % 10000) / 100),
-    day: valor % 100,
-  };
-}
-
 function noDia(definicao: Compromisso, year: number, month: number, day: number): Compromisso {
-  return { ...definicao, year, month, day, link: null };
+  const fim = partesNoFuso(new Date(definicao.endAt), definicao.timezone);
+  const hora = definicao.allDay ? 0 : (partesNoFuso(new Date(definicao.startAt), definicao.timezone).hour);
+  const minuto = definicao.allDay ? 0 : (partesNoFuso(new Date(definicao.startAt), definicao.timezone).minute);
+  const startAt = instanteNoFuso(year, month, day, hora, minuto, definicao.timezone);
+  const endAt = instanteNoFuso(
+    year,
+    month,
+    day,
+    definicao.allDay ? 23 : fim.hour,
+    definicao.allDay ? 59 : fim.minute,
+    definicao.timezone,
+  );
+  return {
+    ...definicao,
+    year,
+    month,
+    day,
+    startAt: startAt.toISOString(),
+    endAt: endAt.toISOString(),
+    link: null,
+  };
 }

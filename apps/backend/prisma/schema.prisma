@@ -112,25 +112,44 @@ model EntryAmount {
 }
 
 model Appointment {
-  id        String  @id
-  tenantId  String  @map("tenant_id")
-  title     String
-  year      Int
-  month     Int
-  day       Int
-  hour      Int?
-  minute    Int?
-  calendar  String
-  category  String  @default("unico")
-  endYear   Int?    @map("end_year")
-  endMonth  Int?    @map("end_month")
-  endDay    Int?    @map("end_day")
-  entryId   String? @map("entry_id")
-  entry     Entry?  @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  title         String
+  description   String    @default("")
+  location      String    @default("")
+  startAt       DateTime  @map("start_at")
+  endAt         DateTime  @map("end_at")
+  allDay        Boolean   @default(false) @map("all_day")
+  status        String    @default("undone")
+  year          Int
+  month         Int
+  day           Int
+  hour          Int?
+  minute        Int?
+  calendar      String
+  category      String    @default("fixed")
+  endYear       Int?      @map("end_year")
+  endMonth      Int?      @map("end_month")
+  endDay        Int?      @map("end_day")
+  entryId       String?   @map("entry_id")
+  googleEventId String?   @map("google_event_id")
+  entry         Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
 
+  @@unique([tenantId, googleEventId])
   @@index([tenantId, year, month])
   @@index([tenantId])
   @@map("appointments")
+}
+
+model Calendar {
+  id       String @id
+  tenantId String @map("tenant_id")
+  name     String
+  timezone String
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("calendars")
 }
 
 model Account {

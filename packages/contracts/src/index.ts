@@ -401,9 +401,25 @@ export const AGENDAS = ["Pessoal", "Trabalho"] as const;
 
 export type NomeAgenda = (typeof AGENDAS)[number];
 
-export const CATEGORIAS_COMPROMISSO = ["unico", "recorrente", "validade"] as const;
+export const CATEGORIAS_COMPROMISSO = ["fixed", "periodical", "time"] as const;
 
 export type CategoriaCompromisso = (typeof CATEGORIAS_COMPROMISSO)[number];
+
+export const STATUS_COMPROMISSO = ["done", "undone"] as const;
+
+export type StatusCompromisso = (typeof STATUS_COMPROMISSO)[number];
+
+export const FUSOS_AGENDA = [
+  "America/Sao_Paulo",
+  "America/Manaus",
+  "America/Rio_Branco",
+  "America/Noronha",
+  "UTC",
+] as const;
+
+export type FusoAgenda = (typeof FUSOS_AGENDA)[number];
+
+export const FUSO_PADRAO: FusoAgenda = "America/Sao_Paulo";
 
 export type EstadoGoogle = "desconectado" | "sincronizando" | "sincronizado" | "erro";
 
@@ -423,14 +439,26 @@ export type Vinculo = {
   cents: number;
 };
 
+export type Calendario = {
+  name: NomeAgenda;
+  timezone: FusoAgenda;
+};
+
 export type Compromisso = {
   id: string;
   title: string;
+  description: string;
+  location: string;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  status: StatusCompromisso;
   year: number;
   month: number;
   day: number;
   time: string | null;
   calendar: NomeAgenda;
+  timezone: FusoAgenda;
   category: CategoriaCompromisso;
   endYear: number | null;
   endMonth: number | null;
@@ -441,6 +469,7 @@ export type Compromisso = {
 
 export type AgendaResposta = {
   google: EstadoGoogle;
+  calendars: Calendario[];
   appointments: Compromisso[];
   entries: LancamentoDoMes[];
 };
@@ -967,6 +996,9 @@ const NOME_AGREGADO: Record<string, string> = {
   "criar-meta": "Meta",
   "excluir-meta": "Meta",
   "criar-compromisso": "Compromisso",
+  "atualizar-status-compromisso": "Compromisso",
+  "sincronizar-google-agenda": "Calendário",
+  "atualizar-fuso-calendario": "Calendário",
   "importar-extrato": "Extrato",
   "reprocessar-extrato": "Extrato",
   "cruzar-linha": "Linha de extrato",
@@ -1024,9 +1056,16 @@ function compararRecente(a: string, b: string) {
   return a < b ? 1 : -1;
 }
 
+const AGENDA = new Set([
+  "criar-compromisso",
+  "atualizar-status-compromisso",
+  "sincronizar-google-agenda",
+  "atualizar-fuso-calendario",
+]);
+
 function categoriaDe(operation: string): CodigoCategoriaEvento {
   if (FINANCEIRO.has(operation)) return "financeiro";
-  if (operation === "criar-compromisso") return "agenda";
+  if (AGENDA.has(operation)) return "agenda";
   if (EXTRATOS.has(operation)) return "extratos";
   return "sistema";
 }
