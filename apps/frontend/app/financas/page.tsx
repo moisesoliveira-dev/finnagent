@@ -12,6 +12,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { PageHeader } from "../../components/ui/page-header";
+import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 import { TabelaLancamentos } from "./tabela";
 import { VisaoGeral } from "./visao-geral";
@@ -51,15 +52,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export default function Financas() {
+  const toast = useToast();
   const [data, setData] = useState<FinancasResposta | null>(null);
   const [ready, setReady] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [hint, setHint] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [visao, setVisao] = useState<Visao>("geral");
   const [year, setYear] = useState<number | null>(null);
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
-  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -67,9 +67,12 @@ export default function Financas() {
     return api<FinancasResposta>("/api/financas")
       .then((resposta) => {
         setData(resposta);
-        setLoadError("");
+        setFalhou(false);
       })
-      .catch((error: Error) => setLoadError(error.message));
+      .catch((error: Error) => {
+        setFalhou(true);
+        toast.erro(error.message);
+      });
   }
 
   useEffect(() => {
@@ -81,7 +84,8 @@ export default function Financas() {
       })
       .catch((error: Error) => {
         if (!active) return;
-        setLoadError(error.message);
+        setFalhou(true);
+        toast.erro(error.message);
       })
       .finally(() => {
         if (active) setReady(true);
@@ -89,7 +93,7 @@ export default function Financas() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const atual = dialog.current;
@@ -102,16 +106,14 @@ export default function Financas() {
   const ano = year ?? workflow?.year ?? 2026;
 
   async function abrirLancamento() {
-    setFormError("");
-    setHint("");
     try {
       const grupos = await api<GruposResposta>("/api/grupos");
-      const opcoes = grupos.sessions.map((session) => ({
+      const opcoes = grupos.sessions.filter((session) => !session.endedAt).map((session) => ({
         ...session,
         groupName: grupos.groups.find((group) => group.id === session.groupId)?.name ?? "",
       }));
       if (opcoes.length === 0) {
-        setHint("Crie um grupo e uma sessão antes do lançamento.");
+        toast.alerta("Crie um grupo e uma sessão antes do lançamento.");
         return;
       }
       const inicio = workflow ?? { year: ano, month: 3, day: 1 };
@@ -129,7 +131,7 @@ export default function Financas() {
         installments: "2",
       });
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "O backend não respondeu.");
+      toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
     }
   }
 
@@ -143,31 +145,30 @@ export default function Financas() {
     const parcelado = draft.type === "parcela" || draft.type === "empréstimo";
     const installments = parcelado ? Number(draft.installments) : null;
     if (!draft.sessionId) {
-      setFormError("Escolha uma sessão.");
+      toast.erro("Escolha uma sessão.");
       return;
     }
     if (!draft.description.trim()) {
-      setFormError("Dê uma descrição ao lançamento.");
+      toast.erro("Dê uma descrição ao lançamento.");
       return;
     }
     if (!draft.justification.trim()) {
-      setFormError("Informe a justificativa.");
+      toast.erro("Informe a justificativa.");
       return;
     }
     if (!Number.isInteger(day) || day < 1 || day > 31) {
-      setFormError("Informe o dia do mês.");
+      toast.erro("Informe o dia do mês.");
       return;
     }
     if (cents == null) {
-      setFormError("Informe o valor.");
+      toast.erro("Informe o valor.");
       return;
     }
     if (parcelado && (!Number.isInteger(installments) || (installments ?? 0) < 1)) {
-      setFormError("Informe o número de parcelas.");
+      toast.erro("Informe o número de parcelas.");
       return;
     }
     setSaving(true);
-    setFormError("");
     try {
       await api("/api/lancamentos", {
         method: "POST",
@@ -185,9 +186,10 @@ export default function Financas() {
         }),
       });
       setDraft(null);
+      toast.sucesso("Lançamento criado.");
       await carregar();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Não foi possível salvar o lançamento.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o lançamento.");
     } finally {
       setSaving(false);
     }
@@ -233,13 +235,7 @@ export default function Financas() {
         }
       >
         <div className="grid min-w-0 gap-4">
-          {loadError ? (
-            <p role="alert" className="max-w-prose text-sm text-neg">
-              {loadError}
-            </p>
-          ) : null}
-          {hint ? <p className="max-w-prose text-sm text-ink-2">{hint}</p> : null}
-          {!ready ? (
+          {!ready && !falhou ? (
             <p role="status" className="max-w-prose text-sm text-ink-2">
               Carregando finanças.
             </p>
@@ -433,11 +429,6 @@ export default function Financas() {
                   className={field}
                 />
               </div>
-            ) : null}
-            {formError ? (
-              <p role="alert" className="text-sm text-neg">
-                {formError}
-              </p>
             ) : null}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="quiet" onClick={() => setDraft(null)}>

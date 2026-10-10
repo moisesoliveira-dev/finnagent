@@ -11,6 +11,7 @@ import { ListRow } from "../components/ui/list-row";
 import { Money } from "../components/ui/money";
 import { PageHeader } from "../components/ui/page-header";
 import { Stat } from "../components/ui/stat";
+import { useToast } from "../components/ui/toast";
 
 const MESES = [
   "Janeiro",
@@ -92,36 +93,36 @@ function mesmoPeriodo(
 }
 
 export default function Dashboard() {
+  const toast = useToast();
   const inicio = hoje();
   const [scope, setScope] = useState<EscopoPainel>("dia");
   const [year, setYear] = useState(inicio.year);
   const [month, setMonth] = useState(inicio.month);
   const [day, setDay] = useState(inicio.day);
   const [dados, setDados] = useState<PainelResposta | null>(null);
-  const [erro, setErro] = useState("");
-  const [carregando, setCarregando] = useState(true);
+  const [falha, setFalha] = useState("");
+  const pedido = `${scope}:${year}:${month}:${day}`;
 
   useEffect(() => {
     const params = new URLSearchParams({ scope, year: String(year) });
     if (scope !== "ano") params.set("month", String(month));
     if (scope === "dia") params.set("day", String(day));
     let ativo = true;
-    setCarregando(true);
-    setErro("");
     api<PainelResposta>(`/api/painel?${params.toString()}`)
       .then((resposta) => {
-        if (ativo) setDados(resposta);
+        if (!ativo) return;
+        setDados(resposta);
+        setFalha("");
       })
       .catch((error: Error) => {
-        if (ativo) setErro(error.message);
-      })
-      .finally(() => {
-        if (ativo) setCarregando(false);
+        if (!ativo) return;
+        setFalha(pedido);
+        toast.erro(error.message);
       });
     return () => {
       ativo = false;
     };
-  }, [scope, year, month, day]);
+  }, [pedido, scope, year, month, day, toast]);
 
   function ir(proximo: { year: number; month: number; day: number }) {
     setYear(proximo.year);
@@ -140,6 +141,7 @@ export default function Dashboard() {
   const periodo =
     scope === "ano" ? String(year) : scope === "mes" ? `${MESES[month - 1]} de ${year}` : rotulo(year, month, day);
   const painel = dados && mesmoPeriodo(dados, scope, year, month, day) ? dados : null;
+  const aguardando = !painel && falha !== pedido;
   const dias = [...new Set(painel?.items.map((item) => item.day) ?? [])].sort((a, b) => a - b);
 
   return (
@@ -173,7 +175,7 @@ export default function Dashboard() {
             variant="quiet"
             className="size-10 px-0"
             aria-label="Período anterior"
-            disabled={carregando}
+            disabled={aguardando}
             onClick={() => ir(mover(scope, year, month, day, -1))}
           >
             ‹
@@ -198,7 +200,7 @@ export default function Dashboard() {
             variant="quiet"
             className="size-10 px-0"
             aria-label="Próximo período"
-            disabled={carregando}
+            disabled={aguardando}
             onClick={() => ir(mover(scope, year, month, day, 1))}
           >
             ›
@@ -212,12 +214,7 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {erro ? (
-        <p role="alert" className="mb-4 max-w-prose text-sm text-neg">
-          {erro}
-        </p>
-      ) : null}
-      {!painel && carregando ? (
+      {aguardando ? (
         <p role="status" className="max-w-prose text-sm text-ink-2">
           Carregando o dashboard.
         </p>

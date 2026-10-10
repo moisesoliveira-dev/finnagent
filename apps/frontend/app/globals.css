@@ -108,3 +108,30 @@ button {
   color: inherit;
   cursor: pointer;
 }
+
+[data-toaster] {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  right: 1rem;
+  bottom: auto;
+  left: 1rem;
+  width: auto;
+  max-width: 22rem;
+  height: auto;
+  margin: 0 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+  pointer-events: none;
+}
+
+[data-toaster]:popover-open {
+  display: grid;
+  gap: 0.5rem;
+}
+
+[data-toaster] article {
+  pointer-events: auto;
+}

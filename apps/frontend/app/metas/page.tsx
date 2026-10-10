@@ -9,6 +9,7 @@ import { focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
+import { useToast } from "../../components/ui/toast";
 
 const MESES = [
   "Janeiro",
@@ -81,11 +82,11 @@ function textoDoCalculo(meta: Pick<Meta, "dueYear" | "dueMonth">, calculo: Calcu
 }
 
 export default function MetasPage() {
+  const toast = useToast();
   const dialogo = useRef<HTMLDialogElement>(null);
   const exclusao = useRef<HTMLDialogElement>(null);
   const [dados, setDados] = useState<MetasResposta | null>(null);
-  const [erroCarga, setErroCarga] = useState("");
-  const [erro, setErro] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [nome, setNome] = useState("");
   const [alvo, setAlvo] = useState("");
@@ -96,10 +97,15 @@ export default function MetasPage() {
   const [apagando, setApagando] = useState<Meta | null>(null);
 
   function carregar() {
-    setErroCarga("");
     return api<MetasResposta>("/api/metas")
-      .then(setDados)
-      .catch((error: Error) => setErroCarga(error.message));
+      .then((resposta) => {
+        setDados(resposta);
+        setFalhou(false);
+      })
+      .catch((error: Error) => {
+        setFalhou(true);
+        toast.erro(error.message);
+      });
   }
 
   useEffect(() => {
@@ -107,7 +113,6 @@ export default function MetasPage() {
   }, []);
 
   function abrir() {
-    setErro("");
     setNome("");
     setAlvo("");
     setGuardado("");
@@ -124,11 +129,10 @@ export default function MetasPage() {
     const targetCents = centavosDaMeta(alvo, false);
     const savedCents = centavosDaMeta(guardado, true);
     if (targetCents === null || savedCents === null) {
-      setErro("Informe um valor em reais.");
+      toast.erro("Informe um valor em reais.");
       return;
     }
     setSalvando(true);
-    setErro("");
     api<Meta>("/api/metas", {
       method: "POST",
       body: JSON.stringify({
@@ -140,23 +144,28 @@ export default function MetasPage() {
         dueMonth: comPrazo ? dueMonth : null,
       }),
     })
-      .then(() => carregar())
+      .then(() => {
+        toast.sucesso("Meta salva.");
+        return carregar();
+      })
       .then(() => dialogo.current?.close())
-      .catch((error: Error) => setErro(error.message))
+      .catch((error: Error) => toast.erro(error.message))
       .finally(() => setSalvando(false));
   }
 
   function confirmarExclusao() {
     if (!apagando) return;
     setSalvando(true);
-    setErro("");
     api<void>(`/api/metas/${apagando.id}`, { method: "DELETE" })
-      .then(() => carregar())
+      .then(() => {
+        toast.sucesso("Meta excluída.");
+        return carregar();
+      })
       .then(() => {
         setApagando(null);
         exclusao.current?.close();
       })
-      .catch((error: Error) => setErro(error.message))
+      .catch((error: Error) => toast.erro(error.message))
       .finally(() => setSalvando(false));
   }
 
@@ -188,12 +197,7 @@ export default function MetasPage() {
         }
       />
 
-      {erroCarga ? (
-        <p role="alert" className="mb-4 max-w-prose text-sm text-neg">
-          {erroCarga}
-        </p>
-      ) : null}
-      {!dados && !erroCarga ? (
+      {!dados && !falhou ? (
         <p role="status" className="max-w-prose text-sm text-ink-2">
           Carregando metas.
         </p>
@@ -245,7 +249,6 @@ export default function MetasPage() {
                       <Button
                         variant="quiet"
                         onClick={() => {
-                          setErro("");
                           setApagando(meta);
                           exclusao.current?.showModal();
                         }}
@@ -265,7 +268,6 @@ export default function MetasPage() {
         ref={dialogo}
         className={dialogClass}
         aria-labelledby="titulo-nova-meta"
-        onClose={() => setErro("")}
       >
         <h2 id="titulo-nova-meta" className="mb-4 font-display text-lg">
           Nova meta
@@ -369,11 +371,6 @@ export default function MetasPage() {
               ))}
             </div>
           ) : null}
-          {erro ? (
-            <p role="alert" className="text-sm text-neg">
-              {erro}
-            </p>
-          ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => dialogo.current?.close()}>
               Cancelar
@@ -391,11 +388,6 @@ export default function MetasPage() {
             Excluir esta meta?
           </h2>
           <p>{apagando?.name}</p>
-          {erro ? (
-            <p role="alert" className="text-sm text-neg">
-              {erro}
-            </p>
-          ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="quiet"
