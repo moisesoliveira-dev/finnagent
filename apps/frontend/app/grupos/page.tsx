@@ -26,6 +26,9 @@ type Sugestao = {
   descricao: string;
   estado: "open" | "done" | "gone";
 };
+type Exclusao =
+  | { tipo: "grupo"; grupo: Group; sessoes: number }
+  | { tipo: "sessao"; sessao: Session };
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
@@ -65,8 +68,11 @@ export default function Grupos() {
   const [groupDraft, setGroupDraft] = useState<RascunhoGrupo | null>(null);
   const [sessionDraft, setSessionDraft] = useState<RascunhoSessao | null>(null);
   const [sugestao, setSugestao] = useState<Sugestao | null>(null);
+  const [exclusao, setExclusao] = useState<Exclusao | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
   const groupDialog = useRef<HTMLDialogElement>(null);
   const sessionDialog = useRef<HTMLDialogElement>(null);
+  const exclusaoDialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -102,6 +108,13 @@ export default function Grupos() {
     if (sessionDraft && !dialog.open) dialog.showModal();
     if (!sessionDraft && dialog.open) dialog.close();
   }, [sessionDraft]);
+
+  useEffect(() => {
+    const dialog = exclusaoDialog.current;
+    if (!dialog) return;
+    if (exclusao && !dialog.open) dialog.showModal();
+    if (!exclusao && dialog.open) dialog.close();
+  }, [exclusao]);
 
   function sessionsOf(groupId: string) {
     return sessions.filter((session) => session.groupId === groupId);
@@ -223,8 +236,10 @@ export default function Grupos() {
       setGroups((current) => current.filter((group) => group.id !== id));
       setSessions((current) => current.filter((session) => session.groupId !== id));
       toast.sucesso("Grupo excluído.");
+      return true;
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
+      return false;
     }
   }
 
@@ -233,9 +248,22 @@ export default function Grupos() {
       await api<void>(`/api/sessoes/${id}`, { method: "DELETE" });
       setSessions((current) => current.filter((session) => session.id !== id));
       toast.sucesso("Sessão excluída.");
+      return true;
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
+      return false;
     }
+  }
+
+  async function confirmarExclusao() {
+    if (!exclusao || excluindo) return;
+    setExcluindo(true);
+    const ok =
+      exclusao.tipo === "grupo"
+        ? await removeGroup(exclusao.grupo.id)
+        : await removeSession(exclusao.sessao.id);
+    setExcluindo(false);
+    if (ok) setExclusao(null);
   }
 
   function preencherSugestao(escolherGrupo: boolean) {
@@ -312,8 +340,17 @@ export default function Grupos() {
             onAdd={() => openSession(group.id)}
             onEditSession={(session) => openSession(session.groupId, session)}
             onMoveSession={(session) => openSession(session.groupId, session, true)}
-            onRemove={() => removeGroup(group.id)}
-            onRemoveSession={removeSession}
+            onRemove={() =>
+              setExclusao({
+                tipo: "grupo",
+                grupo: group,
+                sessoes: sessionsOf(group.id).length,
+              })
+            }
+            onRemoveSession={(id) => {
+              const sessao = sessions.find((item) => item.id === id);
+              if (sessao) setExclusao({ tipo: "sessao", sessao });
+            }}
           />
         ))}
       </div>
@@ -467,6 +504,32 @@ export default function Grupos() {
             </Button>
           </div>
         </form>
+      </dialog>
+
+      <dialog
+        ref={exclusaoDialog}
+        className={dialogClass}
+        aria-labelledby="titulo-excluir"
+        onClose={() => setExclusao(null)}
+      >
+        <h2 id="titulo-excluir" className="mb-4 font-display text-lg">
+          {exclusao?.tipo === "sessao" ? "Excluir esta sessão?" : "Excluir este grupo?"}
+        </h2>
+        <p className="mb-4 max-w-prose">
+          {exclusao?.tipo === "sessao"
+            ? `A sessão "${exclusao.sessao.name}" será excluída e o fim fica na data de hoje. Essa ação não pode ser desfeita.`
+            : exclusao && exclusao.sessoes > 0
+              ? `O grupo "${exclusao.grupo.name}" e as sessões dele serão removidos. Essa ação não pode ser desfeita.`
+              : `O grupo "${exclusao?.grupo.name ?? ""}" será removido. Essa ação não pode ser desfeita.`}
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={() => setExclusao(null)} disabled={excluindo}>
+            Cancelar
+          </Button>
+          <Button variant="danger" disabled={excluindo} onClick={() => void confirmarExclusao()}>
+            {exclusao?.tipo === "sessao" ? "Excluir sessão" : "Excluir grupo"}
+          </Button>
+        </div>
       </dialog>
     </PageHeader>
     </div>
