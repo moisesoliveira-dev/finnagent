@@ -29,7 +29,7 @@ type Sugestao = {
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
+  "mt-auto mb-0 grid max-h-dvh w-full min-w-0 max-w-none gap-4 overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -287,7 +287,7 @@ export default function Grupos() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
+    <div className="mx-auto w-full min-w-0 max-w-4xl">
     <PageHeader
       title="Sessões e grupos"
       subtitle="Defina onde seus lançamentos serão acumulados."
@@ -382,7 +382,7 @@ export default function Grupos() {
         aria-labelledby="titulo-grupo"
         onClose={() => setGroupDraft(null)}
       >
-        <h2 id="titulo-grupo" className="mb-4 font-display text-lg">
+        <h2 id="titulo-grupo" className="font-display text-lg">
           {groupDraft?.id ? "Editar grupo" : "Novo grupo"}
         </h2>
         <form className="grid gap-4" onSubmit={saveGroup}>
@@ -429,7 +429,7 @@ export default function Grupos() {
               {groupError}
             </p>
           ) : null}
-          <div className="mt-2 flex justify-end gap-2">
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setGroupDraft(null)}>
               Cancelar
             </Button>
@@ -446,7 +446,7 @@ export default function Grupos() {
         aria-labelledby="titulo-sessao"
         onClose={() => setSessionDraft(null)}
       >
-        <h2 id="titulo-sessao" className="mb-4 font-display text-lg">
+        <h2 id="titulo-sessao" className="font-display text-lg">
           {sessionDraft?.id
             ? sessionDraft.escolherGrupo
               ? "Mover sessão"
@@ -543,7 +543,7 @@ export default function Grupos() {
               {sessionError}
             </p>
           ) : null}
-          <div className="mt-2 flex justify-end gap-2">
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setSessionDraft(null)}>
               Cancelar
             </Button>
@@ -649,12 +649,12 @@ function GroupCard({
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface" aria-labelledby={id}>
-      <div className="grid gap-2 p-4">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 tab:flex-nowrap">
-          <h2 id={id} className="w-full min-w-0 max-w-full font-display text-lg tab:w-auto tab:flex-1">
+      <div className="grid gap-3 p-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 tab:flex-nowrap">
+          <h2 id={id} className="w-full min-w-0 font-display text-lg tab:w-auto tab:flex-1">
             <button
               type="button"
-              className={`flex min-h-10 w-full min-w-0 max-w-full items-center gap-3 bg-transparent text-left tab:w-auto ${focusRing}`}
+              className={`flex min-h-10 w-full min-w-0 items-center gap-3 bg-transparent text-left tab:w-auto ${focusRing}`}
               aria-expanded={!closed}
               aria-controls={panelId}
               onClick={onToggle}
@@ -666,7 +666,9 @@ function GroupCard({
                 )}
               />
               <span className="min-w-0 truncate">{name}</span>
-              <Chip className="shrink-0 font-normal">{sessionCountLabel(sessions.length)}</Chip>
+              <Chip className="shrink-0 font-sans font-normal">
+                {sessionCountLabel(sessions.length)}
+              </Chip>
             </button>
           </h2>
           {onEdit || (onAdd && sessions.length > 0) || onRemove ? (
@@ -683,60 +685,69 @@ function GroupCard({
         </div>
         <p
           className={cn(
-            "max-w-prose pl-5 text-sm text-ink-2 line-clamp-2",
+            "flex gap-3 text-sm text-ink-2",
             detail.trim() ? "" : "opacity-75",
           )}
         >
-          {texto(detail)}
+          <span className="size-2 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 max-w-prose line-clamp-2">{texto(detail)}</span>
         </p>
       </div>
       <div id={panelId} hidden={closed}>
         {sessions.length === 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-6 text-sm text-ink-2">
-            <span>Nenhuma sessão neste grupo. Crie a primeira para começar a organizar.</span>
-            {onAdd ? <Button onClick={onAdd}>Adicionar sessão</Button> : null}
+          <div className="flex gap-3 border-t border-line px-4 py-6 text-sm text-ink-2">
+            <span className="size-2 shrink-0" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3">
+              <span className="max-w-prose">
+                Nenhuma sessão neste grupo. Crie a primeira para começar a organizar.
+              </span>
+              {onAdd ? <Button onClick={onAdd}>Adicionar sessão</Button> : null}
+            </div>
           </div>
         ) : (
           <ul className="border-t border-line">
             {sessions.map((session) => (
               <li
                 key={session.id}
-                className="flex min-w-0 flex-col gap-2 border-b border-line py-3 pr-4 pl-9 last:border-b-0 tab:flex-row tab:items-start tab:justify-between"
+                className="flex min-w-0 gap-3 border-b border-line px-4 py-3 last:border-b-0"
               >
-                <div className="min-w-0">
-                  <div className="font-medium">{session.name}</div>
-                  <p
-                    className={cn(
-                      "max-w-prose text-sm text-ink-2 line-clamp-2",
-                      (session.description ?? "").trim() ? "" : "opacity-75",
-                    )}
-                  >
-                    {texto(session.description)}
-                  </p>
-                  {session.justification.trim() ? (
-                    <p className="max-w-prose text-sm text-ink-2 line-clamp-2">
-                      <span className="font-medium">Justificativa: </span>
-                      {session.justification}
+                <span className="size-2 shrink-0" aria-hidden="true" />
+                <div className="flex min-w-0 flex-1 flex-col gap-3 tab:flex-row tab:items-start tab:justify-between">
+                  <div className="grid min-w-0 gap-1">
+                    <div className="font-medium">{session.name}</div>
+                    <p
+                      className={cn(
+                        "max-w-prose text-sm text-ink-2 line-clamp-2",
+                        (session.description ?? "").trim() ? "" : "opacity-75",
+                      )}
+                    >
+                      {texto(session.description)}
                     </p>
-                  ) : null}
-                  {inicioDaSessao(session.startedAt) ? (
-                    <p className="text-sm text-ink-2">{inicioDaSessao(session.startedAt)}</p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <IconButton
-                    label="Editar sessão"
-                    onClick={() => onEditSession(session)}
-                    icon="edit"
-                  />
-                  <Button variant="quiet" onClick={() => onMoveSession(session)}>
-                    Mover
-                  </Button>
-                  <IconButton
-                    label="Remover sessão"
-                    onClick={() => onRemoveSession(session.id)}
-                    icon="remove"
-                  />
+                    {session.justification.trim() ? (
+                      <p className="max-w-prose text-sm text-ink-2 line-clamp-2">
+                        <span className="font-medium">Justificativa: </span>
+                        {session.justification}
+                      </p>
+                    ) : null}
+                    {inicioDaSessao(session.startedAt) ? (
+                      <p className="text-sm text-ink-2">{inicioDaSessao(session.startedAt)}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <IconButton
+                      label="Editar sessão"
+                      onClick={() => onEditSession(session)}
+                      icon="edit"
+                    />
+                    <Button variant="quiet" onClick={() => onMoveSession(session)}>
+                      Mover
+                    </Button>
+                    <IconButton
+                      label="Remover sessão"
+                      onClick={() => onRemoveSession(session.id)}
+                      icon="remove"
+                    />
+                  </div>
                 </div>
               </li>
             ))}
