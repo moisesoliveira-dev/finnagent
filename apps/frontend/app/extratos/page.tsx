@@ -18,6 +18,7 @@ import { cn, focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
+import { useToast } from "../../components/ui/toast";
 
 const NOVA = "nova";
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
@@ -81,8 +82,9 @@ function tom(status: StatusExtrato) {
 }
 
 export default function Extratos() {
+  const toast = useToast();
   const [dados, setDados] = useState<ExtratosResposta | null>(null);
-  const [erroCarga, setErroCarga] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [conta, setConta] = useState("");
   const [status, setStatus] = useState("");
   const [busca, setBusca] = useState("");
@@ -94,12 +96,11 @@ export default function Extratos() {
   const [mapeamento, setMapeamento] = useState<MapeamentoExtrato>({ date: 0, description: 1, amount: 2 });
   const [previa, setPrevia] = useState<LinhaExtrato[]>([]);
   const [formato, setFormato] = useState<"ofx" | "csv" | null>(null);
-  const [erroForm, setErroForm] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [aberto, setAberto] = useState<Extrato | null>(null);
   const [soErros, setSoErros] = useState(false);
   const [linhas, setLinhas] = useState<LinhasExtrato | null>(null);
-  const [erroLinhas, setErroLinhas] = useState("");
+  const [linhasFalhou, setLinhasFalhou] = useState(false);
   const [excluir, setExcluir] = useState<Extrato | null>(null);
   const [ocupado, setOcupado] = useState("");
   const importacao = useRef<HTMLDialogElement>(null);
@@ -113,9 +114,12 @@ export default function Extratos() {
     return api<ExtratosResposta>("/api/extratos")
       .then((resposta) => {
         setDados(resposta);
-        setErroCarga("");
+        setFalhou(false);
       })
-      .catch((error: Error) => setErroCarga(error.message));
+      .catch((error: Error) => {
+        setFalhou(true);
+        toast.erro(error.message);
+      });
   }
 
   useEffect(() => {
@@ -125,15 +129,16 @@ export default function Extratos() {
         if (ativo) setDados(resposta);
       })
       .catch((error: Error) => {
-        if (ativo) setErroCarga(error.message);
+        if (!ativo) return;
+        setFalhou(true);
+        toast.erro(error.message);
       });
     return () => {
       ativo = false;
     };
-  }, []);
+  }, [toast]);
 
   function abrir(file?: File) {
-    setErroForm("");
     setArquivo(null);
     setPrevia([]);
     setColunas([]);
@@ -147,19 +152,18 @@ export default function Extratos() {
   }
 
   async function aplicarArquivo(file: File) {
-    setErroForm("");
     setPrevia([]);
     setColunas([]);
     setFormato(null);
     if (file.size > LIMITE_EXTRATO_BYTES) {
       setArquivo(null);
-      setErroForm("O arquivo passa de 5 MB.");
+      toast.erro("O arquivo passa de 5 MB.");
       return;
     }
     const nome = file.name.toLowerCase();
     if (!nome.endsWith(".ofx") && !nome.endsWith(".csv")) {
       setArquivo(null);
-      setErroForm("Envie um arquivo OFX ou CSV.");
+      toast.erro("Envie um arquivo OFX ou CSV.");
       return;
     }
     setArquivo(file);
@@ -183,10 +187,9 @@ export default function Extratos() {
       setColunas(resposta.columns);
       setPrevia(resposta.lines);
       if (!mapping && resposta.mapping) setMapeamento(resposta.mapping);
-      setErroForm("");
     } catch (error) {
       if (atual !== pedidoPrevia.current) return;
-      setErroForm(error instanceof Error ? error.message : "Não foi possível ler o arquivo.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível ler o arquivo.");
     }
   }
 
@@ -194,7 +197,6 @@ export default function Extratos() {
     event.preventDefault();
     if (!arquivo || salvando) return;
     setSalvando(true);
-    setErroForm("");
     try {
       await api("/api/extratos", {
         method: "POST",
@@ -207,10 +209,11 @@ export default function Extratos() {
           mapping: formato === "csv" ? mapeamento : null,
         }),
       });
+      toast.sucesso("Extrato importado.");
       await carregar();
       importacao.current?.close();
     } catch (error) {
-      setErroForm(error instanceof Error ? error.message : "Não foi possível importar o extrato.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível importar o extrato.");
     } finally {
       setSalvando(false);
     }
@@ -221,7 +224,7 @@ export default function Extratos() {
     setAberto(extrato);
     setSoErros(erros);
     setLinhas(null);
-    setErroLinhas("");
+    setLinhasFalhou(false);
     linhasDialog.current?.showModal();
     try {
       const resposta = await api<LinhasExtrato>(`/api/extratos/${extrato.id}/linhas${erros ? "?erros=1" : ""}`);
@@ -229,7 +232,8 @@ export default function Extratos() {
       setLinhas(resposta);
     } catch (error) {
       if (atual !== pedidoLinhas.current) return;
-      setErroLinhas(error instanceof Error ? error.message : "Não foi possível ler as linhas.");
+      setLinhasFalhou(true);
+      toast.erro(error instanceof Error ? error.message : "Não foi possível ler as linhas.");
     }
   }
 
@@ -237,9 +241,10 @@ export default function Extratos() {
     setOcupado(extrato.id);
     try {
       await api(`/api/extratos/${extrato.id}/reprocessar`, { method: "POST", body: "{}" });
+      toast.sucesso("Extrato reprocessado.");
       await carregar();
     } catch (error) {
-      setErroCarga(error instanceof Error ? error.message : "Não foi possível reprocessar o extrato.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível reprocessar o extrato.");
     } finally {
       setOcupado("");
     }
@@ -252,9 +257,10 @@ export default function Extratos() {
       await api(`/api/extratos/${excluir.id}`, { method: "DELETE" });
       exclusao.current?.close();
       setExcluir(null);
+      toast.sucesso("Extrato excluído.");
       await carregar();
     } catch (error) {
-      setErroCarga(error instanceof Error ? error.message : "Não foi possível excluir o extrato.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível excluir o extrato.");
     } finally {
       setOcupado("");
     }
@@ -306,8 +312,7 @@ export default function Extratos() {
         <span className="text-sm text-ink-2">ou clique para escolher · OFX ou CSV, até 5 MB</span>
       </button>
 
-      {erroCarga ? <p className="mb-4 text-sm text-neg">{erroCarga}</p> : null}
-      {!dados && !erroCarga ? <p className="text-sm text-ink-2">Carregando extratos.</p> : null}
+      {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando extratos.</p> : null}
 
       {dados ? (
         <>
@@ -515,11 +520,6 @@ export default function Extratos() {
               </div>
             </div>
           ) : null}
-          {erroForm ? (
-            <p role="alert" className="text-sm text-neg">
-              {erroForm}
-            </p>
-          ) : null}
           <div className="flex justify-end gap-2">
             <Button variant="quiet" onClick={() => importacao.current?.close()}>
               Cancelar
@@ -559,7 +559,6 @@ export default function Extratos() {
           Mostrar só linhas com erro
         </label>
         <div className="max-h-[55dvh] overflow-auto">
-          {erroLinhas ? <p className="text-sm text-neg">{erroLinhas}</p> : null}
           {aberto?.status === "processando" ? <p className="py-6 text-center text-ink-2">Aguardando o processamento do arquivo.</p> : null}
           {aberto?.status === "falhou" ? <p className="py-6 text-center text-neg">{aberto.message}</p> : null}
           {aberto && aberto.status !== "processando" && aberto.status !== "falhou" ? (
@@ -611,7 +610,7 @@ export default function Extratos() {
                   {soErros && linhas.total ? "Nenhuma linha com erro." : "Nenhuma linha disponível."}
                 </p>
               )
-            ) : erroLinhas ? null : (
+            ) : linhasFalhou ? null : (
               <p className="py-6 text-center text-ink-2">Carregando linhas.</p>
             )
           ) : null}

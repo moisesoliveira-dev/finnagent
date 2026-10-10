@@ -11,6 +11,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { PageHeader } from "../../components/ui/page-header";
+import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia } from "./itens";
@@ -58,6 +59,7 @@ const meses = [
 ];
 
 export default function Agenda() {
+  const toast = useToast();
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
@@ -66,13 +68,11 @@ export default function Agenda() {
   const [camadas, setCamadas] = useState<Camadas>({ compromisso: true, lancamento: true });
   const [data, setData] = useState<AgendaResposta | null>(null);
   const [carregado, setCarregado] = useState<{ year: number; month: number } | null>(null);
-  const [loadError, setLoadError] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [diaAberto, setDiaAberto] = useState(false);
   const [draft, setDraft] = useState<Rascunho | null>(null);
-  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [aviso, setAviso] = useState("");
   const [coarse, setCoarse] = useState(false);
   const dia = useRef<HTMLDialogElement>(null);
   const form = useRef<HTMLDialogElement>(null);
@@ -93,15 +93,17 @@ export default function Agenda() {
         if (!active) return;
         setData(resposta);
         setCarregado({ year, month });
-        setLoadError("");
+        setFalhou(false);
       })
       .catch((error: Error) => {
-        if (active) setLoadError(error.message);
+        if (!active) return;
+        setFalhou(true);
+        toast.erro(error.message);
       });
     return () => {
       active = false;
     };
-  }, [year, month]);
+  }, [year, month, toast]);
 
   useEffect(() => {
     const media = window.matchMedia("(pointer: coarse)");
@@ -188,8 +190,6 @@ export default function Agenda() {
   }
 
   function novoCompromisso() {
-    setFormError("");
-    setAviso("");
     setDiaAberto(false);
     setMenu(null);
     setDraft({
@@ -208,7 +208,6 @@ export default function Agenda() {
     event.preventDefault();
     if (!draft || saving) return;
     setSaving(true);
-    setFormError("");
     const [anoTexto, mesTexto, diaTexto] = draft.date.split("-");
     try {
       const response = await fetch("/api/compromissos", {
@@ -232,18 +231,19 @@ export default function Agenda() {
       const resposta = await carregar(Number(anoTexto), Number(mesTexto));
       setData(resposta);
       setCarregado({ year: Number(anoTexto), month: Number(mesTexto) });
-      setLoadError("");
+      setFalhou(false);
       setDraft(null);
+      toast.sucesso("Compromisso criado.");
       irPara(Number(anoTexto), Number(mesTexto), Number(diaTexto));
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Não foi possível salvar o compromisso.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o compromisso.");
     } finally {
       setSaving(false);
     }
   }
 
   function sincronizar() {
-    setAviso("Conecte o Google Calendar para sincronizar.");
+    toast.alerta("Conecte o Google Calendar para sincronizar.");
   }
 
   return (
@@ -252,8 +252,8 @@ export default function Agenda() {
         title="Agenda"
         subtitle={
           <span className="inline-flex items-center">
-            <span className={`mr-2 inline-block size-2 rounded-full ${aviso ? "bg-neg" : "bg-ink-2"}`} />
-            {subtitulo(aviso)}
+            <span className="mr-2 inline-block size-2 rounded-full bg-ink-2" />
+            Google Calendar desconectado
           </span>
         }
         actions={
@@ -291,15 +291,10 @@ export default function Agenda() {
         }
       >
         <div className="grid gap-4">
-          {loadError ? (
-            <p role="alert" className="max-w-prose text-sm text-neg">
-              {loadError}
-            </p>
-          ) : null}
-          {!mesPronto && !loadError ? (
+          {!mesPronto && !falhou ? (
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
-          <ConectarGoogle onConnect={sincronizar} aviso={aviso} />
+          <ConectarGoogle onConnect={sincronizar} />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1 font-display text-lg font-bold">
               <Button variant="quiet" className="min-w-10 px-0" aria-label="Mês anterior" onClick={mesAnterior}>
@@ -585,11 +580,6 @@ export default function Agenda() {
               Com vínculo, o dia mostra o valor e o status da transação.
             </p>
           </div>
-          {formError ? (
-            <p role="alert" className="text-sm text-neg">
-              {formError}
-            </p>
-          ) : null}
           <div className="flex justify-end gap-2">
             <Button variant="quiet" type="button" onClick={() => setDraft(null)}>
               Cancelar
@@ -604,7 +594,7 @@ export default function Agenda() {
   );
 }
 
-function ConectarGoogle({ onConnect, aviso }: { onConnect: () => void; aviso: string }) {
+function ConectarGoogle({ onConnect }: { onConnect: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface p-6">
       <div>
@@ -613,7 +603,6 @@ function ConectarGoogle({ onConnect, aviso }: { onConnect: () => void; aviso: st
           Os compromissos do Google aparecem aqui depois da conexão. Os lançamentos do Prumo já estão
           no calendário.
         </p>
-        {aviso ? <p className="mt-2 text-sm text-ink-2">{aviso}</p> : null}
       </div>
       <Button onClick={onConnect}>Conectar Google Calendar</Button>
     </div>
@@ -643,10 +632,6 @@ function Camada({
       {children}
     </button>
   );
-}
-
-function subtitulo(aviso: string) {
-  return aviso ? "Não foi possível sincronizar com o Google Calendar" : "Google Calendar desconectado";
 }
 
 function dataIso(year: number, month: number, day: number) {

@@ -7,6 +7,7 @@ import { Chip } from "../../../components/ui/chip";
 import { Money } from "../../../components/ui/money";
 import { PageHeader } from "../../../components/ui/page-header";
 import { PendingAction } from "../../../components/ui/pending-action";
+import { useToast } from "../../../components/ui/toast";
 
 const meses = [
   "Janeiro",
@@ -46,36 +47,45 @@ function textoDoVinculo(vinculo: NonNullable<LinhaConferencia["link"]>) {
 }
 
 export default function Conferencia() {
+  const toast = useToast();
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
   const [dados, setDados] = useState<ConferenciaResposta | null>(null);
-  const [erro, setErro] = useState("");
+  const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
+  const pedido = `${year}-${month}`;
 
   function carregar(alvoAno: number, alvoMes: number) {
     setDados(null);
-    setErro("");
+    setFalha("");
     return api<ConferenciaResposta>(`/api/extratos/conferencia?year=${alvoAno}&month=${alvoMes}`)
       .then((resposta) => {
         setDados(resposta);
       })
-      .catch((error: Error) => setErro(error.message));
+      .catch((error: Error) => {
+        setFalha(`${alvoAno}-${alvoMes}`);
+        toast.erro(error.message);
+      });
   }
 
   useEffect(() => {
     let ativo = true;
     api<ConferenciaResposta>(`/api/extratos/conferencia?year=${year}&month=${month}`)
       .then((resposta) => {
-        if (ativo) setDados(resposta);
+        if (!ativo) return;
+        setDados(resposta);
+        setFalha("");
       })
       .catch((error: Error) => {
-        if (ativo) setErro(error.message);
+        if (!ativo) return;
+        setFalha(pedido);
+        toast.erro(error.message);
       });
     return () => {
       ativo = false;
     };
-  }, [year, month]);
+  }, [pedido, year, month, toast]);
 
   function mudar(delta: number) {
     const data = new Date(year, month - 1 + delta, 1);
@@ -86,20 +96,21 @@ export default function Conferencia() {
   async function confirmar(linha: LinhaConferencia) {
     const chave = `${linha.statementId}:${linha.line}`;
     setOcupado(chave);
-    setErro("");
     try {
       await api("/api/extratos/cruzamentos", {
         method: "POST",
         body: JSON.stringify({ statementId: linha.statementId, line: linha.line }),
       });
+      toast.sucesso("Cruzamento confirmado.");
       await carregar(year, month);
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
+      toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
     } finally {
       setOcupado("");
     }
   }
 
+  const falhou = falha === pedido;
   const linhas = dados?.lines ?? [];
   const propostas = linhas.filter((linha) => linha.suggestion);
 
@@ -122,8 +133,7 @@ export default function Conferencia() {
           </div>
         }
       />
-      {erro ? <p className="mb-4 text-sm text-neg">{erro}</p> : null}
-      {!dados && !erro ? <p className="text-sm text-ink-2">Carregando conferência.</p> : null}
+      {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando conferência.</p> : null}
       {dados ? (
         <div className="grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_340px]">
           <ul className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface">

@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { PageHeader } from "../../components/ui/page-header";
 import { PendingAction } from "../../components/ui/pending-action";
+import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 
 type Group = GruposResposta["groups"][number];
@@ -55,16 +56,14 @@ function texto(value: string | undefined) {
 }
 
 export default function Grupos() {
+  const toast = useToast();
   const [groups, setGroups] = useState<Group[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [ready, setReady] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [groupDraft, setGroupDraft] = useState<RascunhoGrupo | null>(null);
   const [sessionDraft, setSessionDraft] = useState<RascunhoSessao | null>(null);
-  const [groupError, setGroupError] = useState("");
-  const [sessionError, setSessionError] = useState("");
-  const [sessionHint, setSessionHint] = useState("");
   const [sugestao, setSugestao] = useState<Sugestao | null>(null);
   const groupDialog = useRef<HTMLDialogElement>(null);
   const sessionDialog = useRef<HTMLDialogElement>(null);
@@ -79,7 +78,8 @@ export default function Grupos() {
       })
       .catch((error: Error) => {
         if (!active) return;
-        setLoadError(error.message);
+        setFalhou(true);
+        toast.erro(error.message);
       })
       .finally(() => {
         if (active) setReady(true);
@@ -87,7 +87,7 @@ export default function Grupos() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const dialog = groupDialog.current;
@@ -108,8 +108,6 @@ export default function Grupos() {
   }
 
   function openGroup(group?: Group) {
-    setSessionHint("");
-    setGroupError("");
     setGroupDraft({
       id: group?.id ?? null,
       name: group?.name ?? "",
@@ -124,11 +122,9 @@ export default function Grupos() {
     prefill?: { name: string; description: string },
   ) {
     if (!session && !prefill && !groupId && groups.length === 0) {
-      setSessionHint("Crie um grupo antes da sessão.");
+      toast.alerta("Crie um grupo antes da sessão.");
       return;
     }
-    setSessionHint("");
-    setSessionError("");
     const unico = groups.length === 1 ? groups[0] : undefined;
     setSessionDraft({
       id: session?.id ?? null,
@@ -149,7 +145,7 @@ export default function Grupos() {
     const name = groupDraft.name.trim();
     const description = groupDraft.description.trim();
     if (!name) {
-      setGroupError("Dê um nome ao grupo.");
+      toast.erro("Dê um nome ao grupo.");
       return;
     }
     try {
@@ -167,10 +163,10 @@ export default function Grupos() {
         return [...next, group].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       });
       setGroupDraft(null);
-      setLoadError("");
-      setSessionHint("");
+      setFalhou(false);
+      toast.sucesso(groupDraft.id ? "Grupo salvo." : "Grupo criado.");
     } catch (error) {
-      setGroupError(error instanceof Error ? error.message : "O backend não respondeu.");
+      toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
     }
   }
 
@@ -181,11 +177,11 @@ export default function Grupos() {
     const description = sessionDraft.description.trim();
     const groupId = sessionDraft.groupId;
     if (!name) {
-      setSessionError("Dê um nome à sessão.");
+      toast.erro("Dê um nome à sessão.");
       return;
     }
     if (!groupId) {
-      setSessionError("Escolha um grupo.");
+      toast.erro("Escolha um grupo.");
       return;
     }
     try {
@@ -209,12 +205,15 @@ export default function Grupos() {
         return [...next, session].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       });
       setSessionDraft(null);
-      setLoadError("");
+      setFalhou(false);
+      toast.sucesso(
+        sessionDraft.id ? (sessionDraft.escolherGrupo ? "Sessão movida." : "Sessão salva.") : "Sessão criada.",
+      );
       if (sugestao?.estado === "open" && sugestao.nome === name) {
         setSugestao({ ...sugestao, estado: "done" });
       }
     } catch (error) {
-      setSessionError(error instanceof Error ? error.message : "O backend não respondeu.");
+      toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
     }
   }
 
@@ -223,8 +222,9 @@ export default function Grupos() {
       await api<void>(`/api/grupos/${id}`, { method: "DELETE" });
       setGroups((current) => current.filter((group) => group.id !== id));
       setSessions((current) => current.filter((session) => session.groupId !== id));
+      toast.sucesso("Grupo excluído.");
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "O backend não respondeu.");
+      toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
     }
   }
 
@@ -232,15 +232,16 @@ export default function Grupos() {
     try {
       await api<void>(`/api/sessoes/${id}`, { method: "DELETE" });
       setSessions((current) => current.filter((session) => session.id !== id));
+      toast.sucesso("Sessão excluída.");
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "O backend não respondeu.");
+      toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
     }
   }
 
   function preencherSugestao(escolherGrupo: boolean) {
     if (!sugestao) return;
     if (groups.length === 0) {
-      setSessionHint("Crie um grupo antes da sessão.");
+      toast.alerta("Crie um grupo antes da sessão.");
       return;
     }
     const unico = groups.length === 1 ? groups[0] : undefined;
@@ -265,20 +266,12 @@ export default function Grupos() {
       }
     >
       <div className="grid min-w-0 gap-6">
-        {loadError ? (
-          <p role="alert" className="min-w-0 max-w-prose text-sm text-neg">
-            {loadError}
-          </p>
-        ) : null}
-        {sessionHint ? (
-          <p className="min-w-0 max-w-prose text-sm text-ink-2">{sessionHint}</p>
-        ) : null}
-        {!ready ? (
+        {!ready && !falhou ? (
           <p role="status" className="min-w-0 max-w-prose text-sm text-ink-2">
             Carregando grupos.
           </p>
         ) : null}
-        {ready && !loadError && groups.length === 0 ? (
+        {ready && !falhou && groups.length === 0 ? (
           <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
             Nenhum grupo ainda.
           </p>
@@ -373,11 +366,6 @@ export default function Grupos() {
               Até 160 caracteres. Grupos só organizam sessões; os lançamentos entram nas sessões.
             </p>
           </div>
-          {groupError ? (
-            <p role="alert" className="text-sm text-neg">
-              {groupError}
-            </p>
-          ) : null}
           <div className="mt-2 flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setGroupDraft(null)}>
               Cancelar
@@ -465,11 +453,6 @@ export default function Grupos() {
                 ))}
               </select>
             </div>
-          ) : null}
-          {sessionError ? (
-            <p role="alert" className="text-sm text-neg">
-              {sessionError}
-            </p>
           ) : null}
           <div className="mt-2 flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setSessionDraft(null)}>

@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { cn, focusRing } from "../../components/ui/cn";
 import { PageHeader } from "../../components/ui/page-header";
+import { useToast } from "../../components/ui/toast";
 
 const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
@@ -23,6 +24,7 @@ const celula = "border-b border-line px-3 py-3 align-top";
 const cabeca = "border-b border-line px-3 py-3 text-left align-top font-semibold whitespace-nowrap text-ink-2";
 
 export default function EventosPage() {
+  const toast = useToast();
   const [dados, setDados] = useState<EventosResposta | null>(null);
   const [erro, setErro] = useState(false);
   const [visao, setVisao] = useState<"eventos" | "historico">("eventos");
@@ -46,12 +48,14 @@ export default function EventosPage() {
         if (ativo) setDados(corpo);
       })
       .catch(() => {
-        if (ativo) setErro(true);
+        if (!ativo) return;
+        setErro(true);
+        toast.erro("Não foi possível carregar os eventos.");
       });
     return () => {
       ativo = false;
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const dialog = detalhes.current;
@@ -114,7 +118,6 @@ export default function EventosPage() {
         }
       />
 
-      {erro ? <p className="text-neg">Não foi possível carregar os eventos.</p> : null}
       {!erro && !dados ? <p className="text-sm text-ink-2">Carregando eventos.</p> : null}
 
       {dados && visao === "eventos" ? (

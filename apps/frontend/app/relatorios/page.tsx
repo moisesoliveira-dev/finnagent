@@ -10,6 +10,7 @@ import { ListRow } from "../../components/ui/list-row";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
+import { useToast } from "../../components/ui/toast";
 
 const celula = "border-b border-line px-3 py-3";
 
@@ -52,23 +53,46 @@ function parteDasSaidas(saidas: number, total: number) {
 }
 
 export default function RelatoriosPage() {
+  const toast = useToast();
   const [dados, setDados] = useState<RelatorioResposta | null>(null);
-  const [erro, setErro] = useState("");
+  const [falhou, setFalhou] = useState(false);
   const [carregando, setCarregando] = useState(true);
 
   function carregar(year?: number) {
     setCarregando(true);
-    setErro("");
+    setFalhou(false);
     const path = year ? `/api/relatorios?year=${year}` : "/api/relatorios";
     return api<RelatorioResposta>(path)
-      .then(setDados)
-      .catch((error: Error) => setErro(error.message))
+      .then((resposta) => {
+        setDados(resposta);
+        setFalhou(false);
+      })
+      .catch((error: Error) => {
+        setFalhou(true);
+        toast.erro(error.message);
+      })
       .finally(() => setCarregando(false));
   }
 
   useEffect(() => {
-    void carregar();
-  }, []);
+    let ativo = true;
+    api<RelatorioResposta>("/api/relatorios")
+      .then((resposta) => {
+        if (!ativo) return;
+        setDados(resposta);
+      })
+      .catch((error: Error) => {
+        if (!ativo) return;
+        setFalhou(true);
+        toast.erro(error.message);
+      })
+      .finally(() => {
+        if (ativo) setCarregando(false);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [toast]);
 
   return (
     <>
@@ -76,12 +100,7 @@ export default function RelatoriosPage() {
         title="Relatórios"
         subtitle="Veja para onde foi o dinheiro do ano."
       />
-      {erro ? (
-        <p role="alert" className="mb-4 max-w-prose text-sm text-neg">
-          {erro}
-        </p>
-      ) : null}
-      {!dados && carregando ? (
+      {!dados && carregando && !falhou ? (
         <p role="status" className="max-w-prose text-sm text-ink-2">
           Carregando relatório.
         </p>
