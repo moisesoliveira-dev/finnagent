@@ -27,16 +27,19 @@ const criarGrupo = z.object({
   description: descricao.optional().default(""),
 });
 const atualizarGrupo = z.object({ name: nome, description: descricao });
+const justificativa = z.string().trim().max(160);
 const criarSessao = z.object({
   id: z.uuid(),
   groupId: z.uuid(),
   name: nome,
   description: descricao.optional().default(""),
+  justification: justificativa.optional().default(""),
   cents: centavos.optional().default(0),
 });
 const atualizarSessao = z.object({
   name: nome,
   description: descricao,
+  justification: justificativa,
   groupId: z.uuid(),
 });
 
@@ -103,9 +106,12 @@ export class GruposController {
       this.grupos.criarSessao(
         this.tenant(tenant),
         pedido.id,
-        pedido.groupId,
-        pedido.name,
-        pedido.description,
+        {
+          groupId: pedido.groupId,
+          name: pedido.name,
+          description: pedido.description,
+          justification: pedido.justification,
+        },
         pedido.cents,
       ),
     );
@@ -119,13 +125,12 @@ export class GruposController {
   ) {
     const pedido = this.pedidoSessao(atualizarSessao, body);
     return this.executar(() =>
-      this.grupos.atualizarSessao(
-        this.tenant(tenant),
-        this.id(id),
-        pedido.groupId,
-        pedido.name,
-        pedido.description,
-      ),
+      this.grupos.atualizarSessao(this.tenant(tenant), this.id(id), {
+        groupId: pedido.groupId,
+        name: pedido.name,
+        description: pedido.description,
+        justification: pedido.justification,
+      }),
     );
   }
 
@@ -172,6 +177,9 @@ export class GruposController {
       if (campo === "groupId") throw new BadRequestException("Escolha um grupo.");
       if (campo === "description") {
         throw new BadRequestException("A descrição passa de 160 caracteres.");
+      }
+      if (campo === "justification") {
+        throw new BadRequestException("A justificativa passa de 160 caracteres.");
       }
       if (campo === "cents") throw new BadRequestException("Informe o valor da sessão.");
       throw new BadRequestException("Não foi possível salvar a sessão.");

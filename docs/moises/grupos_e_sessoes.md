@@ -150,3 +150,55 @@ Arquivos:
 - `apps/backend/prisma/schema.prisma`
 - `apps/backend/prisma/migrations/20261006160000_sessao_exige_grupo/migration.sql`
 - `packages/contracts/src/index.ts`
+
+## Busca em grupos
+
+O que foi feito: a tela de grupos ganhou um campo de busca. O texto filtra o grupo pelo nome e pela descrição, e a sessão pelo nome, pela descrição e pela justificativa, sem acento. Grupo que combina mostra as sessões dele. Se só a sessão combina, o grupo abre com essa sessão. Sem resultado, a lista avisa que nada foi encontrado.
+
+Motivo: a pessoa pediu busca na aba de grupos.
+
+Arquivos:
+
+- `apps/frontend/app/grupos/page.tsx`
+
+## Atributos da sessão
+
+O que foi feito: a sessão passou a guardar justificativa, início e fim, além do nome, da descrição, do grupo e do valor que já existiam. A descrição e a justificativa são texto da pessoa e entram no contexto da IA. O início é o primeiro dia do mês da criação, no calendário America/Sao_Paulo, gravado no backend. Não há campo de data na tela. Excluir a sessão grava o fim na data de hoje, tira a sessão da lista e mantém o registro. O nome da sessão aberta continua único no grupo; a encerrada libera o nome. Excluir o grupo ainda apaga as sessões dele. Sessões já gravadas ficam sem início e sem fim.
+
+Motivo: a pessoa pediu esses atributos, com o início no mês da criação, o fim na exclusão e o nome único só enquanto a sessão está aberta.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261009224500_atributos_da_sessao/migration.sql`
+- `apps/backend/prisma/migrations/20261010030000_nome_da_sessao_aberta/migration.sql`
+- `apps/backend/src/grupos/`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/frontend/app/grupos/page.tsx`
+
+## Encerramento da sessão no domínio
+
+O que foi feito: o mês de início e o dia do fim passaram para o domínio de grupos. O Prisma só grava a data que o serviço manda. Excluir a sessão emite `encerrar-sessao`. Excluir o grupo emite `remover-sessao`, então o apagamento da linha entra no outbox mesmo depois do encerramento. Uma segunda exclusão, inclusive ao mesmo tempo, responde sucesso quando a sessão já tem fim. Lançamento em sessão encerrada é recusado no backend.
+
+Motivo: a revisão de arquitetura apontou regra no adaptador, comando que não era idempotente, outbox pulado e lançamento aceito em sessão encerrada.
+
+Arquivos:
+
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/backend/src/grupos/`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/financas/portas/financas-repositorio.ts`
+- `packages/contracts/src/index.ts`
+
+## Grupos no Prumo
+
+O que foi feito: a tela de grupos alinhou o espaçamento à escala, o diálogo passou a usar gap, o chip deixou de herdar a fonte do título e as linhas da lista ficaram no ritmo `px-4 py-3`.
+
+Motivo: a pessoa pediu a tela de grupos no estilo do Prumo.
+
+Arquivos:
+
+- `apps/frontend/app/grupos/page.tsx`

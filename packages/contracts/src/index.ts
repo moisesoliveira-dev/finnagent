@@ -11,6 +11,9 @@ export type Sessao = {
   groupId: string;
   name: string;
   description: string;
+  justification: string;
+  startedAt: string | null;
+  endedAt: string | null;
   cents: number;
 };
 
@@ -698,6 +701,7 @@ const FINANCEIRO = new Set([
   "remover-grupo",
   "criar-sessao",
   "atualizar-sessao",
+  "encerrar-sessao",
   "remover-sessao",
   "criar-meta",
   "excluir-meta",
@@ -718,6 +722,7 @@ const NOME_AGREGADO: Record<string, string> = {
   "remover-grupo": "Grupo",
   "criar-sessao": "Sessão",
   "atualizar-sessao": "Sessão",
+  "encerrar-sessao": "Sessão",
   "remover-sessao": "Sessão",
   "criar-meta": "Meta",
   "excluir-meta": "Meta",

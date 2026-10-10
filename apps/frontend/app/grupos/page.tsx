@@ -15,6 +15,7 @@ type RascunhoSessao = {
   id: string | null;
   name: string;
   description: string;
+  justification: string;
   groupId: string;
   escolherGrupo: boolean;
 };
@@ -28,7 +29,7 @@ type Sugestao = {
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
+  "mt-auto mb-0 grid max-h-dvh w-full min-w-0 max-w-none gap-4 overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -54,6 +55,21 @@ function texto(value: string | undefined) {
   return trimmed || "Sem descrição";
 }
 
+function inicioDaSessao(iso: string | null) {
+  if (!iso) return "";
+  const data = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(data.getTime())) return "";
+  const mes = new Intl.DateTimeFormat("pt-BR", { month: "long", timeZone: "UTC" }).format(data);
+  return `Início em ${mes} de ${data.getUTCFullYear()}`;
+}
+
+function normalizar(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
 export default function Grupos() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -66,6 +82,7 @@ export default function Grupos() {
   const [sessionError, setSessionError] = useState("");
   const [sessionHint, setSessionHint] = useState("");
   const [sugestao, setSugestao] = useState<Sugestao | null>(null);
+  const [busca, setBusca] = useState("");
   const groupDialog = useRef<HTMLDialogElement>(null);
   const sessionDialog = useRef<HTMLDialogElement>(null);
 
@@ -75,7 +92,7 @@ export default function Grupos() {
       .then((data) => {
         if (!active) return;
         setGroups(data.groups);
-        setSessions(data.sessions);
+        setSessions(data.sessions.filter((session) => !session.endedAt));
       })
       .catch((error: Error) => {
         if (!active) return;
@@ -107,6 +124,24 @@ export default function Grupos() {
     return sessions.filter((session) => session.groupId === groupId);
   }
 
+  const termo = normalizar(busca.trim());
+
+  function inclui(value: string | undefined) {
+    return normalizar(value ?? "").includes(termo);
+  }
+
+  const visiveis = groups.flatMap((group) => {
+    const sessoes = sessionsOf(group.id);
+    if (!termo) return [{ group, sessions: sessoes }];
+    const grupoCombina = inclui(group.name) || inclui(group.description);
+    if (grupoCombina) return [{ group, sessions: sessoes }];
+    const sessoesFiltradas = sessoes.filter(
+      (session) =>
+        inclui(session.name) || inclui(session.description) || inclui(session.justification),
+    );
+    return sessoesFiltradas.length > 0 ? [{ group, sessions: sessoesFiltradas }] : [];
+  });
+
   function openGroup(group?: Group) {
     setSessionHint("");
     setGroupError("");
@@ -134,6 +169,7 @@ export default function Grupos() {
       id: session?.id ?? null,
       name: session?.name ?? prefill?.name ?? "",
       description: session?.description ?? prefill?.description ?? "",
+      justification: session?.justification ?? "",
       groupId: session?.groupId || groupId || (escolherGrupo ? (unico?.id ?? "") : ""),
       escolherGrupo,
     });
@@ -179,6 +215,7 @@ export default function Grupos() {
     if (!sessionDraft) return;
     const name = sessionDraft.name.trim();
     const description = sessionDraft.description.trim();
+    const justification = sessionDraft.justification.trim();
     const groupId = sessionDraft.groupId;
     if (!name) {
       setSessionError("Dê um nome à sessão.");
@@ -188,20 +225,19 @@ export default function Grupos() {
       setSessionError("Escolha um grupo.");
       return;
     }
+    const corpo = { name, description, justification, groupId };
     try {
       const session = sessionDraft.id
         ? await api<Session>(`/api/sessoes/${sessionDraft.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ name, description, groupId }),
+            body: JSON.stringify(corpo),
           })
         : await api<Session>("/api/sessoes", {
             method: "POST",
             body: JSON.stringify({
               id: crypto.randomUUID(),
-              name,
-              description,
-              groupId,
               cents: 0,
+              ...corpo,
             }),
           });
       setSessions((current) => {
@@ -251,7 +287,7 @@ export default function Grupos() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
+    <div className="mx-auto w-full min-w-0 max-w-4xl">
     <PageHeader
       title="Sessões e grupos"
       subtitle="Defina onde seus lançamentos serão acumulados."
@@ -283,6 +319,16 @@ export default function Grupos() {
             Nenhum grupo ainda.
           </p>
         ) : null}
+        {ready && !loadError && groups.length > 0 ? (
+          <input
+            type="search"
+            aria-label="Buscar grupo ou sessão"
+            placeholder="Buscar grupo ou sessão"
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            className={field}
+          />
+        ) : null}
         {sugestao ? (
           <PendingAction state={sugestao.estado} title={sugestao.titulo}>
             {sugestao.estado === "open" ? (
@@ -308,12 +354,17 @@ export default function Grupos() {
             )}
           </PendingAction>
         ) : null}
-        {groups.map((group) => (
+        {ready && !loadError && groups.length > 0 && visiveis.length === 0 ? (
+          <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
+            Nenhum grupo ou sessão encontrado.
+          </p>
+        ) : null}
+        {visiveis.map(({ group, sessions: sessoesVisiveis }) => (
           <GroupCard
             key={group.id}
             group={group}
-            sessions={sessionsOf(group.id)}
-            closed={closed[group.id] ?? false}
+            sessions={sessoesVisiveis}
+            closed={termo ? false : (closed[group.id] ?? false)}
             onToggle={() => toggle(group.id)}
             onEdit={() => openGroup(group)}
             onAdd={() => openSession(group.id)}
@@ -331,7 +382,7 @@ export default function Grupos() {
         aria-labelledby="titulo-grupo"
         onClose={() => setGroupDraft(null)}
       >
-        <h2 id="titulo-grupo" className="mb-4 font-display text-lg">
+        <h2 id="titulo-grupo" className="font-display text-lg">
           {groupDraft?.id ? "Editar grupo" : "Novo grupo"}
         </h2>
         <form className="grid gap-4" onSubmit={saveGroup}>
@@ -378,7 +429,7 @@ export default function Grupos() {
               {groupError}
             </p>
           ) : null}
-          <div className="mt-2 flex justify-end gap-2">
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setGroupDraft(null)}>
               Cancelar
             </Button>
@@ -395,7 +446,7 @@ export default function Grupos() {
         aria-labelledby="titulo-sessao"
         onClose={() => setSessionDraft(null)}
       >
-        <h2 id="titulo-sessao" className="mb-4 font-display text-lg">
+        <h2 id="titulo-sessao" className="font-display text-lg">
           {sessionDraft?.id
             ? sessionDraft.escolherGrupo
               ? "Mover sessão"
@@ -438,7 +489,28 @@ export default function Grupos() {
               className={`${field} resize-y py-3`}
             />
             <p className="text-xs text-ink-2">
-              Até 160 caracteres. A IA usa a descrição para escolher a sessão certa de cada lançamento.
+              Até 160 caracteres. A IA usa a descrição no contexto da sessão.
+            </p>
+          </div>
+          <div className="grid gap-1">
+            <label htmlFor="sessao-justificativa" className="text-sm font-medium">
+              Justificativa <span className="font-normal text-ink-2">(opcional)</span>
+            </label>
+            <textarea
+              id="sessao-justificativa"
+              value={sessionDraft?.justification ?? ""}
+              maxLength={160}
+              rows={3}
+              placeholder="Ex.: Reserva mensal para o mercado da casa."
+              onChange={(event) =>
+                setSessionDraft((current) =>
+                  current ? { ...current, justification: event.target.value } : current,
+                )
+              }
+              className={`${field} resize-y py-3`}
+            />
+            <p className="text-xs text-ink-2">
+              Até 160 caracteres. A IA usa a justificativa no contexto da sessão.
             </p>
           </div>
           {sessionDraft?.escolherGrupo ? (
@@ -471,7 +543,7 @@ export default function Grupos() {
               {sessionError}
             </p>
           ) : null}
-          <div className="mt-2 flex justify-end gap-2">
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setSessionDraft(null)}>
               Cancelar
             </Button>
@@ -577,12 +649,12 @@ function GroupCard({
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface" aria-labelledby={id}>
-      <div className="grid gap-2 p-4">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 tab:flex-nowrap">
-          <h2 id={id} className="w-full min-w-0 max-w-full font-display text-lg tab:w-auto tab:flex-1">
+      <div className="grid gap-3 p-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 tab:flex-nowrap">
+          <h2 id={id} className="w-full min-w-0 font-display text-lg tab:w-auto tab:flex-1">
             <button
               type="button"
-              className={`flex min-h-10 w-full min-w-0 max-w-full items-center gap-3 bg-transparent text-left tab:w-auto ${focusRing}`}
+              className={`flex min-h-10 w-full min-w-0 items-center gap-3 bg-transparent text-left tab:w-auto ${focusRing}`}
               aria-expanded={!closed}
               aria-controls={panelId}
               onClick={onToggle}
@@ -594,7 +666,9 @@ function GroupCard({
                 )}
               />
               <span className="min-w-0 truncate">{name}</span>
-              <Chip className="shrink-0 font-normal">{sessionCountLabel(sessions.length)}</Chip>
+              <Chip className="shrink-0 font-sans font-normal">
+                {sessionCountLabel(sessions.length)}
+              </Chip>
             </button>
           </h2>
           {onEdit || (onAdd && sessions.length > 0) || onRemove ? (
@@ -611,51 +685,69 @@ function GroupCard({
         </div>
         <p
           className={cn(
-            "max-w-prose pl-5 text-sm text-ink-2 line-clamp-2",
+            "flex gap-3 text-sm text-ink-2",
             detail.trim() ? "" : "opacity-75",
           )}
         >
-          {texto(detail)}
+          <span className="size-2 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 max-w-prose line-clamp-2">{texto(detail)}</span>
         </p>
       </div>
       <div id={panelId} hidden={closed}>
         {sessions.length === 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-6 text-sm text-ink-2">
-            <span>Nenhuma sessão neste grupo. Crie a primeira para começar a organizar.</span>
-            {onAdd ? <Button onClick={onAdd}>Adicionar sessão</Button> : null}
+          <div className="flex gap-3 border-t border-line px-4 py-6 text-sm text-ink-2">
+            <span className="size-2 shrink-0" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3">
+              <span className="max-w-prose">
+                Nenhuma sessão neste grupo. Crie a primeira para começar a organizar.
+              </span>
+              {onAdd ? <Button onClick={onAdd}>Adicionar sessão</Button> : null}
+            </div>
           </div>
         ) : (
           <ul className="border-t border-line">
             {sessions.map((session) => (
               <li
                 key={session.id}
-                className="flex min-w-0 flex-col gap-2 border-b border-line py-3 pr-4 pl-9 last:border-b-0 tab:flex-row tab:items-start tab:justify-between"
+                className="flex min-w-0 gap-3 border-b border-line px-4 py-3 last:border-b-0"
               >
-                <div className="min-w-0">
-                  <div className="font-medium">{session.name}</div>
-                  <p
-                    className={cn(
-                      "max-w-prose text-sm text-ink-2 line-clamp-2",
-                      (session.description ?? "").trim() ? "" : "opacity-75",
-                    )}
-                  >
-                    {texto(session.description)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <IconButton
-                    label="Editar sessão"
-                    onClick={() => onEditSession(session)}
-                    icon="edit"
-                  />
-                  <Button variant="quiet" onClick={() => onMoveSession(session)}>
-                    Mover
-                  </Button>
-                  <IconButton
-                    label="Remover sessão"
-                    onClick={() => onRemoveSession(session.id)}
-                    icon="remove"
-                  />
+                <span className="size-2 shrink-0" aria-hidden="true" />
+                <div className="flex min-w-0 flex-1 flex-col gap-3 tab:flex-row tab:items-start tab:justify-between">
+                  <div className="grid min-w-0 gap-1">
+                    <div className="font-medium">{session.name}</div>
+                    <p
+                      className={cn(
+                        "max-w-prose text-sm text-ink-2 line-clamp-2",
+                        (session.description ?? "").trim() ? "" : "opacity-75",
+                      )}
+                    >
+                      {texto(session.description)}
+                    </p>
+                    {session.justification.trim() ? (
+                      <p className="max-w-prose text-sm text-ink-2 line-clamp-2">
+                        <span className="font-medium">Justificativa: </span>
+                        {session.justification}
+                      </p>
+                    ) : null}
+                    {inicioDaSessao(session.startedAt) ? (
+                      <p className="text-sm text-ink-2">{inicioDaSessao(session.startedAt)}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <IconButton
+                      label="Editar sessão"
+                      onClick={() => onEditSession(session)}
+                      icon="edit"
+                    />
+                    <Button variant="quiet" onClick={() => onMoveSession(session)}>
+                      Mover
+                    </Button>
+                    <IconButton
+                      label="Remover sessão"
+                      onClick={() => onRemoveSession(session.id)}
+                      icon="remove"
+                    />
+                  </div>
                 </div>
               </li>
             ))}

@@ -1,8 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Grupo, Sessao } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../dominio/erros.js";
+import { fimDaSessao, inicioDaSessao } from "../dominio/sessao.js";
 import {
   GRUPOS_REPOSITORIO,
+  type DadosDaSessao,
   type GruposRepositorio,
 } from "../portas/grupos-repositorio.js";
 
@@ -57,18 +59,15 @@ export class GruposService {
   async criarSessao(
     tenantId: string,
     id: string,
-    groupId: string,
-    name: string,
-    description: string,
+    dados: DadosDaSessao,
     cents: number,
   ): Promise<Sessao> {
     const resultado = await this.grupos.criarSessao(
       tenantId,
       id,
-      groupId,
-      name,
-      description,
+      dados,
       cents,
+      inicioDaSessao(),
     );
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outra sessão.");
@@ -85,17 +84,9 @@ export class GruposService {
   async atualizarSessao(
     tenantId: string,
     id: string,
-    groupId: string,
-    name: string,
-    description: string,
+    dados: DadosDaSessao,
   ): Promise<Sessao> {
-    const resultado = await this.grupos.atualizarSessao(
-      tenantId,
-      id,
-      groupId,
-      name,
-      description,
-    );
+    const resultado = await this.grupos.atualizarSessao(tenantId, id, dados);
     if (resultado === "ausente") throw new NaoEncontrado("Sessão não encontrada.");
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outra sessão.");
@@ -110,7 +101,7 @@ export class GruposService {
   }
 
   async removerSessao(tenantId: string, id: string) {
-    const removido = await this.grupos.removerSessao(tenantId, id);
+    const removido = await this.grupos.removerSessao(tenantId, id, fimDaSessao());
     if (!removido) throw new NaoEncontrado("Sessão não encontrada.");
   }
 }

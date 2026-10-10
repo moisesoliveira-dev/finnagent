@@ -15,7 +15,7 @@ export type NovoLancamento = {
   installments: number | null;
 };
 
-export type FalhaDeLancamento = "identificador" | "sessao-ausente";
+export type FalhaDeLancamento = "identificador" | "sessao-ausente" | "sessao-encerrada";
 
 export interface FinancasRepositorio {
   garantirWorkflow(tenantId: string): Promise<Workflow>;
