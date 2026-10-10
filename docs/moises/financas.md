@@ -37,3 +37,49 @@ Arquivos:
 - `apps/backend/prisma/schema.prisma`
 - `apps/backend/prisma/migrations/20261006180000_lancamentos/migration.sql`
 - `packages/contracts/src/index.ts`
+
+## Atributos da transação
+
+O que foi feito: o lançamento passou a guardar nome, data, movimento, status, tipo, categoria, prioridade e os dados de parcela, empréstimo e valor fixo. A categoria continua alimentando o tipo que a visão do ano já calcula. Cancelada, estornada, mês cancelado e mês suspenso saem do total. A Base mostra a transação mesmo assim e abre as ações: atualizar status, associar compromisso, adiantar ou cancelar parcelas e empréstimo, cancelar ou suspender um mês fixo e atualizar o valor de uma ou mais transações fixas. Cada comando filtra o tenant e grava o outbox na mesma transação. A migration é `20261010140000_atributos_da_transacao`.
+
+Entrada fica sem prioridade. Parcela e extra são sempre saída e também ficam sem prioridade (`nopriority`). Fixa, parcela e empréstimo são sempre compromisso. A migration `20261010153000_prioridade_e_compromisso` ajusta as transações que já existiam.
+
+A descrição do lançamento é opcional. O movimento define o sinal do valor: entrada positivo, saída negativo. A transação fixa tem recorrência semanal, mensal, trimestral, semestral, anual ou personalizada, com um inteiro de intervalo. A migration é `20261010160000_recorrencia_da_fixa`.
+
+Extra é só entrada e fica sem prioridade. Parcela continua saída e tem prioridade. O lápis abre a edição com os dados já gravados. A migration é `20261010170000_extra_entrada_parcela_prioridade`.
+
+Motivo: a aba Finanças precisava tratar a transação com esses atributos, status e variações.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261010140000_atributos_da_transacao/migration.sql`
+- `apps/backend/prisma/migrations/20261010153000_prioridade_e_compromisso/migration.sql`
+- `apps/backend/prisma/migrations/20261010160000_recorrencia_da_fixa/migration.sql`
+- `apps/backend/prisma/migrations/20261010170000_extra_entrada_parcela_prioridade/migration.sql`
+- `apps/backend/src/financas/`
+- `apps/frontend/app/financas/`
+- `apps/frontend/app/api/lancamentos/`
+
+## Tokens da tela
+
+O que foi feito: o seletor Base/Geral passou a usar `text-brand!` e `text-ink-2!`, porque o CSS base do botão cobria a cor do token. O ícone de editar foi de `size-5` para `size-4`. O checkbox de aplicar valor em outras fixas ganhou `size-4`, `accent-brand` e foco.
+
+Motivo: alinhar a tela aos tokens do Prumo.
+
+Arquivos:
+
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/financas/acoes.tsx`
+
+## Transação do repositório
+
+O que foi feito: `atualizarValorFixo` conferia o lote no meio da gravação. Um retorno de falha no Prisma confirmava o que já tinha sido alterado e o outbox ficava de fora. Agora a conferência de todos os itens acontece antes de qualquer gravação. Se a linha sumir depois de gravar, a transação é desfeita. O mesmo descarte depois da gravação vale em atualizar, associar compromisso e alterar.
+
+Motivo: mudança de estado e outbox na mesma transação.
+
+Arquivos:
+
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`

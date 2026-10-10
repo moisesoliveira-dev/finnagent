@@ -51,22 +51,51 @@ model Entry {
   tenantId      String        @map("tenant_id")
   sessionId     String        @map("session_id")
   type          String
-  description   String
+  description   String        @default("")
   justification String        @default("")
   day           Int
   cents         Int
   startYear     Int           @map("start_year")
   startMonth    Int           @map("start_month")
-  installments  Int?
-  position      Int           @default(0)
-  session       Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
-  amounts       EntryAmount[]
-  appointments  Appointment[]
-  statementLines StatementLine[]
+  installments      Int?
+  position          Int           @default(0)
+  name              String        @default("")
+  occurredOn        DateTime      @map("occurred_on") @db.Date
+  mode              String        @default("outflows")
+  status            String        @default("pending")
+  transactionType   String        @default("unusual") @map("transaction_type")
+  category          String        @default("fixed")
+  priority          String        @default("nopriority")
+  installmentNumber Int?          @map("installment_number")
+  dueOn             DateTime?     @map("due_on") @db.Date
+  interestBps       Int?          @map("interest_bps")
+  nextDueOn         DateTime?     @map("next_due_on") @db.Date
+  suspendedCents    Int           @default(0) @map("suspended_cents")
+  commitmentId        String?       @map("commitment_id")
+  recurrence          String?
+  recurrenceInterval  Int?          @map("recurrence_interval")
+  session           Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  amounts           EntryAmount[]
+  adjustments       EntryAdjustment[]
+  appointments      Appointment[]
+  statementLines    StatementLine[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
   @@map("entries")
+}
+
+model EntryAdjustment {
+  entryId  String @map("entry_id")
+  tenantId String @map("tenant_id")
+  year     Int
+  month    Int
+  effect   String
+  entry    Entry  @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([entryId, year, month])
+  @@index([tenantId])
+  @@map("entry_adjustments")
 }
 
 model EntryAmount {

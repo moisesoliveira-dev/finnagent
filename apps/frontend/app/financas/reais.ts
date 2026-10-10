@@ -14,6 +14,14 @@ export function reaisParaCentavos(texto: string) {
   return valor;
 }
 
+export function centavosParaReais(cents: number) {
+  const absoluto = Math.abs(cents);
+  const inteiro = Math.trunc(absoluto / 100);
+  const frac = absoluto % 100;
+  if (frac === 0) return String(inteiro);
+  return `${inteiro},${String(frac).padStart(2, "0")}`;
+}
+
 export function doisDigitos(valor: number) {
   return String(valor).padStart(2, "0");
 }

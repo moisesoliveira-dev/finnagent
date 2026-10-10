@@ -1,4 +1,6 @@
 import {
+  categoriaDoTipo,
+  modoDoValor,
   montarPainel,
   type Compromisso,
   type Lancamento,
@@ -9,12 +11,12 @@ import { describe, expect, it } from "vitest";
 const workflow: Workflow = { year: 2026, month: 3, day: 1 };
 
 function lancamento(parcial: Partial<Lancamento> & Pick<Lancamento, "id" | "cents" | "day">): Lancamento {
-  return {
+  const base = {
     groupId: "casa",
     groupName: "Casa",
     sessionId: "moradia",
     sessionName: "Moradia",
-    type: "fixo",
+    type: "fixo" as const,
     description: "Aluguel",
     justification: "",
     startYear: 2026,
@@ -22,6 +24,25 @@ function lancamento(parcial: Partial<Lancamento> & Pick<Lancamento, "id" | "cent
     installments: null,
     months: [],
     ...parcial,
+  };
+  return {
+    ...base,
+    name: base.description,
+    date: "2026-01-07",
+    mode: modoDoValor(base.cents),
+    status: "pending",
+    transactionType: "unusual",
+    category: categoriaDoTipo(base.type),
+    priority: "normal",
+    installmentNumber: null,
+    dueDate: null,
+    interestRate: null,
+    nextDueDate: null,
+    suspendedCents: 0,
+    commitmentId: null,
+    adjustments: [],
+    recurrence: base.type === "fixo" ? "monthly" : null,
+    recurrenceInterval: base.type === "fixo" ? 1 : null,
   };
 }
 

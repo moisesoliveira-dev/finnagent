@@ -1,4 +1,11 @@
-import type { Lancamento } from "@finnagent/contracts";
+import {
+  ajustarTransacao,
+  categoriaDoTipo,
+  categoriaSempreSaida,
+  modoDoValor,
+  type Lancamento,
+} from "@finnagent/contracts";
+import { dataDaTransacao } from "./transacao.js";
 
 export const WORKFLOW_INICIAL = { year: 2026, month: 3, day: 1 };
 
@@ -17,17 +24,73 @@ function meses(valores: Record<number, number>) {
   }));
 }
 
+type CampoGerado =
+  | "name"
+  | "date"
+  | "mode"
+  | "status"
+  | "transactionType"
+  | "category"
+  | "priority"
+  | "installmentNumber"
+  | "dueDate"
+  | "interestRate"
+  | "nextDueDate"
+  | "suspendedCents"
+  | "commitmentId"
+  | "adjustments"
+  | "recurrence"
+  | "recurrenceInterval"
+  | "months"
+  | "cents"
+  | "startYear"
+  | "startMonth"
+  | "installments";
+
 function linha(
-  parcial: Omit<Lancamento, "months" | "cents" | "startYear" | "startMonth" | "installments"> &
+  parcial: Omit<Lancamento, CampoGerado> &
     Partial<Pick<Lancamento, "cents" | "startYear" | "startMonth" | "installments" | "months">>,
 ): Lancamento {
-  return {
+  const base = {
     cents: 0,
     startYear: 2026,
     startMonth: 3,
     installments: null,
     months: [],
     ...parcial,
+  };
+  const date = dataDaTransacao(base.startYear, base.startMonth, base.day);
+  const parcelado = base.type === "parcela" || base.type === "empréstimo";
+  const category = categoriaDoTipo(base.type);
+  const ajustada = ajustarTransacao({
+    category,
+    mode: modoDoValor(base.cents),
+    priority: "normal",
+    transactionType: "unusual",
+  });
+  const months = categoriaSempreSaida(category)
+    ? base.months.map((mes) => ({ ...mes, cents: mes.cents === 0 ? 0 : -Math.abs(mes.cents) }))
+    : base.months;
+  return {
+    ...base,
+    cents: base.cents === 0 ? 0 : ajustada.mode === "outflows" ? -Math.abs(base.cents) : Math.abs(base.cents),
+    months,
+    name: base.description,
+    date,
+    mode: ajustada.mode,
+    status: "pending",
+    transactionType: ajustada.transactionType,
+    category,
+    priority: ajustada.priority,
+    installmentNumber: parcelado ? 1 : null,
+    dueDate: null,
+    interestRate: null,
+    nextDueDate: base.type === "fixo" ? date : null,
+    suspendedCents: 0,
+    commitmentId: null,
+    adjustments: [],
+    recurrence: base.type === "fixo" ? "monthly" : null,
+    recurrenceInterval: base.type === "fixo" ? 1 : null,
   };
 }
 
