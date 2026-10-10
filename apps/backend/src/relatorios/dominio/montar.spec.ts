@@ -1,10 +1,16 @@
-import { montarRelatorio, type Lancamento, type Workflow } from "@finnagent/contracts";
+import {
+  categoriaDoTipo,
+  modoDoValor,
+  montarRelatorio,
+  type Lancamento,
+  type Workflow,
+} from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 
 const workflow: Workflow = { year: 2026, month: 3, day: 1 };
 
 function lancamento(parcial: Partial<Lancamento> & Pick<Lancamento, "id" | "type" | "cents">): Lancamento {
-  return {
+  const base = {
     groupId: "casa",
     groupName: "Casa",
     sessionId: "moradia",
@@ -17,6 +23,25 @@ function lancamento(parcial: Partial<Lancamento> & Pick<Lancamento, "id" | "type
     installments: null,
     months: [],
     ...parcial,
+  };
+  return {
+    ...base,
+    name: base.description,
+    date: "2026-01-01",
+    mode: modoDoValor(base.cents),
+    status: "pending",
+    transactionType: "unusual",
+    category: categoriaDoTipo(base.type),
+    priority: "normal",
+    installmentNumber: null,
+    dueDate: null,
+    interestRate: null,
+    nextDueDate: null,
+    suspendedCents: 0,
+    commitmentId: null,
+    adjustments: [],
+    recurrence: base.type === "fixo" ? "monthly" : null,
+    recurrenceInterval: base.type === "fixo" ? 1 : null,
   };
 }
 

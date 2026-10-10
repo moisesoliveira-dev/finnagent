@@ -1,5 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { FinancasResposta, Lancamento } from "@finnagent/contracts";
+import type {
+  EfeitoTransacao,
+  FinancasResposta,
+  Lancamento,
+  StatusTransacao,
+} from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { inicioDaSessao } from "../../grupos/dominio/sessao.js";
 import {
@@ -11,6 +16,7 @@ import {
   FINANCAS_REPOSITORIO,
   type FinancasRepositorio,
   type NovoLancamento,
+  type ValorFixo,
 } from "../portas/financas-repositorio.js";
 
 @Injectable()
@@ -79,6 +85,65 @@ export class FinancasService {
     if (resultado === "sessao-encerrada") {
       throw new Conflito("Essa sessão já foi encerrada.");
     }
+    if (typeof resultado === "string") {
+      throw new Conflito("Não foi possível salvar o lançamento.");
+    }
     return resultado;
+  }
+
+  async atualizar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
+    const resultado = await this.financas.atualizar(tenantId, pedido);
+    if (resultado === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (resultado === "sessao-ausente") throw new NaoEncontrado("Sessão não encontrada.");
+    if (resultado === "sessao-encerrada") throw new Conflito("Essa sessão já foi encerrada.");
+    if (typeof resultado === "string") throw new Conflito("Não foi possível salvar o lançamento.");
+    return resultado;
+  }
+
+  atualizarStatus(tenantId: string, id: string, status: StatusTransacao) {
+    return this.um(this.financas.atualizarStatus(tenantId, id, status));
+  }
+
+  associarCompromisso(tenantId: string, id: string, commitmentId: string) {
+    return this.um(this.financas.associarCompromisso(tenantId, id, commitmentId));
+  }
+
+  adiantar(tenantId: string, id: string, category: "installment" | "loan") {
+    return this.um(this.financas.adiantar(tenantId, id, category));
+  }
+
+  cancelarSerie(tenantId: string, id: string, category: "installment" | "loan") {
+    return this.um(this.financas.cancelarSerie(tenantId, id, category));
+  }
+
+  ajustarMes(
+    tenantId: string,
+    id: string,
+    year: number,
+    month: number,
+    effect: EfeitoTransacao,
+  ) {
+    return this.um(this.financas.ajustarMes(tenantId, id, year, month, effect));
+  }
+
+  async atualizarValorFixo(tenantId: string, valores: ValorFixo[]) {
+    const resultado = await this.financas.atualizarValorFixo(tenantId, valores);
+    if (typeof resultado === "string") return this.falha(resultado);
+    return resultado;
+  }
+
+  private async um(pendente: Promise<Lancamento | string>) {
+    const resultado = await pendente;
+    if (typeof resultado === "string") this.falha(resultado);
+    return resultado;
+  }
+
+  private falha(codigo: string): never {
+    if (codigo === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (codigo === "compromisso-ausente") throw new NaoEncontrado("Compromisso não encontrado.");
+    if (codigo === "categoria") throw new Conflito("Essa ação não vale para esta categoria.");
+    if (codigo === "encerrada") throw new Conflito("Essa transação já foi encerrada.");
+    if (codigo === "concluida") throw new Conflito("As parcelas já foram concluídas.");
+    throw new Conflito("Não foi possível atualizar a transação.");
   }
 }

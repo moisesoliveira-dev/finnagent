@@ -32,6 +32,146 @@ export const TIPOS_LANCAMENTO = [
 
 export type TipoLancamento = (typeof TIPOS_LANCAMENTO)[number];
 
+export const MODOS_TRANSACAO = ["inflows", "outflows"] as const;
+export type ModoTransacao = (typeof MODOS_TRANSACAO)[number];
+
+export const STATUS_TRANSACAO = ["pending", "completed", "cancelled", "refunded"] as const;
+export type StatusTransacao = (typeof STATUS_TRANSACAO)[number];
+
+export const TIPOS_TRANSACAO = ["appointment", "unusual"] as const;
+export type TipoTransacao = (typeof TIPOS_TRANSACAO)[number];
+
+export const CATEGORIAS_TRANSACAO = [
+  "additional",
+  "installment",
+  "loan",
+  "fixed",
+  "unique",
+] as const;
+export type CategoriaTransacao = (typeof CATEGORIAS_TRANSACAO)[number];
+
+export const PRIORIDADES_TRANSACAO = ["low", "normal", "high", "nopriority"] as const;
+export type PrioridadeTransacao = (typeof PRIORIDADES_TRANSACAO)[number];
+
+export function categoriaSempreEntrada(category: CategoriaTransacao) {
+  return category === "additional";
+}
+
+export function categoriaSempreSaida(category: CategoriaTransacao) {
+  return category === "installment";
+}
+
+export function categoriaDeCompromisso(category: CategoriaTransacao) {
+  return category === "fixed" || category === "installment" || category === "loan";
+}
+
+export function prioridadeAplicavel(category: CategoriaTransacao, mode: ModoTransacao) {
+  if (category === "installment") return true;
+  return mode === "outflows" && !categoriaSempreEntrada(category);
+}
+
+export function ajustarTransacao<
+  T extends {
+    category: CategoriaTransacao;
+    mode: ModoTransacao;
+    priority: PrioridadeTransacao;
+    transactionType: TipoTransacao;
+  },
+>(pedido: T): T {
+  const mode = categoriaSempreEntrada(pedido.category)
+    ? "inflows"
+    : categoriaSempreSaida(pedido.category)
+      ? "outflows"
+      : pedido.mode;
+  const priority = prioridadeAplicavel(pedido.category, mode)
+    ? pedido.priority === "nopriority"
+      ? "normal"
+      : pedido.priority
+    : "nopriority";
+  const transactionType = categoriaDeCompromisso(pedido.category)
+    ? "appointment"
+    : pedido.transactionType;
+  return { ...pedido, mode, priority, transactionType };
+}
+
+export const EFEITOS_TRANSACAO = ["cancelled", "suspended"] as const;
+export type EfeitoTransacao = (typeof EFEITOS_TRANSACAO)[number];
+
+export type AjusteTransacao = {
+  year: number;
+  month: number;
+  effect: EfeitoTransacao;
+};
+
+export function tipoDaCategoria(category: CategoriaTransacao): TipoLancamento {
+  if (category === "additional") return "adicional";
+  if (category === "installment") return "parcela";
+  if (category === "loan") return "empréstimo";
+  if (category === "fixed") return "fixo";
+  return "variável";
+}
+
+export function categoriaDoTipo(type: TipoLancamento): CategoriaTransacao {
+  if (type === "adicional") return "additional";
+  if (type === "parcela") return "installment";
+  if (type === "empréstimo") return "loan";
+  if (type === "fixo") return "fixed";
+  return "unique";
+}
+
+export function modoDoValor(cents: number): ModoTransacao {
+  return cents > 0 ? "inflows" : "outflows";
+}
+
+export function centavosComSinal(cents: number, mode: ModoTransacao) {
+  const absoluto = Math.abs(cents);
+  return mode === "outflows" ? -absoluto : absoluto;
+}
+
+export const RECORRENCIAS = [
+  "weekly",
+  "monthly",
+  "quarterly",
+  "semi_annual",
+  "annual",
+  "customize",
+] as const;
+export type Recorrencia = (typeof RECORRENCIAS)[number];
+
+const MESES_DA_RECORRENCIA = {
+  monthly: 1,
+  quarterly: 3,
+  semi_annual: 6,
+  annual: 12,
+} as const;
+
+export function vezesDaRecorrencia(
+  recurrence: Recorrencia,
+  interval: number,
+  startYear: number,
+  startMonth: number,
+  day: number,
+  year: number,
+  monthIndex: number,
+) {
+  const passo = Math.max(interval, 1);
+  const inicio = indice(startYear, startMonth - 1);
+  const alvo = indice(year, monthIndex);
+  if (alvo < inicio) return 0;
+  if (recurrence === "weekly" || recurrence === "customize") {
+    return diasNoMes(
+      startYear,
+      startMonth,
+      day,
+      year,
+      monthIndex,
+      recurrence === "weekly" ? 7 * passo : passo,
+    );
+  }
+  const meses = MESES_DA_RECORRENCIA[recurrence] * passo;
+  return (alvo - inicio) % meses === 0 ? 1 : 0;
+}
+
 export const NOME_MES = [
   "jan",
   "fev",
@@ -74,6 +214,22 @@ export type Lancamento = {
   startMonth: number;
   installments: number | null;
   months: MesLancamento[];
+  name: string;
+  date: string;
+  mode: ModoTransacao;
+  status: StatusTransacao;
+  transactionType: TipoTransacao;
+  category: CategoriaTransacao;
+  priority: PrioridadeTransacao;
+  installmentNumber: number | null;
+  dueDate: string | null;
+  interestRate: number | null;
+  nextDueDate: string | null;
+  suspendedCents: number;
+  commitmentId: string | null;
+  adjustments: AjusteTransacao[];
+  recurrence: Recorrencia | null;
+  recurrenceInterval: number | null;
 };
 
 export type FinancasResposta = {
@@ -161,13 +317,49 @@ export function somaDosCentavos(valores: Array<number | undefined>) {
   return valores.reduce<number>((total, valor) => total + (valor ?? 0), 0);
 }
 
+export function ocorreNoMes(
+  entry: Lancamento,
+  workflow: Workflow,
+  year: number,
+  monthIndex: number,
+) {
+  if (valorDoCalendario(entry, year, monthIndex) === undefined) return false;
+  return !(
+    year === workflow.year &&
+    monthIndex === workflow.month - 1 &&
+    entry.day < workflow.day
+  );
+}
+
 function centavosAgendados(entry: Lancamento, year: number, monthIndex: number) {
+  if (entry.status === "cancelled" || entry.status === "refunded") return undefined;
+  const efeito = entry.adjustments.find(
+    (ajuste) => ajuste.year === year && ajuste.month === monthIndex + 1,
+  )?.effect;
+  if (efeito === "cancelled" || efeito === "suspended") return undefined;
+  return valorDoCalendario(entry, year, monthIndex);
+}
+
+function valorDoCalendario(entry: Lancamento, year: number, monthIndex: number) {
   if (entry.type === "adicional" || entry.type === "variável") {
     return entry.months.find((mes) => mes.year === year && mes.month === monthIndex + 1)?.cents;
   }
   const distancia = indice(year, monthIndex) - indice(entry.startYear, entry.startMonth - 1);
   if (distancia < 0) return undefined;
-  if (entry.type === "fixo") return entry.cents;
+  if (entry.type === "fixo") {
+    const vezes = vezesDaRecorrencia(
+      entry.recurrence ?? "monthly",
+      entry.recurrenceInterval ?? 1,
+      entry.startYear,
+      entry.startMonth,
+      entry.day,
+      year,
+      monthIndex,
+    );
+    if (vezes === 0) return undefined;
+    if (entry.recurrence === "weekly" || entry.recurrence === "customize") return entry.cents * vezes;
+    return entry.cents;
+  }
   const parcelas = entry.installments ?? 0;
   if (distancia < parcelas) return entry.cents;
   return undefined;
@@ -175,6 +367,34 @@ function centavosAgendados(entry: Lancamento, year: number, monthIndex: number) 
 
 function indice(year: number, monthIndex: number) {
   return year * 12 + monthIndex;
+}
+
+function diasNoMes(
+  startYear: number,
+  startMonth: number,
+  day: number,
+  year: number,
+  monthIndex: number,
+  stepDays: number,
+) {
+  const inicio = instante(startYear, startMonth, day);
+  const inicioMes = Date.UTC(year, monthIndex, 1);
+  const fimMes = Date.UTC(year, monthIndex + 1, 0);
+  if (fimMes < inicio) return 0;
+  const passo = stepDays * 86_400_000;
+  const aPartir = Math.max(inicio, inicioMes);
+  const saltos = Math.ceil((aPartir - inicio) / passo);
+  let total = 0;
+  for (let quando = inicio + saltos * passo; quando <= fimMes; quando += passo) {
+    total += 1;
+    if (total > 31) break;
+  }
+  return total;
+}
+
+function instante(year: number, month: number, day: number) {
+  const ultimo = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Date.UTC(year, month - 1, Math.min(Math.max(day, 1), ultimo));
 }
 
 export const AGENDAS = ["Pessoal", "Trabalho"] as const;
@@ -696,6 +916,16 @@ export type LinhaConsumo = {
 const FINANCEIRO = new Set([
   "definir-workflow",
   "criar-lancamento",
+  "atualizar-lancamento",
+  "atualizar-status-lancamento",
+  "associar-compromisso",
+  "adiantar-parcelas",
+  "cancelar-parcelas",
+  "adiantar-emprestimo",
+  "cancelar-emprestimo",
+  "cancelar-fixo",
+  "suspender-fixo",
+  "atualizar-valor-fixo",
   "criar-grupo",
   "atualizar-grupo",
   "remover-grupo",
@@ -717,6 +947,16 @@ const EXTRATOS = new Set([
 const NOME_AGREGADO: Record<string, string> = {
   "definir-workflow": "Fluxo",
   "criar-lancamento": "Lançamento",
+  "atualizar-lancamento": "Lançamento",
+  "atualizar-status-lancamento": "Lançamento",
+  "associar-compromisso": "Lançamento",
+  "adiantar-parcelas": "Lançamento",
+  "cancelar-parcelas": "Lançamento",
+  "adiantar-emprestimo": "Lançamento",
+  "cancelar-emprestimo": "Lançamento",
+  "cancelar-fixo": "Lançamento",
+  "suspender-fixo": "Lançamento",
+  "atualizar-valor-fixo": "Lançamento",
   "criar-grupo": "Grupo",
   "atualizar-grupo": "Grupo",
   "remover-grupo": "Grupo",
