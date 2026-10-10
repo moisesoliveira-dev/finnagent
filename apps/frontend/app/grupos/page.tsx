@@ -63,6 +63,13 @@ function inicioDaSessao(iso: string | null) {
   return `Início em ${mes} de ${data.getUTCFullYear()}`;
 }
 
+function normalizar(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
 export default function Grupos() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -75,6 +82,7 @@ export default function Grupos() {
   const [sessionError, setSessionError] = useState("");
   const [sessionHint, setSessionHint] = useState("");
   const [sugestao, setSugestao] = useState<Sugestao | null>(null);
+  const [busca, setBusca] = useState("");
   const groupDialog = useRef<HTMLDialogElement>(null);
   const sessionDialog = useRef<HTMLDialogElement>(null);
 
@@ -115,6 +123,24 @@ export default function Grupos() {
   function sessionsOf(groupId: string) {
     return sessions.filter((session) => session.groupId === groupId);
   }
+
+  const termo = normalizar(busca.trim());
+
+  function inclui(value: string | undefined) {
+    return normalizar(value ?? "").includes(termo);
+  }
+
+  const visiveis = groups.flatMap((group) => {
+    const sessoes = sessionsOf(group.id);
+    if (!termo) return [{ group, sessions: sessoes }];
+    const grupoCombina = inclui(group.name) || inclui(group.description);
+    if (grupoCombina) return [{ group, sessions: sessoes }];
+    const sessoesFiltradas = sessoes.filter(
+      (session) =>
+        inclui(session.name) || inclui(session.description) || inclui(session.justification),
+    );
+    return sessoesFiltradas.length > 0 ? [{ group, sessions: sessoesFiltradas }] : [];
+  });
 
   function openGroup(group?: Group) {
     setSessionHint("");
@@ -293,6 +319,16 @@ export default function Grupos() {
             Nenhum grupo ainda.
           </p>
         ) : null}
+        {ready && !loadError && groups.length > 0 ? (
+          <input
+            type="search"
+            aria-label="Buscar grupo ou sessão"
+            placeholder="Buscar grupo ou sessão"
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            className={field}
+          />
+        ) : null}
         {sugestao ? (
           <PendingAction state={sugestao.estado} title={sugestao.titulo}>
             {sugestao.estado === "open" ? (
@@ -318,12 +354,17 @@ export default function Grupos() {
             )}
           </PendingAction>
         ) : null}
-        {groups.map((group) => (
+        {ready && !loadError && groups.length > 0 && visiveis.length === 0 ? (
+          <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
+            Nenhum grupo ou sessão encontrado.
+          </p>
+        ) : null}
+        {visiveis.map(({ group, sessions: sessoesVisiveis }) => (
           <GroupCard
             key={group.id}
             group={group}
-            sessions={sessionsOf(group.id)}
-            closed={closed[group.id] ?? false}
+            sessions={sessoesVisiveis}
+            closed={termo ? false : (closed[group.id] ?? false)}
             onToggle={() => toggle(group.id)}
             onEdit={() => openGroup(group)}
             onAdd={() => openSession(group.id)}
