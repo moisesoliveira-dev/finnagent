@@ -92,6 +92,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         include: { group: true },
       });
       if (!sessao || sessao.group.tenantId !== tenantId) return "sessao-ausente" as const;
+      if (sessao.endedAt) return "sessao-encerrada" as const;
       const ultimo = await tx.entry.aggregate({
         where: { tenantId },
         _max: { position: true },

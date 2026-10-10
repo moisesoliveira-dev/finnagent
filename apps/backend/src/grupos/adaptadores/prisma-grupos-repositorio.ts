@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../dominio/erros.js";
-import type { GruposRepositorio } from "../portas/grupos-repositorio.js";
+import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
 
 @Injectable()
 export class PrismaGruposRepositorio implements GruposRepositorio {
@@ -20,9 +20,18 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     const sessions = await db.session.findMany({
       where: { tenantId },
       orderBy: { name: "asc" },
-      select: { id: true, groupId: true, name: true, description: true, cents: true },
+      select: {
+        id: true,
+        groupId: true,
+        name: true,
+        description: true,
+        justification: true,
+        startedAt: true,
+        endedAt: true,
+        cents: true,
+      },
     });
-    return { groups, sessions };
+    return { groups, sessions: sessions.map(sessaoDe) };
   }
 
   async criarGrupo(tenantId: string, id: string, name: string, description: string) {
@@ -86,81 +95,87 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
   async criarSessao(
     tenantId: string,
     id: string,
-    groupId: string,
-    name: string,
-    description: string,
+    dados: DadosDaSessao,
     cents: number,
+    startedAt: string,
   ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.session.findFirst({ where: { id, tenantId } });
       if (atual) {
-        if (
-          atual.groupId === groupId &&
-          atual.name === name &&
-          atual.description === description &&
-          atual.cents === cents
-        ) {
-          return sessaoDe(atual);
-        }
+        if (sessaoIgual(atual, dados, cents)) return sessaoDe(atual);
         return "identificador" as const;
       }
-      if (!(await grupoDoTenant(tx, tenantId, groupId))) {
+      if (!(await grupoDoTenant(tx, tenantId, dados.groupId))) {
         return "grupo-ausente" as const;
       }
-      if (await nomeDeSessaoOcupado(tx, tenantId, groupId, name)) return "nome" as const;
+      if (await nomeDeSessaoOcupado(tx, tenantId, dados.groupId, dados.name)) {
+        return "nome" as const;
+      }
       const criada = await tx.session.create({
-        data: { id, tenantId, groupId, name, description, cents },
+        data: {
+          id,
+          tenantId,
+          cents,
+          startedAt: dataPrisma(startedAt),
+          endedAt: null,
+          ...gravacao(dados),
+        },
       });
       await gravarOutbox(tx, tenantId, "criar-sessao", id, {
         id,
-        groupId,
-        name,
-        description,
         cents,
+        startedAt,
+        endedAt: null,
+        ...dados,
       });
       return sessaoDe(criada);
     });
   }
 
-  async atualizarSessao(
-    tenantId: string,
-    id: string,
-    groupId: string,
-    name: string,
-    description: string,
-  ) {
+  async atualizarSessao(tenantId: string, id: string, dados: DadosDaSessao) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.session.findFirst({ where: { id, tenantId } });
       if (!atual) return "ausente" as const;
-      if (!(await grupoDoTenant(tx, tenantId, groupId))) {
+      if (!(await grupoDoTenant(tx, tenantId, dados.groupId))) {
         return "grupo-ausente" as const;
       }
-      if (await nomeDeSessaoOcupado(tx, tenantId, groupId, name, id)) return "nome" as const;
+      if (await nomeDeSessaoOcupado(tx, tenantId, dados.groupId, dados.name, id)) {
+        return "nome" as const;
+      }
       const gravadas = await tx.session.updateMany({
         where: { id, tenantId },
-        data: { groupId, name, description },
+        data: gravacao(dados),
       });
       if (gravadas.count !== 1) return "ausente" as const;
       const salva = await tx.session.findFirst({ where: { id, tenantId } });
       if (!salva) return "ausente" as const;
-      const payload = { id, groupId, name, description };
+      const payload = { id, ...dados };
       await gravarOutbox(tx, tenantId, "atualizar-sessao", id, payload, marcaDe(payload));
       return sessaoDe(salva);
     });
   }
 
-  async removerSessao(tenantId: string, id: string) {
+  async removerSessao(tenantId: string, id: string, endedAt: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const sessao = await tx.session.findFirst({ where: { id, tenantId } });
       if (!sessao) return false;
-      await gravarOutbox(tx, tenantId, "remover-sessao", id, {
+      if (sessao.endedAt) return true;
+      const encerradas = await tx.session.updateMany({
+        where: { id, tenantId, endedAt: null },
+        data: { endedAt: dataPrisma(endedAt) },
+      });
+      if (encerradas.count !== 1) {
+        const atual = await tx.session.findFirst({ where: { id, tenantId } });
+        return Boolean(atual?.endedAt);
+      }
+      await gravarOutbox(tx, tenantId, "encerrar-sessao", id, {
         id,
         groupId: sessao.groupId,
+        endedAt,
       });
-      await apagarSessao(tx, id, tenantId);
       return true;
     });
   }
@@ -180,6 +195,9 @@ function sessaoDe(row: {
   groupId: string;
   name: string;
   description: string;
+  justification: string;
+  startedAt: Date | null;
+  endedAt: Date | null;
   cents: number;
 }): Sessao {
   return {
@@ -187,8 +205,49 @@ function sessaoDe(row: {
     groupId: row.groupId,
     name: row.name,
     description: row.description,
+    justification: row.justification,
+    startedAt: dataIso(row.startedAt),
+    endedAt: dataIso(row.endedAt),
     cents: row.cents,
   };
+}
+
+function gravacao(dados: DadosDaSessao) {
+  return {
+    groupId: dados.groupId,
+    name: dados.name,
+    description: dados.description,
+    justification: dados.justification,
+  };
+}
+
+function sessaoIgual(
+  atual: {
+    groupId: string;
+    name: string;
+    description: string;
+    justification: string;
+    cents: number;
+  },
+  dados: DadosDaSessao,
+  cents: number,
+) {
+  return (
+    atual.groupId === dados.groupId &&
+    atual.name === dados.name &&
+    atual.description === dados.description &&
+    atual.justification === dados.justification &&
+    atual.cents === cents
+  );
+}
+
+function dataIso(value: Date | null) {
+  if (!value) return null;
+  return value.toISOString().slice(0, 10);
+}
+
+function dataPrisma(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
 }
 
 async function apagarSessao(
@@ -240,6 +299,7 @@ async function nomeDeSessaoOcupado(
     where: {
       tenantId,
       groupId,
+      endedAt: null,
       name: { equals: name, mode: "insensitive" },
       ...(ignorarId ? { NOT: { id: ignorarId } } : {}),
     },
