@@ -340,7 +340,7 @@ export default function Grupos() {
             Nenhum grupo ainda.
           </p>
         ) : null}
-        {ready && !loadError && groups.length > 0 ? (
+        {ready && !falhou && groups.length > 0 ? (
           <input
             type="search"
             aria-label="Buscar grupo ou sessão"
@@ -375,7 +375,7 @@ export default function Grupos() {
             )}
           </PendingAction>
         ) : null}
-        {ready && !loadError && groups.length > 0 && visiveis.length === 0 ? (
+        {ready && !falhou && groups.length > 0 && visiveis.length === 0 ? (
           <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
             Nenhum grupo ou sessão encontrado.
           </p>
