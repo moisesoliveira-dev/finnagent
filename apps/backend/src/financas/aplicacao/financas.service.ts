@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { FinancasResposta, Lancamento } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
+import { inicioDaSessao } from "../../grupos/dominio/sessao.js";
 import {
   GRUPOS_REPOSITORIO,
   type GruposRepositorio,
@@ -51,10 +52,14 @@ export class FinancasService {
       const resultado = await this.grupos.criarSessao(
         tenantId,
         sessao.id,
-        sessao.groupId,
-        sessao.name,
-        sessao.description,
+        {
+          groupId: sessao.groupId,
+          name: sessao.name,
+          description: sessao.description,
+          justification: "",
+        },
         0,
+        inicioDaSessao(),
       );
       if (typeof resultado === "string") {
         throw new Conflito("Não foi possível preparar o exemplo.");
@@ -70,6 +75,9 @@ export class FinancasService {
     }
     if (resultado === "sessao-ausente") {
       throw new NaoEncontrado("Sessão não encontrada.");
+    }
+    if (resultado === "sessao-encerrada") {
+      throw new Conflito("Essa sessão já foi encerrada.");
     }
     return resultado;
   }

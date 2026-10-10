@@ -21,16 +21,18 @@ model Group {
 }
 
 model Session {
-  id          String  @id
-  tenantId    String  @map("tenant_id")
-  groupId     String  @map("group_id")
-  name        String
-  description String  @default("")
-  cents       Int     @default(0)
-  group       Group   @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  entries     Entry[]
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  groupId       String    @map("group_id")
+  name          String
+  description   String    @default("")
+  justification String    @default("")
+  startedAt     DateTime? @map("started_at") @db.Date
+  endedAt       DateTime? @map("ended_at") @db.Date
+  cents         Int       @default(0)
+  group         Group     @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  entries       Entry[]
 
-  @@unique([tenantId, groupId, name])
   @@index([tenantId])
   @@map("sessions")
 }

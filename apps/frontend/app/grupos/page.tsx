@@ -15,6 +15,7 @@ type RascunhoSessao = {
   id: string | null;
   name: string;
   description: string;
+  justification: string;
   groupId: string;
   escolherGrupo: boolean;
 };
@@ -54,6 +55,14 @@ function texto(value: string | undefined) {
   return trimmed || "Sem descrição";
 }
 
+function inicioDaSessao(iso: string | null) {
+  if (!iso) return "";
+  const data = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(data.getTime())) return "";
+  const mes = new Intl.DateTimeFormat("pt-BR", { month: "long", timeZone: "UTC" }).format(data);
+  return `Início em ${mes} de ${data.getUTCFullYear()}`;
+}
+
 export default function Grupos() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -75,7 +84,7 @@ export default function Grupos() {
       .then((data) => {
         if (!active) return;
         setGroups(data.groups);
-        setSessions(data.sessions);
+        setSessions(data.sessions.filter((session) => !session.endedAt));
       })
       .catch((error: Error) => {
         if (!active) return;
@@ -134,6 +143,7 @@ export default function Grupos() {
       id: session?.id ?? null,
       name: session?.name ?? prefill?.name ?? "",
       description: session?.description ?? prefill?.description ?? "",
+      justification: session?.justification ?? "",
       groupId: session?.groupId || groupId || (escolherGrupo ? (unico?.id ?? "") : ""),
       escolherGrupo,
     });
@@ -179,6 +189,7 @@ export default function Grupos() {
     if (!sessionDraft) return;
     const name = sessionDraft.name.trim();
     const description = sessionDraft.description.trim();
+    const justification = sessionDraft.justification.trim();
     const groupId = sessionDraft.groupId;
     if (!name) {
       setSessionError("Dê um nome à sessão.");
@@ -188,20 +199,19 @@ export default function Grupos() {
       setSessionError("Escolha um grupo.");
       return;
     }
+    const corpo = { name, description, justification, groupId };
     try {
       const session = sessionDraft.id
         ? await api<Session>(`/api/sessoes/${sessionDraft.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ name, description, groupId }),
+            body: JSON.stringify(corpo),
           })
         : await api<Session>("/api/sessoes", {
             method: "POST",
             body: JSON.stringify({
               id: crypto.randomUUID(),
-              name,
-              description,
-              groupId,
               cents: 0,
+              ...corpo,
             }),
           });
       setSessions((current) => {
@@ -438,7 +448,28 @@ export default function Grupos() {
               className={`${field} resize-y py-3`}
             />
             <p className="text-xs text-ink-2">
-              Até 160 caracteres. A IA usa a descrição para escolher a sessão certa de cada lançamento.
+              Até 160 caracteres. A IA usa a descrição no contexto da sessão.
+            </p>
+          </div>
+          <div className="grid gap-1">
+            <label htmlFor="sessao-justificativa" className="text-sm font-medium">
+              Justificativa <span className="font-normal text-ink-2">(opcional)</span>
+            </label>
+            <textarea
+              id="sessao-justificativa"
+              value={sessionDraft?.justification ?? ""}
+              maxLength={160}
+              rows={3}
+              placeholder="Ex.: Reserva mensal para o mercado da casa."
+              onChange={(event) =>
+                setSessionDraft((current) =>
+                  current ? { ...current, justification: event.target.value } : current,
+                )
+              }
+              className={`${field} resize-y py-3`}
+            />
+            <p className="text-xs text-ink-2">
+              Até 160 caracteres. A IA usa a justificativa no contexto da sessão.
             </p>
           </div>
           {sessionDraft?.escolherGrupo ? (
@@ -641,6 +672,15 @@ function GroupCard({
                   >
                     {texto(session.description)}
                   </p>
+                  {session.justification.trim() ? (
+                    <p className="max-w-prose text-sm text-ink-2 line-clamp-2">
+                      <span className="font-medium">Justificativa: </span>
+                      {session.justification}
+                    </p>
+                  ) : null}
+                  {inicioDaSessao(session.startedAt) ? (
+                    <p className="text-sm text-ink-2">{inicioDaSessao(session.startedAt)}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <IconButton

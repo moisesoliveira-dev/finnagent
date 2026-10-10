@@ -5,6 +5,13 @@ export const GRUPOS_REPOSITORIO = Symbol("GRUPOS_REPOSITORIO");
 export type FalhaDeGrupo = "identificador" | "nome";
 export type FalhaDeSessao = "identificador" | "nome" | "grupo-ausente";
 
+export type DadosDaSessao = {
+  groupId: string;
+  name: string;
+  description: string;
+  justification: string;
+};
+
 export interface GruposRepositorio {
   listar(tenantId: string): Promise<GruposResposta>;
   criarGrupo(
@@ -23,17 +30,14 @@ export interface GruposRepositorio {
   criarSessao(
     tenantId: string,
     id: string,
-    groupId: string,
-    name: string,
-    description: string,
+    dados: DadosDaSessao,
     cents: number,
+    startedAt: string,
   ): Promise<Sessao | FalhaDeSessao>;
   atualizarSessao(
     tenantId: string,
     id: string,
-    groupId: string,
-    name: string,
-    description: string,
+    dados: DadosDaSessao,
   ): Promise<Sessao | FalhaDeSessao | "ausente">;
-  removerSessao(tenantId: string, id: string): Promise<boolean>;
+  removerSessao(tenantId: string, id: string, endedAt: string): Promise<boolean>;
 }
