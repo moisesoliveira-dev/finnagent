@@ -22,6 +22,16 @@ export type GruposResposta = {
   sessions: Sessao[];
 };
 
+export type ViradaGrupo = {
+  id: string;
+  name: string;
+  sessions: Array<{ id: string; name: string }>;
+};
+
+export type ViradaResposta =
+  | { pendente: false }
+  | { pendente: true; year: number; groups: ViradaGrupo[] };
+
 export const TIPOS_LANCAMENTO = [
   "adicional",
   "parcela",
@@ -272,7 +282,7 @@ export function textoDaLinha(entry: Lancamento) {
     const fim = indice(entry.startYear, entry.startMonth - 1) + Math.max(parcelas, 1) - 1;
     return `${parcelas} parcelas · termina em ${NOME_MES[fim % 12]}`;
   }
-  if (entry.type === "fixo") return "Sem fim definido";
+  if (entry.type === "fixo") return `Só em ${entry.startYear}`;
   if (entry.type === "adicional") return "Avulso";
   return "Varia a cada mês";
 }
@@ -347,6 +357,7 @@ function valorDoCalendario(entry: Lancamento, year: number, monthIndex: number) 
   const distancia = indice(year, monthIndex) - indice(entry.startYear, entry.startMonth - 1);
   if (distancia < 0) return undefined;
   if (entry.type === "fixo") {
+    if (year !== entry.startYear) return undefined;
     const vezes = vezesDaRecorrencia(
       entry.recurrence ?? "monthly",
       entry.recurrenceInterval ?? 1,
@@ -961,6 +972,7 @@ const FINANCEIRO = new Set([
   "criar-sessao",
   "atualizar-sessao",
   "encerrar-sessao",
+  "permanecer-ano",
   "remover-sessao",
   "criar-meta",
   "excluir-meta",
@@ -992,6 +1004,7 @@ const NOME_AGREGADO: Record<string, string> = {
   "criar-sessao": "Sessão",
   "atualizar-sessao": "Sessão",
   "encerrar-sessao": "Sessão",
+  "permanecer-ano": "Grupo",
   "remover-sessao": "Sessão",
   "criar-meta": "Meta",
   "excluir-meta": "Meta",

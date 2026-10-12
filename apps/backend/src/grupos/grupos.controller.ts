@@ -15,7 +15,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import { GruposService } from "./aplicacao/grupos.service.js";
-import { BancoIndisponivel, Conflito, NaoEncontrado } from "./dominio/erros.js";
+import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "./dominio/erros.js";
 
 const tenantId = z.uuid();
 const nome = z.string().trim().min(1).max(80);
@@ -36,6 +36,11 @@ const criarSessao = z.object({
   justification: justificativa.optional().default(""),
   cents: centavos.optional().default(0),
 });
+const permanecerAno = z.object({
+  year: z.number().int(),
+  groupIds: z.array(z.uuid()),
+  sessionIds: z.array(z.uuid()),
+});
 const atualizarSessao = z.object({
   name: nome,
   description: descricao,
@@ -50,6 +55,20 @@ export class GruposController {
   @Get("grupos")
   listar(@Headers("x-tenant-id") tenant: string | undefined) {
     return this.executar(() => this.grupos.listar(this.tenant(tenant)));
+  }
+
+  @Get("grupos/virada")
+  virada(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.grupos.consultarVirada(this.tenant(tenant)));
+  }
+
+  @Post("grupos/virada")
+  @HttpCode(204)
+  confirmarVirada(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = this.pedido(permanecerAno, body, "Escolha os grupos e as sessões que permanecem.");
+    return this.executar(() =>
+      this.grupos.permanecer(this.tenant(tenant), pedido.year, pedido.groupIds, pedido.sessionIds),
+    );
   }
 
   @Post("grupos")
@@ -203,6 +222,9 @@ export class GruposController {
       if (error instanceof Conflito) throw new ConflictException(error.message);
       if (error instanceof NaoEncontrado) {
         throw new NotFoundException(error.message);
+      }
+      if (error instanceof PedidoInvalido) {
+        throw new BadRequestException(error.message);
       }
       throw error;
     }

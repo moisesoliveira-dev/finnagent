@@ -12,7 +12,6 @@ import {
   type Lancamento,
   type Workflow,
 } from "@finnagent/contracts";
-import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { Stat } from "../../components/ui/stat";
 import { cn, focusRing } from "../../components/ui/cn";
@@ -48,20 +47,22 @@ export function VisaoGeral({
 
   return (
     <div className="grid min-w-0 gap-6">
-      <dl
-        className="flex flex-wrap gap-x-8 gap-y-4 border-y border-line py-4"
-        aria-label="Totais do período"
-      >
-        <Stat label="Entradas">
-          <Money cents={entradas} />
-        </Stat>
-        <Stat label="Saídas">
-          <Money cents={saidas} />
-        </Stat>
-        <Stat label="Soma das sobras">
-          <Money cents={sobra} />
-        </Stat>
-      </dl>
+      {grupos.length > 0 ? (
+        <dl
+          className="flex flex-wrap gap-x-8 gap-y-4 border-y border-line py-4"
+          aria-label="Totais do período"
+        >
+          <Stat label="Entradas">
+            <Money cents={entradas} acumulado />
+          </Stat>
+          <Stat label="Saídas">
+            <Money cents={saidas} acumulado />
+          </Stat>
+          <Stat label="Soma das sobras">
+            <Money cents={sobra} acumulado />
+          </Stat>
+        </dl>
+      ) : null}
       <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Visão geral por mês</caption>
@@ -83,8 +84,10 @@ export function VisaoGeral({
           {grupos.length === 0 ? (
             <tbody>
               <tr>
-                <td colSpan={colunas.length + 2} className="px-4 py-6 text-ink-2">
-                  Nenhum lançamento neste ano.
+                <td colSpan={colunas.length + 2} className="px-4 py-12">
+                  <p className="sticky left-1/2 w-max -translate-x-1/2 text-center text-ink-2">
+                    Nenhum lançamento neste ano.
+                  </p>
                 </td>
               </tr>
             </tbody>
@@ -119,11 +122,11 @@ export function VisaoGeral({
                   </th>
                   {somas.map((valor, index) => (
                     <td key={colunas[index]} className={numero("bg-surface-2 font-semibold")}>
-                      {valor === 0 ? <Traco /> : <Money cents={valor} strong />}
+                      {valor === 0 ? <Traco /> : <Money cents={valor} acumulado />}
                     </td>
                   ))}
                   <td className={total("bg-surface-2")}>
-                    <Money cents={somaDosCentavos(somas)} strong />
+                    <Money cents={somaDosCentavos(somas)} acumulado />
                   </td>
                 </tr>
                 {grupo.entries.map((entry) => {
@@ -134,9 +137,7 @@ export function VisaoGeral({
                     <tr key={entry.id} hidden={!aberto}>
                       <th scope="row" className={fixa("bg-surface pl-8 font-medium")}>
                         <div className="grid gap-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {entry.sessionName} <Chip>{entry.type}</Chip>
-                          </div>
+                          <div>{entry.sessionName}</div>
                           <div className="text-xs font-normal text-ink-2">{textoDaLinha(entry)}</div>
                         </div>
                       </th>
@@ -154,7 +155,7 @@ export function VisaoGeral({
                         );
                       })}
                       <td className={total("bg-surface")}>
-                        <Money cents={somaDosCentavos(valores)} />
+                        <Money cents={somaDosCentavos(valores)} acumulado />
                       </td>
                     </tr>
                   );
@@ -162,28 +163,32 @@ export function VisaoGeral({
               </tbody>
             );
           })}
-          <tfoot>
-            <tr>
-              <LinhaRodape rotulo="Entradas" valores={porMes.map((mes) => mes.entradas)} />
-            </tr>
-            <tr>
-              <LinhaRodape rotulo="Saídas" valores={porMes.map((mes) => mes.saidas)} />
-            </tr>
-            <tr>
-              <LinhaRodape
-                rotulo="Sobra do mês"
-                valores={porMes.map((mes) => mes.sobra)}
-                destaque
-                nota="soma das sobras"
-              />
-            </tr>
-          </tfoot>
+          {grupos.length > 0 ? (
+            <tfoot>
+              <tr>
+                <LinhaRodape rotulo="Entradas" valores={porMes.map((mes) => mes.entradas)} />
+              </tr>
+              <tr>
+                <LinhaRodape rotulo="Saídas" valores={porMes.map((mes) => mes.saidas)} />
+              </tr>
+              <tr>
+                <LinhaRodape
+                  rotulo="Sobra do mês"
+                  valores={porMes.map((mes) => mes.sobra)}
+                  destaque
+                  nota="soma das sobras"
+                />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
-      <p className="max-w-prose text-sm text-ink-2">
-        O Total soma todos os meses em que a transação aparece. A borda à direita marca o
-        último mês de parcelas e empréstimos.
-      </p>
+      {grupos.length > 0 ? (
+        <p className="max-w-prose text-sm text-ink-2">
+          O Total soma todos os meses em que a transação aparece. A borda à direita marca o
+          último mês de parcelas e empréstimos.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -207,11 +212,11 @@ function LinhaRodape({
       </th>
       {valores.map((valor, index) => (
         <td key={index} className={cn(numero(fundo), "border-b-0 font-semibold")}>
-          <Money cents={valor} strong />
+          <Money cents={valor} acumulado />
         </td>
       ))}
       <td className={cn(total(fundo), "border-b-0")}>
-        <Money cents={somaDosCentavos(valores)} strong />
+        <Money cents={somaDosCentavos(valores)} acumulado />
         {nota ? <small className="block text-xs font-normal text-ink-2">{nota}</small> : null}
       </td>
     </>

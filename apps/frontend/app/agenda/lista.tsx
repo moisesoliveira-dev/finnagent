@@ -4,6 +4,7 @@ import { Chip } from "../../components/ui/chip";
 import { cn } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
+import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, statusDoDia, type ItemDia } from "./itens";
 
 export function ListaMes({
@@ -42,6 +43,116 @@ export function ListaMes({
       ))}
     </div>
   );
+}
+
+export function resumoDoDia(itens: ItemDia[]) {
+  const total = itens.reduce((soma, item) => soma + (item.link?.cents ?? 0), 0);
+  return { quantidade: itens.length, total, temValor: itens.some((item) => item.link) };
+}
+
+export function PainelDoDia({
+  year,
+  month,
+  day,
+  itens,
+  onStatus,
+}: {
+  year: number;
+  month: number;
+  day: number;
+  itens: ItemDia[];
+  onStatus: (id: string, status: StatusCompromisso) => void;
+}) {
+  if (itens.length === 0) {
+    return <p className="py-6 text-sm text-ink-2">Nada neste dia.</p>;
+  }
+  return (
+    <ListaAnimada>
+      {itens.map((item) => (
+        <ItemDoDia key={item.id} year={year} month={month} day={day} item={item} onStatus={onStatus} />
+      ))}
+    </ListaAnimada>
+  );
+}
+
+function ItemDoDia({
+  year,
+  month,
+  day,
+  item,
+  onStatus,
+}: {
+  year: number;
+  month: number;
+  day: number;
+  item: ItemDia;
+  onStatus: (id: string, status: StatusCompromisso) => void;
+}) {
+  const pagamento = item.link ? statusDoDia(year, month, day) : null;
+  const meta = metaDoItem(item);
+  const proximo = item.status === "done" ? "undone" : "done";
+  return (
+    <ItemAnimado className="relative border-b border-line py-4 pl-3 last:border-b-0">
+      <span className={cn("absolute inset-y-3 left-0 w-1 rounded-sm", faixaDoItem(item))} aria-hidden />
+      <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-4">
+        <time className="pt-1 text-xs text-ink-2">{item.time ?? "Dia todo"}</time>
+        <div className="grid min-w-0 gap-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="min-w-0 truncate font-medium">{item.title}</h3>
+            {item.link ? <Money cents={item.link.cents} strong /> : null}
+          </div>
+          {item.description ? <p className="line-clamp-2 text-sm text-ink-2">{item.description}</p> : null}
+          {item.location ? <p className="text-sm text-ink-2">{item.location}</p> : null}
+          <p className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-ink-2">
+            <span>{categoriaDoItem(item)}</span>
+            {meta.length > 0 ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="min-w-0 truncate">{meta.join(" · ")}</span>
+              </>
+            ) : null}
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {pagamento ? (
+                <Chip tone={pagamento === "pago" ? "ok" : "ai"}>
+                  {pagamento === "pago" ? "Pago" : "Pendente"}
+                </Chip>
+              ) : null}
+              {item.status ? (
+                <Chip tone={item.status === "done" ? "ok" : "ai"}>{rotuloDoStatus(item.status)}</Chip>
+              ) : null}
+            </div>
+            {item.status ? (
+              <Button variant={item.status === "done" ? "quiet" : "default"} onClick={() => onStatus(item.id, proximo)}>
+                {item.status === "done" ? "Marcar descumprido" : "Marcar cumprido"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </ItemAnimado>
+  );
+}
+
+function faixaDoItem(item: ItemDia) {
+  if ((item.link?.cents ?? 0) < 0) return "bg-neg";
+  if ((item.link?.cents ?? 0) > 0) return "bg-pos";
+  return "bg-event";
+}
+
+function categoriaDoItem(item: ItemDia) {
+  if (item.link) return `${item.link.groupName} › ${item.link.sessionName}`;
+  if (item.calendar) return item.calendar;
+  return "Lançamento";
+}
+
+function metaDoItem(item: ItemDia) {
+  const partes: string[] = [];
+  if (item.calendar && item.link) partes.push(item.calendar);
+  if (item.category) partes.push(rotuloDaCategoria(item.category));
+  if (item.kind === "compromisso" && item.link) partes.push("Vinculado");
+  return partes;
 }
 
 export function ListaDoDia({

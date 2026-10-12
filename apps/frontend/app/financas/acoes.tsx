@@ -10,16 +10,18 @@ import {
   type StatusTransacao,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Money } from "../../components/ui/money";
 import { useToast } from "../../components/ui/toast";
 import { focusRing } from "../../components/ui/cn";
 import { api } from "./api";
+import { CampoValor } from "./campo-valor";
 import { reaisParaCentavos } from "./reais";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA, ROTULO_STATUS, ROTULO_TIPO, unidadeDaRecorrencia } from "./rotulos";
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 max-h-dvh w-full max-w-none overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 export function AcoesTransacao({
   entry,
@@ -142,20 +144,11 @@ function Formulario({
 
   const corpo = (
         <>
-          {embutido ? null : (
-          <div>
-            <h2 className="font-display text-lg">{entry.name || entry.description}</h2>
-            <p className="text-sm text-ink-2">
-              {ROTULO_CATEGORIA[entry.category]} · {ROTULO_TIPO[entry.transactionType]} ·{" "}
-              {ROTULO_STATUS[entry.status]}
-            </p>
-          </div>
-          )}
           <Detalhe entry={entry} />
           <div className="grid gap-1">
-            <label htmlFor="transacao-status" className="text-sm font-medium">
+            <Rotulo htmlFor="transacao-status" dica="A situação deste lançamento agora.">
               Status
-            </label>
+            </Rotulo>
             <select
               id="transacao-status"
               value={status}
@@ -185,9 +178,9 @@ function Formulario({
             </div>
           </div>
           <div className="grid gap-1">
-            <label htmlFor="transacao-compromisso" className="text-sm font-medium">
+            <Rotulo htmlFor="transacao-compromisso" dica="Liga este lançamento a um compromisso do mês.">
               Compromisso
-            </label>
+            </Rotulo>
             <select
               id="transacao-compromisso"
               value={commitmentId}
@@ -224,9 +217,9 @@ function Formulario({
             <div className="grid gap-3">
               <div className="grid gap-4 tab:grid-cols-2">
                 <div className="grid gap-1">
-                  <label htmlFor="transacao-mes" className="text-sm font-medium">
+                  <Rotulo htmlFor="transacao-mes" dica="O mês do valor fixo que você quer ajustar.">
                     Mês
-                  </label>
+                  </Rotulo>
                   <select
                     id="transacao-mes"
                     value={mes}
@@ -241,9 +234,9 @@ function Formulario({
                   </select>
                 </div>
                 <div className="grid gap-1">
-                  <label htmlFor="transacao-ano" className="text-sm font-medium">
+                  <Rotulo htmlFor="transacao-ano" dica="O ano desse mês.">
                     Ano
-                  </label>
+                  </Rotulo>
                   <input
                     id="transacao-ano"
                     inputMode="numeric"
@@ -270,21 +263,17 @@ function Formulario({
                 </Button>
               </div>
               <div className="grid gap-1">
-                <label htmlFor="transacao-valor" className="text-sm font-medium">
+                <Rotulo htmlFor="transacao-valor" dica="O valor que passa a valer a partir daqui.">
                   Novo valor
-                </label>
-                <p className="text-xs text-ink-2">O sinal segue o movimento de cada transação.</p>
-                <input
-                  id="transacao-valor"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  className={field}
-                />
+                </Rotulo>
+                <CampoValor id="transacao-valor" value={amount} onChange={setAmount} className={field} />
               </div>
               {outras.length > 0 ? (
                 <fieldset className="grid gap-2">
-                  <legend className="text-sm font-medium">Aplicar também em</legend>
+                  <legend className="flex items-center gap-1 text-sm font-medium">
+                    Aplicar também em
+                    <Dica texto="Outros valores fixos que recebem o mesmo valor." />
+                  </legend>
                   {outras.map((item) => (
                     <label key={item.id} className="flex min-h-10 items-center gap-2 text-sm">
                       <input
@@ -316,27 +305,33 @@ function Formulario({
               </div>
             </div>
           ) : null}
-          {embutido ? null : (
-          <div className="flex justify-end">
-            <Button type="button" variant="quiet" onClick={onClose}>
-              Fechar
-            </Button>
-          </div>
-          )}
         </>
   );
 
   if (embutido) return <div className="grid gap-4">{corpo}</div>;
 
   return (
+    <>
+    <div className="mb-4">
+      <h2 className="font-display text-lg">{entry.name || entry.description}</h2>
+      <p className="text-sm text-ink-2">
+        {ROTULO_CATEGORIA[entry.category]} · {ROTULO_TIPO[entry.transactionType]} ·{" "}
+        {ROTULO_STATUS[entry.status]}
+      </p>
+    </div>
     <form
-      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
       }}
     >
-      {corpo}
+      <div className="dialog-corpo grid gap-4">{corpo}</div>
+      <div className="dialog-acoes">
+        <Button type="button" variant="quiet" onClick={onClose}>
+          Fechar
+        </Button>
+      </div>
     </form>
+    </>
   );
 }
 

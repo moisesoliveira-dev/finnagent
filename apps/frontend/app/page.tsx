@@ -9,6 +9,7 @@ import { cn, focusRing } from "../components/ui/cn";
 import { List } from "../components/ui/list";
 import { ListRow } from "../components/ui/list-row";
 import { Money } from "../components/ui/money";
+import { Troca } from "../components/ui/movimento";
 import { PageHeader } from "../components/ui/page-header";
 import { Stat } from "../components/ui/stat";
 import { useToast } from "../components/ui/toast";
@@ -96,6 +97,7 @@ export default function Dashboard() {
   const toast = useToast();
   const inicio = hoje();
   const [scope, setScope] = useState<EscopoPainel>("dia");
+  const [deslize, setDeslize] = useState(0);
   const [year, setYear] = useState(inicio.year);
   const [month, setMonth] = useState(inicio.month);
   const [day, setDay] = useState(inicio.day);
@@ -124,7 +126,8 @@ export default function Dashboard() {
     };
   }, [pedido, scope, year, month, day, toast]);
 
-  function ir(proximo: { year: number; month: number; day: number }) {
+  function ir(proximo: { year: number; month: number; day: number }, delta = 0) {
+    setDeslize(delta > 0 ? 1 : delta < 0 ? -1 : 0);
     setYear(proximo.year);
     setMonth(proximo.month);
     setDay(proximo.day);
@@ -164,7 +167,12 @@ export default function Dashboard() {
                 index === ESCOPOS.length - 1 && "rounded-r-sm",
                 scope === item.id && "bg-brand-soft text-brand!",
               )}
-              onClick={() => setScope(item.id)}
+              onClick={() => {
+                const ordem = ESCOPOS.map((escopo) => escopo.id);
+                const delta = ordem.indexOf(item.id) - ordem.indexOf(scope);
+                setDeslize(delta > 0 ? 1 : delta < 0 ? -1 : 0);
+                setScope(item.id);
+              }}
             >
               {item.label}
             </Button>
@@ -176,7 +184,7 @@ export default function Dashboard() {
             className="size-10 px-0"
             aria-label="Período anterior"
             disabled={aguardando}
-            onClick={() => ir(mover(scope, year, month, day, -1))}
+            onClick={() => ir(mover(scope, year, month, day, -1), -1)}
           >
             ‹
           </Button>
@@ -189,7 +197,9 @@ export default function Dashboard() {
               onChange={(event) => {
                 const [proximoAno, proximoMes, proximoDia] = event.target.value.split("-").map(Number);
                 if (proximoAno && proximoMes && proximoDia) {
-                  ir({ year: proximoAno, month: proximoMes, day: proximoDia });
+                  const antes = year * 10000 + month * 100 + day;
+                  const depois = proximoAno * 10000 + proximoMes * 100 + proximoDia;
+                  ir({ year: proximoAno, month: proximoMes, day: proximoDia }, depois - antes);
                 }
               }}
             />
@@ -201,19 +211,21 @@ export default function Dashboard() {
             className="size-10 px-0"
             aria-label="Próximo período"
             disabled={aguardando}
-            onClick={() => ir(mover(scope, year, month, day, 1))}
+            onClick={() => ir(mover(scope, year, month, day, 1), 1)}
           >
             ›
           </Button>
         </div>
         <Button variant="quiet" disabled={noPeriodoAtual} onClick={() => {
-          setScope(scope);
-          ir(atual);
+          const antes = year * 10000 + month * 100 + day;
+          const depois = atual.year * 10000 + atual.month * 100 + atual.day;
+          ir(atual, depois - antes);
         }}>
           {voltar}
         </Button>
       </div>
 
+      <Troca id={`${scope}-${year}-${month}-${day}`} direcao={deslize} className="min-w-0">
       {aguardando ? (
         <p role="status" className="max-w-prose text-sm text-ink-2">
           Carregando o dashboard.
@@ -257,7 +269,7 @@ export default function Dashboard() {
                           className="w-full justify-start rounded-none px-4 text-brand!"
                           onClick={() => {
                             setScope("mes");
-                            ir({ year, month: mes.month, day: 1 });
+                            ir({ year, month: mes.month, day: 1 }, -1);
                           }}
                         >
                           {MESES[mes.month - 1]}
@@ -286,7 +298,7 @@ export default function Dashboard() {
                       className="h-auto justify-start px-0 font-display text-lg font-bold text-brand!"
                       onClick={() => {
                         setScope("dia");
-                        ir({ year, month, day: dia });
+                        ir({ year, month, day: dia }, -1);
                       }}
                     >
                       {rotulo(year, month, dia).replace(/^Hoje, /, "")}
@@ -308,6 +320,7 @@ export default function Dashboard() {
           )}
         </div>
       ) : null}
+      </Troca>
     </>
   );
 }

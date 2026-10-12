@@ -10,6 +10,7 @@ export function GradeMes({
   today,
   itens,
   onSelect,
+  onOpen,
   onContext,
 }: {
   year: number;
@@ -18,6 +19,7 @@ export function GradeMes({
   today: number | null;
   itens: ItemDia[];
   onSelect: (day: number) => void;
+  onOpen: (day: number) => void;
   onContext: (day: number, x: number, y: number) => void;
 }) {
   const dias = diasDoMes(year, month);
@@ -69,6 +71,7 @@ export function GradeMes({
                   : focusRing,
               )}
               onClick={() => onSelect(day)}
+              onDoubleClick={() => onOpen(day)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 const x = event.clientX;
@@ -119,7 +122,7 @@ export function GradeMes({
         })}
       </div>
       <p className="mt-3 max-w-prose text-sm text-ink-2">
-        Clique com o botão direito em um dia (ou toque, no celular) para abrir os itens dele. “R$” no
+        Dois cliques no dia abrem os itens. No celular, um toque abre. O botão direito também abre o menu. “R$” no
         compromisso indica uma transação vinculada. O ponto vermelho é saída e o verde, entrada.
       </p>
     </section>

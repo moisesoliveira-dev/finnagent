@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { Button } from "./button";
+import { Rotulo } from "./rotulo";
 import { cn, focusRing } from "./cn";
+import { useCurva } from "./movimento";
 
 const items = [
   { href: "/", label: "Dashboard" },
@@ -28,19 +31,23 @@ function Item({
   current: boolean;
   nested?: boolean;
 }) {
+  const curva = useCurva();
   return (
     <li>
       <Link
         href={href}
         aria-current={current ? "page" : undefined}
         className={cn(
-          "flex min-h-10 items-center rounded-sm px-3 py-2 font-medium text-ink-2 no-underline",
+          "relative flex min-h-10 items-center rounded-sm px-3 py-2 font-medium text-ink-2 no-underline",
           focusRing,
           nested && "tab:pl-6",
-          current && "bg-brand-soft font-semibold text-brand",
+          current && "font-semibold text-brand",
         )}
       >
-        {label}
+        {current ? (
+          <motion.span layoutId="aba" className="absolute inset-0 rounded-sm bg-brand-soft" transition={curva} />
+        ) : null}
+        <span className="relative">{label}</span>
       </Link>
     </li>
   );
@@ -118,9 +125,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="grid gap-2"
           onSubmit={(event) => event.preventDefault()}
         >
-          <label htmlFor="assistant-message" className="text-sm text-ink-2">
+          <Rotulo htmlFor="assistant-message" dica="Escreva um gasto ou um compromisso. A proposta aparece para você confirmar.">
             Mensagem
-          </label>
+          </Rotulo>
           <div className="flex gap-2">
             <input
               id="assistant-message"

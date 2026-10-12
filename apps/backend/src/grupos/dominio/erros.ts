@@ -7,3 +7,5 @@ export class BancoIndisponivel extends Error {
 export class Conflito extends Error {}
 
 export class NaoEncontrado extends Error {}
+
+export class PedidoInvalido extends Error {}

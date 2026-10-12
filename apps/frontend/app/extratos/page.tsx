@@ -13,6 +13,7 @@ import {
   type StatusExtrato,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
 import { cn, focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
@@ -23,9 +24,9 @@ import { useToast } from "../../components/ui/toast";
 const NOVA = "nova";
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-lg tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 const dialogLinhas =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-3xl tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 const ROTULO: Record<StatusExtrato, string> = {
   importado: "Importado",
@@ -409,11 +410,12 @@ export default function Extratos() {
         <h2 id="titulo-importar" className="mb-4 font-display text-lg">
           Importar extrato
         </h2>
-        <form className="grid gap-4" onSubmit={(event) => void importar(event)}>
+        <form onSubmit={(event) => void importar(event)}>
+          <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <label htmlFor="extrato-arquivo" className="text-sm font-medium">
+            <Rotulo htmlFor="extrato-arquivo" dica="O extrato em OFX ou CSV, até 5 MB.">
               Arquivo
-            </label>
+            </Rotulo>
             <input
               ref={arquivoInput}
               id="extrato-arquivo"
@@ -429,9 +431,9 @@ export default function Extratos() {
             <span className="text-xs text-ink-2">OFX ou CSV, até 5 MB.</span>
           </div>
           <div className="grid gap-1">
-            <label htmlFor="extrato-conta" className="text-sm font-medium">
+            <Rotulo htmlFor="extrato-conta" dica="A conta deste extrato. Você pode criar uma nova.">
               Conta
-            </label>
+            </Rotulo>
             <select id="extrato-conta" className={field} required value={contaId} onChange={(event) => setContaId(event.target.value)}>
               <option value="">Escolha a conta</option>
               {contas.map((item) => (
@@ -444,9 +446,9 @@ export default function Extratos() {
           </div>
           {contaId === NOVA ? (
             <div className="grid gap-1">
-              <label htmlFor="extrato-nova-conta" className="text-sm font-medium">
+              <Rotulo htmlFor="extrato-nova-conta" dica="O nome da conta que vai receber este extrato.">
                 Nome da conta
-              </label>
+              </Rotulo>
               <input
                 id="extrato-nova-conta"
                 className={field}
@@ -463,15 +465,15 @@ export default function Extratos() {
               <div className="grid gap-3 tab:grid-cols-3">
                 {(
                   [
-                    ["date", "Data", "extrato-data"],
-                    ["description", "Descrição", "extrato-descricao"],
-                    ["amount", "Valor", "extrato-valor"],
+                    ["date", "Data", "extrato-data", "Qual coluna do CSV traz a data."],
+                    ["description", "Descrição", "extrato-descricao", "Qual coluna do CSV traz a descrição."],
+                    ["amount", "Valor", "extrato-valor", "Qual coluna do CSV traz o valor."],
                   ] as const
-                ).map(([chave, rotulo, id]) => (
+                ).map(([chave, rotulo, id, dica]) => (
                   <div key={chave} className="grid gap-1">
-                    <label htmlFor={id} className="text-sm font-medium">
+                    <Rotulo htmlFor={id} dica={dica}>
                       {rotulo}
-                    </label>
+                    </Rotulo>
                     <select
                       id={id}
                       className={field}
@@ -520,7 +522,8 @@ export default function Extratos() {
               </div>
             </div>
           ) : null}
-          <div className="flex justify-end gap-2">
+          </div>
+          <div className="dialog-acoes">
             <Button variant="quiet" onClick={() => importacao.current?.close()}>
               Cancelar
             </Button>
@@ -531,7 +534,7 @@ export default function Extratos() {
         </form>
       </dialog>
 
-      <dialog ref={linhasDialog} className={dialogLinhas} aria-labelledby="titulo-linhas">
+      <dialog ref={linhasDialog} className={dialogLinhas} data-largura="larga" aria-labelledby="titulo-linhas">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="titulo-linhas" className="font-display text-lg break-all">
@@ -547,18 +550,22 @@ export default function Extratos() {
             Fechar
           </Button>
         </div>
+        <div className="dialog-corpo">
         <label className="mb-3 flex min-h-10 items-center gap-2 text-sm">
           <input
             type="checkbox"
-            className="size-[18px] accent-brand"
+            className={`size-[18px] accent-brand ${focusRing}`}
             checked={soErros}
             onChange={(event) => {
               if (aberto) void verLinhas(aberto, event.target.checked);
             }}
           />
-          Mostrar só linhas com erro
+          <span className="inline-flex items-center gap-1">
+            Mostrar só linhas com erro
+            <Dica texto="Esconde as linhas que foram lidas sem problema." />
+          </span>
         </label>
-        <div className="max-h-[55dvh] overflow-auto">
+        <div>
           {aberto?.status === "processando" ? <p className="py-6 text-center text-ink-2">Aguardando o processamento do arquivo.</p> : null}
           {aberto?.status === "falhou" ? <p className="py-6 text-center text-neg">{aberto.message}</p> : null}
           {aberto && aberto.status !== "processando" && aberto.status !== "falhou" ? (
@@ -615,16 +622,19 @@ export default function Extratos() {
             )
           ) : null}
         </div>
+        </div>
       </dialog>
 
       <dialog ref={exclusao} className={dialogClass} aria-labelledby="titulo-excluir">
+        <div className="dialog-corpo">
         <h2 id="titulo-excluir" className="mb-4 font-display text-lg">
           Excluir extrato?
         </h2>
         <p>
           O arquivo &quot;{excluir?.filename}&quot; e as linhas importadas dele serão removidos. Essa ação não pode ser desfeita.
         </p>
-        <div className="mt-4 flex justify-end gap-2">
+        </div>
+        <div className="dialog-acoes">
           <Button variant="quiet" onClick={() => exclusao.current?.close()}>
             Cancelar
           </Button>

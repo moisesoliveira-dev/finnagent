@@ -1,10 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import type { Grupo, Sessao } from "@finnagent/contracts";
+import type { Grupo, Sessao, ViradaGrupo, ViradaResposta } from "@finnagent/contracts";
 import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
-import { BancoIndisponivel, Conflito, NaoEncontrado } from "../dominio/erros.js";
+import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
+import { hojeNoFuso } from "../dominio/sessao.js";
+import { montarVirada, sessoesEncerradas } from "../dominio/virada.js";
 import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
+
+class DecisaoConcorrente extends Error {}
 
 @Injectable()
 export class PrismaGruposRepositorio implements GruposRepositorio {
@@ -157,6 +161,77 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     });
   }
 
+  async consultarVirada(tenantId: string): Promise<ViradaResposta> {
+    const db = this.banco();
+    const hoje = hojeNoFuso();
+    const workflow = await db.workflow.findUnique({ where: { tenantId } });
+    if (!workflow) return { pendente: false };
+    const [decidida, abertas] = await Promise.all([
+      db.yearStay.findUnique({ where: { tenantId_year: { tenantId, year: hoje.year } } }),
+      db.session.findMany({
+        where: { tenantId, endedAt: null },
+        orderBy: [{ group: { name: "asc" } }, { name: "asc" }],
+        select: { id: true, name: true, group: { select: { id: true, name: true } } },
+      }),
+    ]);
+    return montarVirada(hoje, workflow.year, Boolean(decidida), gruposAbertos(abertas));
+  }
+
+  async permanecer(tenantId: string, year: number, groupIds: string[], sessionIds: string[]) {
+    const db = this.banco();
+    const hoje = hojeNoFuso();
+    try {
+    await db.$transaction(async (tx) => {
+      const workflow = await tx.workflow.findUnique({ where: { tenantId } });
+      if (!workflow) return;
+      const decidida = await tx.yearStay.findUnique({
+        where: { tenantId_year: { tenantId, year: hoje.year } },
+      });
+      const abertas = await tx.session.findMany({
+        where: { tenantId, endedAt: null },
+        orderBy: [{ group: { name: "asc" } }, { name: "asc" }],
+        select: { id: true, name: true, groupId: true, group: { select: { id: true, name: true } } },
+      });
+      const groups = gruposAbertos(abertas);
+      const virada = montarVirada(hoje, workflow.year, Boolean(decidida), groups);
+      if (!virada.pendente) return;
+      if (virada.year !== year) throw new PedidoInvalido("Esse ano não está em aberto.");
+      const encerrar = sessoesEncerradas(groups, groupIds, sessionIds);
+      const fim = `${year - 1}-12-31`;
+      for (const id of encerrar) {
+        const sessao = abertas.find((item) => item.id === id);
+        const gravadas = await tx.session.updateMany({
+          where: { id, tenantId, endedAt: null },
+          data: { endedAt: dataPrisma(fim) },
+        });
+        if (gravadas.count !== 1) {
+          const atual = await tx.session.findFirst({ where: { id, tenantId } });
+          if (atual?.endedAt) throw new DecisaoConcorrente();
+          throw new Error("Sessão ausente depois de encerrar.");
+        }
+        await gravarOutbox(tx, tenantId, "encerrar-sessao", id, {
+          id,
+          groupId: sessao?.groupId,
+          endedAt: fim,
+        });
+      }
+      await tx.yearStay.create({ data: { tenantId, year } });
+      await gravarOutbox(
+        tx,
+        tenantId,
+        "permanecer-ano",
+        tenantId,
+        { year, groupIds, sessionIds },
+        String(year),
+      );
+    });
+    } catch (error) {
+      if (error instanceof DecisaoConcorrente) return;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return;
+      throw error;
+    }
+  }
+
   async removerSessao(tenantId: string, id: string, endedAt: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
@@ -184,6 +259,21 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     if (!this.prisma.ativo) throw new BancoIndisponivel();
     return this.prisma;
   }
+}
+
+function gruposAbertos(
+  rows: Array<{ id: string; name: string; group: { id: string; name: string } }>,
+): ViradaGrupo[] {
+  const groups: ViradaGrupo[] = [];
+  for (const row of rows) {
+    let group = groups.find((item) => item.id === row.group.id);
+    if (!group) {
+      group = { id: row.group.id, name: row.group.name, sessions: [] };
+      groups.push(group);
+    }
+    group.sessions.push({ id: row.id, name: row.name });
+  }
+  return groups;
 }
 
 function grupoDe(row: { id: string; name: string; description: string }): Grupo {
