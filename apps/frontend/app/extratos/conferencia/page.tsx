@@ -5,6 +5,7 @@ import type { ConferenciaResposta, LinhaConferencia } from "@finnagent/contracts
 import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
 import { Money } from "../../../components/ui/money";
+import { Troca } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
 import { PendingAction } from "../../../components/ui/pending-action";
 import { useToast } from "../../../components/ui/toast";
@@ -51,6 +52,7 @@ export default function Conferencia() {
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
+  const [deslize, setDeslize] = useState(0);
   const [dados, setDados] = useState<ConferenciaResposta | null>(null);
   const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
@@ -88,6 +90,7 @@ export default function Conferencia() {
   }, [pedido, year, month, toast]);
 
   function mudar(delta: number) {
+    setDeslize(delta > 0 ? 1 : -1);
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -133,6 +136,7 @@ export default function Conferencia() {
           </div>
         }
       />
+      <Troca id={`${year}-${month}`} direcao={deslize} className="min-w-0">
       {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando conferência.</p> : null}
       {dados ? (
         <div className="grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_340px]">
@@ -200,6 +204,7 @@ export default function Conferencia() {
           </aside>
         </div>
       ) : null}
+      </Troca>
     </>
   );
 }

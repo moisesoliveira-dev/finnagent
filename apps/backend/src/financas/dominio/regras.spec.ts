@@ -46,8 +46,10 @@ describe("regras de finanças", () => {
     expect(valores[7]).toBe(-240_730);
   });
 
-  it("mantém o fixo nos anos seguintes e encerra parcela e empréstimo", () => {
-    expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2027, 0)).toBe(620_000);
+  it("limita o fixo ao ano de início e deixa parcela e empréstimo atravessar", () => {
+    expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2026, 11)).toBe(620_000);
+    expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2027, 0)).toBeUndefined();
+    expect(centavosNoMes({ ...notebook, installments: 12 }, WORKFLOW_INICIAL, 2027, 0)).toBe(notebook.cents);
     expect(centavosNoMes(freelance, WORKFLOW_INICIAL, 2026, 4)).toBe(250_000);
     expect(centavosNoMes(freelance, WORKFLOW_INICIAL, 2026, 2)).toBeUndefined();
     expect(centavosNoMes(emprestimo, WORKFLOW_INICIAL, 2026, 8)).toBe(-52_000);
@@ -61,7 +63,7 @@ describe("regras de finanças", () => {
   it("descreve prazo, avulso e variação", () => {
     expect(textoDaLinha(notebook)).toBe("10 parcelas · termina em dez");
     expect(textoDaLinha(emprestimo)).toBe("7 parcelas · termina em set");
-    expect(textoDaLinha(salario)).toBe("Sem fim definido");
+    expect(textoDaLinha(salario)).toBe("Só em 2026");
     expect(textoDaLinha(freelance)).toBe("Avulso");
     expect(textoDaLinha(EXEMPLO[4]!)).toBe("Varia a cada mês");
   });

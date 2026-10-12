@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
@@ -14,12 +14,15 @@ import {
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
+import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
+import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
+import { Presenca, Troca } from "../../components/ui/movimento";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
-import { ListaDoDia, ListaMes } from "./lista";
+import { ListaMes, PainelDoDia, resumoDoDia } from "./lista";
 
 type Visao = "mes" | "lista";
 type Camadas = { compromisso: boolean; lancamento: boolean };
@@ -47,9 +50,9 @@ const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogDia =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:w-[min(560px,calc(100vw-2rem))] tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 const dialogForm =
-  "mt-auto mb-0 max-h-dvh w-full max-w-none overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:w-[min(460px,calc(100vw-2rem))] tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 const meses = [
   "Janeiro",
@@ -72,7 +75,9 @@ export default function Agenda() {
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
   const [selected, setSelected] = useState(hoje.getDate());
+  const [selecaoGrade, setSelecaoGrade] = useState(hoje.getDate());
   const [visao, setVisao] = useState<Visao>("mes");
+  const [deslize, setDeslize] = useState(0);
   const [camadas, setCamadas] = useState<Camadas>({ compromisso: true, lancamento: true });
   const [data, setData] = useState<AgendaResposta | null>(null);
   const [carregado, setCarregado] = useState<{ year: number; month: number } | null>(null);
@@ -82,6 +87,9 @@ export default function Agenda() {
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [saving, setSaving] = useState(false);
   const [coarse, setCoarse] = useState(false);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const diaArmado = useRef<number | null>(null);
   const dia = useRef<HTMLDialogElement>(null);
   const form = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -101,6 +109,7 @@ export default function Agenda() {
         if (!active) return;
         setData(resposta);
         setCarregado({ year, month });
+        setSelecaoGrade(selectedRef.current);
         setFalhou(false);
       })
       .catch((error: Error) => {
@@ -121,11 +130,10 @@ export default function Agenda() {
     return () => media.removeEventListener("change", atualizar);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const atual = dia.current;
     if (!atual) return;
     if (diaAberto && !atual.open) atual.showModal();
-    if (!diaAberto && atual.open) atual.close();
   }, [diaAberto]);
 
   useEffect(() => {
@@ -153,16 +161,27 @@ export default function Agenda() {
     };
   }, [menu]);
 
-  const mesPronto = carregado?.year === year && carregado?.month === month;
-  const itens = data && mesPronto ? montarItens(data.appointments, data.entries, camadas) : [];
-  const doDia = itensNoDia(itens, selected);
-  const hojeNoMes = ehHoje(year, month, hoje.getDate()) ? hoje.getDate() : null;
+  const anoVisivel = carregado?.year ?? year;
+  const mesVisivel = carregado?.month ?? month;
+
+  useEffect(() => {
+    diaArmado.current = null;
+  }, [anoVisivel, mesVisivel]);
+  const itens = data ? montarItens(data.appointments, data.entries, camadas) : [];
+  const doDia = itensNoDia(itens, selecaoGrade);
+  const resumo = resumoDoDia(doDia);
+  const hojeNoMes = ehHoje(anoVisivel, mesVisivel, hoje.getDate()) ? hoje.getDate() : null;
 
   function irPara(alvoAno: number, alvoMes: number, diaAlvo?: number) {
+    const atual = year * 12 + month;
+    const alvo = alvoAno * 12 + alvoMes;
+    if (alvo !== atual) setDeslize(alvo > atual ? 1 : -1);
     const limite = diasDoMes(alvoAno, alvoMes);
+    const dia = Math.min(diaAlvo ?? selected, limite);
     setYear(alvoAno);
     setMonth(alvoMes);
-    setSelected(Math.min(diaAlvo ?? selected, limite));
+    setSelected(dia);
+    if (carregado?.year === alvoAno && carregado?.month === alvoMes) setSelecaoGrade(dia);
     setMenu(null);
   }
 
@@ -177,13 +196,28 @@ export default function Agenda() {
   }
 
   function escolherDia(day: number) {
-    setSelected(day);
     setMenu(null);
+    if (diaArmado.current === day) {
+      abrirDia(day);
+      return;
+    }
+    diaArmado.current = day;
+    setSelected(day);
+    setSelecaoGrade(day);
     if (coarse) setDiaAberto(true);
+  }
+
+  function abrirDia(day: number) {
+    diaArmado.current = null;
+    setSelected(day);
+    setSelecaoGrade(day);
+    setMenu(null);
+    setDiaAberto(true);
   }
 
   function abrirMenu(day: number, x: number, y: number) {
     setSelected(day);
+    setSelecaoGrade(day);
     if (!x && !y) {
       const celula = document.querySelector<HTMLElement>(`[data-dia="${day}"]`);
       const rect = celula?.getBoundingClientRect();
@@ -337,7 +371,10 @@ export default function Agenda() {
               <button
                 type="button"
                 aria-pressed={visao === "mes"}
-                onClick={() => setVisao("mes")}
+                onClick={() => {
+                  setDeslize(0);
+                  setVisao("mes");
+                }}
                 className={cn(
                   "min-h-10 px-4 font-semibold",
                   focusRing,
@@ -349,7 +386,10 @@ export default function Agenda() {
               <button
                 type="button"
                 aria-pressed={visao === "lista"}
-                onClick={() => setVisao("lista")}
+                onClick={() => {
+                  setDeslize(0);
+                  setVisao("lista");
+                }}
                 className={cn(
                   "min-h-10 px-4 font-semibold",
                   focusRing,
@@ -366,16 +406,16 @@ export default function Agenda() {
         }
       >
         <div className="grid gap-4">
-          {!mesPronto && !falhou ? (
+          {!data && !falhou ? (
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
           <ConectarGoogle onConnect={() => void sincronizar()} />
           <div className="flex flex-wrap gap-4">
             {AGENDAS.map((nome) => (
               <div key={nome} className="grid gap-1">
-                <label htmlFor={`fuso-${nome}`} className="text-sm font-medium">
+                <Rotulo htmlFor={`fuso-${nome}`} dica="O fuso horário desta agenda.">
                   Fuso · {nome}
-                </label>
+                </Rotulo>
                 <select
                   id={`fuso-${nome}`}
                   className={field}
@@ -398,7 +438,7 @@ export default function Agenda() {
                 ‹
               </Button>
               <span>
-                {meses[month - 1]} de {year}
+                {meses[mesVisivel - 1]} de {anoVisivel}
               </span>
               <Button variant="quiet" className="min-w-10 px-0" aria-label="Próximo mês" onClick={mesSeguinte}>
                 ›
@@ -429,19 +469,28 @@ export default function Agenda() {
               <Button onClick={() => void sincronizar()}>Sincronizar</Button>
             </div>
           </div>
-          {mesPronto && visao === "mes" ? (
-            <GradeMes
-              year={year}
-              month={month}
-              selected={selected}
-              today={hojeNoMes}
-              itens={itens}
-              onSelect={escolherDia}
-              onContext={abrirMenu}
-            />
-          ) : null}
-          {mesPronto && visao === "lista" ? (
-            <ListaMes year={year} month={month} itens={itens} onStatus={(id, status) => void atualizarStatus(id, status)} />
+          {data ? (
+            <Troca id={`${visao}-${anoVisivel}-${mesVisivel}`} direcao={deslize}>
+              {visao === "mes" ? (
+                <GradeMes
+                  year={anoVisivel}
+                  month={mesVisivel}
+                  selected={selecaoGrade}
+                  today={hojeNoMes}
+                  itens={itens}
+                  onSelect={escolherDia}
+                  onOpen={abrirDia}
+                  onContext={abrirMenu}
+                />
+              ) : (
+                <ListaMes
+                  year={anoVisivel}
+                  month={mesVisivel}
+                  itens={itens}
+                  onStatus={(id, status) => void atualizarStatus(id, status)}
+                />
+              )}
+            </Troca>
           ) : null}
         </div>
       </PageHeader>
@@ -492,39 +541,65 @@ export default function Agenda() {
       <dialog
         ref={dia}
         className={dialogDia}
+        data-largura="media"
         aria-labelledby="titulo-dia"
+        onCancel={(event) => {
+          event.preventDefault();
+          setDiaAberto(false);
+        }}
         onClose={() => setDiaAberto(false)}
         onClick={(event) => {
           if (event.target === dia.current) setDiaAberto(false);
         }}
       >
+        <Presenca
+          aberto={diaAberto}
+          onSaiu={() => {
+            if (dia.current?.open) dia.current.close();
+          }}
+          className="dialog-miolo"
+        >
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 id="titulo-dia" className="flex flex-wrap items-center gap-2 font-display text-lg">
-            {rotuloDoDia(year, month, selected)}
-            {ehHoje(year, month, selected) ? (
-              <Chip tone="ok" className="font-sans font-normal">
-                Hoje
-              </Chip>
-            ) : null}
-          </h2>
-          <Button variant="quiet" onClick={() => setDiaAberto(false)}>
-            Fechar
+          <div className="grid gap-1">
+            <h2 id="titulo-dia" className="flex flex-wrap items-center gap-2 font-display text-lg">
+              {rotuloDoDia(anoVisivel, mesVisivel, selecaoGrade)}
+              {ehHoje(anoVisivel, mesVisivel, selecaoGrade) ? (
+                <Chip tone="ok" className="font-sans font-normal">
+                  Hoje
+                </Chip>
+              ) : null}
+            </h2>
+            <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              <span>
+                {resumo.quantidade} {resumo.quantidade === 1 ? "item" : "itens"}
+              </span>
+              {resumo.temValor ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <Money cents={resumo.total} />
+                </>
+              ) : null}
+            </p>
+          </div>
+          <Button variant="quiet" className="min-w-10 px-0" aria-label="Fechar" onClick={() => setDiaAberto(false)}>
+            ×
           </Button>
         </div>
-        <div className="max-h-[60dvh] overflow-auto">
-          <ListaDoDia
-            year={year}
-            month={month}
-            day={selected}
+        <div className="dialog-corpo">
+          <PainelDoDia
+            year={anoVisivel}
+            month={mesVisivel}
+            day={selecaoGrade}
             itens={doDia}
             onStatus={(id, status) => void atualizarStatus(id, status)}
           />
         </div>
-        <div className="mt-2 flex justify-end">
-          <Button variant="primary" onClick={novoCompromisso}>
+        <div className="dialog-acoes">
+          <Button variant="primary" className="w-full tab:w-auto" onClick={novoCompromisso}>
             Novo compromisso neste dia
           </Button>
         </div>
+        </Presenca>
       </dialog>
 
       <dialog
@@ -536,11 +611,12 @@ export default function Agenda() {
         <h2 id="titulo-compromisso" className="mb-4 font-display text-lg">
           Novo compromisso
         </h2>
-        <form className="grid gap-4" onSubmit={salvar}>
+        <form onSubmit={salvar}>
+          <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <label htmlFor="compromisso-titulo" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-titulo" dica="O nome do compromisso.">
               Título
-            </label>
+            </Rotulo>
             <input
               id="compromisso-titulo"
               required
@@ -554,9 +630,9 @@ export default function Agenda() {
             />
           </div>
           <div className="grid gap-1">
-            <label htmlFor="compromisso-descricao" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-descricao" dica="Um detalhe do compromisso.">
               Descrição <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <input
               id="compromisso-descricao"
               maxLength={160}
@@ -568,9 +644,9 @@ export default function Agenda() {
             />
           </div>
           <div className="grid gap-1">
-            <label htmlFor="compromisso-local" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-local" dica="Onde o compromisso acontece.">
               Local <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <input
               id="compromisso-local"
               maxLength={160}
@@ -582,9 +658,9 @@ export default function Agenda() {
             />
           </div>
           <div className="grid gap-1">
-            <label htmlFor="compromisso-categoria" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-categoria" dica="Uma vez, todo mês, ou todo mês até uma data.">
               Categoria
-            </label>
+            </Rotulo>
             <select
               id="compromisso-categoria"
               value={draft?.category ?? "fixed"}
@@ -605,9 +681,16 @@ export default function Agenda() {
           </div>
           <div className="grid gap-3 tab:grid-cols-2">
             <div className="grid gap-1">
-              <label htmlFor="compromisso-data" className="text-sm font-medium">
+              <Rotulo
+                htmlFor="compromisso-data"
+                dica={
+                  draft?.category === "fixed"
+                    ? "O dia deste compromisso."
+                    : "O primeiro dia em que a repetição acontece."
+                }
+              >
                 {draft?.category === "fixed" ? "Data" : "Primeiro dia"}
-              </label>
+              </Rotulo>
               <input
                 id="compromisso-data"
                 type="date"
@@ -621,9 +704,9 @@ export default function Agenda() {
             </div>
             {draft?.category === "time" ? (
               <div className="grid gap-1">
-                <label htmlFor="compromisso-fim" className="text-sm font-medium">
+                <Rotulo htmlFor="compromisso-fim" dica="O último dia em que a repetição vale.">
                   Válido até
-                </label>
+                </Rotulo>
                 <input
                   id="compromisso-fim"
                   type="date"
@@ -647,14 +730,17 @@ export default function Agenda() {
                 setDraft((atual) => (atual ? { ...atual, allDay: event.target.checked } : atual))
               }
             />
-            Dia todo
+            <span className="inline-flex items-center gap-1">
+              Dia todo
+              <Dica texto="O compromisso ocupa o dia inteiro, sem horário." />
+            </span>
           </label>
           {draft?.allDay ? null : (
             <div className="grid gap-3 tab:grid-cols-2">
               <div className="grid gap-1">
-                <label htmlFor="compromisso-hora" className="text-sm font-medium">
+                <Rotulo htmlFor="compromisso-hora" dica="A hora em que começa.">
                   Hora inicial
-                </label>
+                </Rotulo>
                 <input
                   id="compromisso-hora"
                   type="time"
@@ -667,9 +753,9 @@ export default function Agenda() {
                 />
               </div>
               <div className="grid gap-1">
-                <label htmlFor="compromisso-hora-fim" className="text-sm font-medium">
+                <Rotulo htmlFor="compromisso-hora-fim" dica="A hora em que termina.">
                   Hora final
-                </label>
+                </Rotulo>
                 <input
                   id="compromisso-hora-fim"
                   type="time"
@@ -684,9 +770,9 @@ export default function Agenda() {
             </div>
           )}
           <div className="grid gap-1">
-            <label htmlFor="compromisso-agenda" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-agenda" dica="Em qual calendário este compromisso entra.">
               Agenda do Google
-            </label>
+            </Rotulo>
             <select
               id="compromisso-agenda"
               value={draft?.calendar ?? "Pessoal"}
@@ -703,9 +789,9 @@ export default function Agenda() {
             </select>
           </div>
           <div className="grid gap-1">
-            <label htmlFor="compromisso-vinculo" className="text-sm font-medium">
+            <Rotulo htmlFor="compromisso-vinculo" dica="Liga o compromisso a um lançamento. O dia passa a mostrar o valor.">
               Vincular a uma transação <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <select
               id="compromisso-vinculo"
               value={draft?.entryId ?? ""}
@@ -725,7 +811,8 @@ export default function Agenda() {
               Com vínculo, o dia mostra o valor e o status da transação.
             </p>
           </div>
-          <div className="flex justify-end gap-2">
+          </div>
+          <div className="dialog-acoes">
             <Button variant="quiet" type="button" onClick={() => setDraft(null)}>
               Cancelar
             </Button>

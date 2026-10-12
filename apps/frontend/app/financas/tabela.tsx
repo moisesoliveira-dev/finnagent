@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   CATEGORIAS_TRANSACAO,
-  NOME_MES,
   centavosNoMes,
   colunasDoAno,
   indiceDaParcela,
@@ -17,9 +16,24 @@ import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { focusRing } from "../../components/ui/cn";
 import { doisDigitos } from "./reais";
-import { ROTULO_CATEGORIA, ROTULO_STATUS } from "./rotulos";
+import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, ROTULO_STATUS, tomDaPrioridade, tomDoStatus } from "./rotulos";
 
-const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
+const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink disabled:cursor-default disabled:opacity-50 ${focusRing}`;
+
+const MESES = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
 
 export function TabelaLancamentos({
   entries,
@@ -32,17 +46,21 @@ export function TabelaLancamentos({
   year: number;
   onEditar: (entry: Lancamento) => void;
 }) {
-  const colunas = colunasDoAno(workflow, year);
-  const [month, setMonth] = useState(9);
+  const [anoFiltro, setAnoFiltro] = useState(year);
+  const [month, setMonth] = useState<number | "">("");
+  const [day, setDay] = useState<number | "">("");
   const [groupId, setGroupId] = useState("");
   const [category, setCategory] = useState("");
   const [query, setQuery] = useState("");
-  const monthIndex = colunas.includes(month) ? month : (colunas.at(-1) ?? 0);
+  const colunas = colunasDoAno(workflow, anoFiltro);
+  const anos = anosDoFiltro(workflow, entries, year);
+  const dias = month === "" ? [] : diasDoMes(anoFiltro, month, workflow);
   const grupos = gruposDe(entries);
   const busca = query.trim().toLowerCase();
   const linhas = entries
     .filter((entry) => {
-      if (!ocorreNoMes(entry, workflow, year, monthIndex)) return false;
+      if (!ocorreNoFiltro(entry, workflow, anoFiltro, colunas, month)) return false;
+      if (day !== "" && entry.day !== day) return false;
       if (groupId && entry.groupId !== groupId) return false;
       if (category && entry.category !== category) return false;
       if (!busca) return true;
@@ -50,10 +68,40 @@ export function TabelaLancamentos({
         .toLowerCase()
         .includes(busca);
     })
-    .sort((a, b) => a.day - b.day);
+    .sort((a, b) => {
+      const mesA = primeiroMes(a, workflow, anoFiltro, colunas, month);
+      const mesB = primeiroMes(b, workflow, anoFiltro, colunas, month);
+      if (mesA !== mesB) return mesA - mesB;
+      return a.day - b.day;
+    });
   const total = somaDosCentavos(
-    linhas.map((entry) => centavosNoMes(entry, workflow, year, monthIndex)),
+    linhas.map((entry) => valorNoFiltro(entry, workflow, anoFiltro, colunas, month)),
   );
+  const rotuloTotal = day !== "" ? "Total do dia" : month === "" ? "Total do ano" : "Total do mês";
+
+  function escolherAno(proximo: number) {
+    const meses = colunasDoAno(workflow, proximo);
+    setAnoFiltro(proximo);
+    if (month !== "" && !meses.includes(month)) {
+      setMonth("");
+      setDay("");
+      return;
+    }
+    if (month !== "" && day !== "" && !diasDoMes(proximo, month, workflow).includes(day)) {
+      setDay("");
+    }
+  }
+
+  function escolherMes(valor: string) {
+    if (valor === "") {
+      setMonth("");
+      setDay("");
+      return;
+    }
+    const proximo = Number(valor);
+    setMonth(proximo);
+    if (day !== "" && !diasDoMes(anoFiltro, proximo, workflow).includes(day)) setDay("");
+  }
 
   if (colunas.length === 0) {
     return (
@@ -67,14 +115,41 @@ export function TabelaLancamentos({
     <div className="grid min-w-0 gap-4">
       <div className="flex flex-wrap gap-2">
         <select
-          aria-label="Mês"
-          value={monthIndex}
-          onChange={(event) => setMonth(Number(event.target.value))}
+          aria-label="Ano"
+          value={anoFiltro}
+          onChange={(event) => escolherAno(Number(event.target.value))}
           className={field}
         >
+          {anos.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Mês"
+          value={month}
+          onChange={(event) => escolherMes(event.target.value)}
+          className={field}
+        >
+          <option value="">Todos os meses</option>
           {colunas.map((coluna) => (
             <option key={coluna} value={coluna}>
-              {NOME_MES[coluna]} de {year}
+              {MESES[coluna]}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Dia"
+          value={day}
+          disabled={month === ""}
+          onChange={(event) => setDay(event.target.value === "" ? "" : Number(event.target.value))}
+          className={field}
+        >
+          <option value="">Todos os dias</option>
+          {dias.map((item) => (
+            <option key={item} value={item}>
+              {doisDigitos(item)}
             </option>
           ))}
         </select>
@@ -115,10 +190,10 @@ export function TabelaLancamentos({
       </div>
       <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
         <table className="w-full min-w-[880px] border-separate border-spacing-0 text-sm">
-          <caption className="sr-only">Lançamentos do mês</caption>
+          <caption className="sr-only">Lançamentos filtrados</caption>
           <thead>
             <tr>
-              {["Data", "Nome", "Categoria", "Status", "Grupo", "Sessão", "Descrição", "Justificativa"].map((coluna) => (
+              {["Data", "Nome", "Categoria", "Status", "Prioridade", "Grupo", "Sessão", "Descrição", "Justificativa"].map((coluna) => (
                 <th
                   key={coluna}
                   scope="col"
@@ -141,19 +216,22 @@ export function TabelaLancamentos({
           <tbody>
             {linhas.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-6 text-ink-2">
+                <td colSpan={11} className="px-4 py-6 text-ink-2">
                   Nenhum lançamento com esses filtros.
                 </td>
               </tr>
             ) : (
               linhas.map((entry) => {
-                const valor = centavosNoMes(entry, workflow, year, monthIndex);
-                const parcela = entry.installmentNumber ?? indiceDaParcela(entry, workflow, year, monthIndex, colunas);
+                const mesDaLinha = primeiroMes(entry, workflow, anoFiltro, colunas, month);
+                const valor = valorNoFiltro(entry, workflow, anoFiltro, colunas, month);
+                const parcela =
+                  entry.installmentNumber ??
+                  indiceDaParcela(entry, workflow, anoFiltro, mesDaLinha, colunas);
                 return (
                   <tr key={entry.id}>
                     <td className="border-b border-line px-3 py-3 whitespace-nowrap">
                       <time>
-                        {doisDigitos(entry.day)}/{doisDigitos(monthIndex + 1)}
+                        {doisDigitos(entry.day)}/{doisDigitos(mesDaLinha + 1)}
                       </time>
                     </td>
                     <td className="border-b border-line px-3 py-3">{entry.name || entry.description}</td>
@@ -161,7 +239,10 @@ export function TabelaLancamentos({
                       <Chip>{ROTULO_CATEGORIA[entry.category]}</Chip>
                     </td>
                     <td className="border-b border-line px-3 py-3">
-                      <Chip>{ROTULO_STATUS[entry.status]}</Chip>
+                      <Chip tone={tomDoStatus(entry.status)}>{ROTULO_STATUS[entry.status]}</Chip>
+                    </td>
+                    <td className="border-b border-line px-3 py-3">
+                      <Chip tone={tomDaPrioridade(entry.priority)}>{ROTULO_PRIORIDADE[entry.priority]}</Chip>
                     </td>
                     <td className="border-b border-line px-3 py-3">{entry.groupName}</td>
                     <td className="border-b border-line px-3 py-3">{entry.sessionName}</td>
@@ -202,19 +283,75 @@ export function TabelaLancamentos({
             <tr>
               <th
                 scope="row"
-                colSpan={9}
+                colSpan={10}
                 className="px-3 py-3 text-left font-semibold"
               >
-                Total do mês
+                {rotuloTotal}
               </th>
               <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">
-                <Money cents={total} strong />
+                <Money cents={total} acumulado />
               </td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
+  );
+}
+
+function anosDoFiltro(workflow: Workflow, entries: Lancamento[], atual: number) {
+  let fim = Math.max(workflow.year, atual, new Date().getFullYear());
+  for (const entry of entries) {
+    fim = Math.max(fim, entry.startYear);
+    for (const mes of entry.months) fim = Math.max(fim, mes.year);
+    if (entry.installments && entry.installments > 0) {
+      const ultimo = entry.startYear * 12 + (entry.startMonth - 1) + entry.installments - 1;
+      fim = Math.max(fim, Math.floor(ultimo / 12));
+    }
+  }
+  const inicio = workflow.year;
+  return Array.from({ length: Math.max(fim, inicio) - inicio + 1 }, (_, indice) => inicio + indice);
+}
+
+function diasDoMes(year: number, monthIndex: number, workflow: Workflow) {
+  const ultimo = new Date(year, monthIndex + 1, 0).getDate();
+  const inicio =
+    year === workflow.year && monthIndex === workflow.month - 1 ? workflow.day : 1;
+  return Array.from({ length: Math.max(ultimo - inicio + 1, 0) }, (_, indice) => inicio + indice);
+}
+
+function ocorreNoFiltro(
+  entry: Lancamento,
+  workflow: Workflow,
+  year: number,
+  colunas: number[],
+  month: number | "",
+) {
+  if (month === "") return colunas.some((coluna) => ocorreNoMes(entry, workflow, year, coluna));
+  return ocorreNoMes(entry, workflow, year, month);
+}
+
+function primeiroMes(
+  entry: Lancamento,
+  workflow: Workflow,
+  year: number,
+  colunas: number[],
+  month: number | "",
+) {
+  if (month !== "") return month;
+  return colunas.find((coluna) => ocorreNoMes(entry, workflow, year, coluna)) ?? entry.startMonth - 1;
+}
+
+function valorNoFiltro(
+  entry: Lancamento,
+  workflow: Workflow,
+  year: number,
+  colunas: number[],
+  month: number | "",
+) {
+  if (month !== "") return centavosNoMes(entry, workflow, year, month);
+  return somaDosCentavos(
+    colunas.map((coluna) => centavosNoMes(entry, workflow, year, coluna)),
   );
 }
 

@@ -1,3 +1,27 @@
+const formato = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+export function mascaraDeValor(digitos: string) {
+  const so = digitos.replace(/\D/g, "");
+  if (!so) return "";
+  const limpo = so.replace(/^0+/, "");
+  if (!limpo) return formato.format(0);
+  const corte = limpo.length > 10 ? limpo.slice(0, 10) : limpo;
+  if (Number(corte) > 2_147_483_647) return mascaraDeValor(corte.slice(0, -1));
+  return formato.format(Number(corte) / 100);
+}
+
+export function proximaMascara(anterior: string, texto: string) {
+  const velhos = anterior.replace(/\D/g, "");
+  const novos = texto.replace(/\D/g, "");
+  const significativos = velhos.replace(/^0+/, "");
+  if (novos.length < velhos.length) return mascaraDeValor(significativos.slice(0, -1));
+  if (novos.length > velhos.length) return mascaraDeValor(significativos + novos.slice(velhos.length));
+  return mascaraDeValor(novos);
+}
+
 export function reaisParaCentavos(texto: string) {
   const limpo = texto.trim().replace(/\s/g, "");
   if (!limpo) return null;
@@ -15,11 +39,7 @@ export function reaisParaCentavos(texto: string) {
 }
 
 export function centavosParaReais(cents: number) {
-  const absoluto = Math.abs(cents);
-  const inteiro = Math.trunc(absoluto / 100);
-  const frac = absoluto % 100;
-  if (frac === 0) return String(inteiro);
-  return `${inteiro},${String(frac).padStart(2, "0")}`;
+  return formato.format(Math.abs(cents) / 100);
 }
 
 export function doisDigitos(valor: number) {

@@ -14,12 +14,13 @@ import {
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { cn, focusRing } from "../../components/ui/cn";
+import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
 
 const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-2xl tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 const celula = "border-b border-line px-3 py-3 align-top";
 const cabeca = "border-b border-line px-3 py-3 text-left align-top font-semibold whitespace-nowrap text-ink-2";
 
@@ -28,6 +29,7 @@ export default function EventosPage() {
   const [dados, setDados] = useState<EventosResposta | null>(null);
   const [erro, setErro] = useState(false);
   const [visao, setVisao] = useState<"eventos" | "historico">("eventos");
+  const [deslize, setDeslize] = useState(0);
   const [categoria, setCategoria] = useState("");
   const [status, setStatus] = useState("");
   const [busca, setBusca] = useState("");
@@ -107,7 +109,10 @@ export default function EventosPage() {
                     indice === 1 && "rounded-r-sm",
                     visao === id && "bg-brand-soft text-brand!",
                   )}
-                  onClick={() => setVisao(id)}
+                  onClick={() => {
+                    setDeslize(id === "historico" ? 1 : -1);
+                    setVisao(id);
+                  }}
                 >
                   {rotulo}
                 </Button>
@@ -120,7 +125,9 @@ export default function EventosPage() {
 
       {!erro && !dados ? <p className="text-sm text-ink-2">Carregando eventos.</p> : null}
 
-      {dados && visao === "eventos" ? (
+      {dados ? (
+        <Troca id={visao} direcao={deslize}>
+      {visao === "eventos" ? (
         <section aria-label="Eventos">
           <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Categoria">
             <Button
@@ -277,8 +284,10 @@ export default function EventosPage() {
           </div>
         </section>
       ) : null}
+        </Troca>
+      ) : null}
 
-      <dialog ref={detalhes} className={dialogClass} aria-labelledby="titulo-evento" onClose={() => setAberto(null)}>
+      <dialog ref={detalhes} className={dialogClass} data-largura="media" aria-labelledby="titulo-evento" onClose={() => setAberto(null)}>
         {aberto ? (
           <>
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -295,7 +304,7 @@ export default function EventosPage() {
                 Fechar
               </Button>
             </div>
-            <div className="max-h-[62dvh] overflow-auto">
+            <div className="dialog-corpo">
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 <dt className="text-ink-2">Categoria</dt>
                 <dd className="break-words">{nomeCategoria(aberto.category, categories)}</dd>
@@ -369,7 +378,7 @@ export default function EventosPage() {
         ) : null}
       </dialog>
 
-      <dialog ref={categorias} className={dialogClass} aria-labelledby="titulo-categorias">
+      <dialog ref={categorias} className={dialogClass} data-largura="media" aria-labelledby="titulo-categorias">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 id="titulo-categorias" className="font-display text-lg">
             Categorias de evento
@@ -378,7 +387,7 @@ export default function EventosPage() {
             Fechar
           </Button>
         </div>
-        <div className="max-h-[62dvh] overflow-auto">
+        <div className="dialog-corpo">
           <ul className="overflow-hidden rounded-md border border-line">
             {categories.map((item) => (
               <li

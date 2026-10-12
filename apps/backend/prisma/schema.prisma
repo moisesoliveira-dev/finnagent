@@ -37,6 +37,15 @@ model Session {
   @@map("sessions")
 }
 
+model YearStay {
+  tenantId  String   @map("tenant_id")
+  year      Int
+  decidedAt DateTime @default(now()) @map("decided_at")
+
+  @@id([tenantId, year])
+  @@map("year_stays")
+}
+
 model Workflow {
   tenantId String @id @map("tenant_id")
   year     Int

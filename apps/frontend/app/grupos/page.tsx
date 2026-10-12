@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GruposResposta } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
 import { PageHeader } from "../../components/ui/page-header";
 import { PendingAction } from "../../components/ui/pending-action";
@@ -33,7 +34,7 @@ type Exclusao =
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 grid max-h-dvh w-full min-w-0 max-w-none gap-4 overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -412,14 +413,15 @@ export default function Grupos() {
         aria-labelledby="titulo-grupo"
         onClose={() => setGroupDraft(null)}
       >
-        <h2 id="titulo-grupo" className="font-display text-lg">
+        <h2 id="titulo-grupo" className="mb-4 font-display text-lg">
           {groupDraft?.id ? "Editar grupo" : "Novo grupo"}
         </h2>
-        <form className="grid gap-4" onSubmit={saveGroup}>
+        <form onSubmit={saveGroup}>
+          <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <label htmlFor="grupo-nome" className="text-sm font-medium">
+            <Rotulo htmlFor="grupo-nome" dica="O nome do grupo. Ele só organiza as sessões.">
               Nome
-            </label>
+            </Rotulo>
             <input
               id="grupo-nome"
               value={groupDraft?.name ?? ""}
@@ -434,9 +436,9 @@ export default function Grupos() {
             />
           </div>
           <div className="grid gap-1">
-            <label htmlFor="grupo-descricao" className="text-sm font-medium">
+            <Rotulo htmlFor="grupo-descricao" dica="Um resumo do que cabe neste grupo.">
               Descrição <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <textarea
               id="grupo-descricao"
               value={groupDraft?.description ?? ""}
@@ -454,7 +456,8 @@ export default function Grupos() {
               Até 160 caracteres. Grupos só organizam sessões; os lançamentos entram nas sessões.
             </p>
           </div>
-          <div className="mt-2 flex justify-end gap-2">
+          </div>
+          <div className="dialog-acoes">
             <Button type="button" variant="quiet" onClick={() => setGroupDraft(null)}>
               Cancelar
             </Button>
@@ -471,18 +474,19 @@ export default function Grupos() {
         aria-labelledby="titulo-sessao"
         onClose={() => setSessionDraft(null)}
       >
-        <h2 id="titulo-sessao" className="font-display text-lg">
+        <h2 id="titulo-sessao" className="mb-4 font-display text-lg">
           {sessionDraft?.id
             ? sessionDraft.escolherGrupo
               ? "Mover sessão"
               : "Editar sessão"
             : "Nova sessão"}
         </h2>
-        <form className="grid gap-4" onSubmit={saveSession}>
+        <form onSubmit={saveSession}>
+          <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <label htmlFor="sessao-nome" className="text-sm font-medium">
+            <Rotulo htmlFor="sessao-nome" dica="O nome da sessão. Os lançamentos entram aqui.">
               Nome
-            </label>
+            </Rotulo>
             <input
               id="sessao-nome"
               value={sessionDraft?.name ?? ""}
@@ -497,9 +501,9 @@ export default function Grupos() {
             />
           </div>
           <div className="grid gap-1">
-            <label htmlFor="sessao-descricao" className="text-sm font-medium">
+            <Rotulo htmlFor="sessao-descricao" dica="O contexto que a IA usa nesta sessão.">
               Descrição <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <textarea
               id="sessao-descricao"
               value={sessionDraft?.description ?? ""}
@@ -518,9 +522,9 @@ export default function Grupos() {
             </p>
           </div>
           <div className="grid gap-1">
-            <label htmlFor="sessao-justificativa" className="text-sm font-medium">
+            <Rotulo htmlFor="sessao-justificativa" dica="Por que esta sessão existe. A IA também usa isso.">
               Justificativa <span className="font-normal text-ink-2">(opcional)</span>
-            </label>
+            </Rotulo>
             <textarea
               id="sessao-justificativa"
               value={sessionDraft?.justification ?? ""}
@@ -540,9 +544,9 @@ export default function Grupos() {
           </div>
           {sessionDraft?.escolherGrupo ? (
             <div className="grid gap-1">
-              <label htmlFor="sessao-grupo" className="text-sm font-medium">
+              <Rotulo htmlFor="sessao-grupo" dica="O grupo para onde esta sessão vai.">
                 Grupo
-              </label>
+              </Rotulo>
               <select
                 id="sessao-grupo"
                 required
@@ -563,7 +567,8 @@ export default function Grupos() {
               </select>
             </div>
           ) : null}
-          <div className="mt-2 flex justify-end gap-2">
+          </div>
+          <div className="dialog-acoes">
             <Button type="button" variant="quiet" onClick={() => setSessionDraft(null)}>
               Cancelar
             </Button>
@@ -584,17 +589,19 @@ export default function Grupos() {
         aria-labelledby="titulo-excluir"
         onClose={() => setExclusao(null)}
       >
+        <div className="dialog-corpo">
         <h2 id="titulo-excluir" className="mb-4 font-display text-lg">
           {exclusao?.tipo === "sessao" ? "Excluir esta sessão?" : "Excluir este grupo?"}
         </h2>
-        <p className="mb-4 max-w-prose">
+        <p className="max-w-prose">
           {exclusao?.tipo === "sessao"
             ? `A sessão "${exclusao.sessao.name}" será excluída e o fim fica na data de hoje. Essa ação não pode ser desfeita.`
             : exclusao && exclusao.sessoes > 0
               ? `O grupo "${exclusao.grupo.name}" e as sessões dele serão removidos. Essa ação não pode ser desfeita.`
               : `O grupo "${exclusao?.grupo.name ?? ""}" será removido. Essa ação não pode ser desfeita.`}
         </p>
-        <div className="flex justify-end gap-2">
+        </div>
+        <div className="dialog-acoes">
           <Button variant="quiet" onClick={() => setExclusao(null)} disabled={excluindo}>
             Cancelar
           </Button>

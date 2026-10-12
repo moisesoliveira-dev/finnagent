@@ -8,6 +8,7 @@ import { Chip } from "../../components/ui/chip";
 import { List } from "../../components/ui/list";
 import { ListRow } from "../../components/ui/list-row";
 import { Money } from "../../components/ui/money";
+import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
@@ -55,6 +56,7 @@ function parteDasSaidas(saidas: number, total: number) {
 export default function RelatoriosPage() {
   const toast = useToast();
   const [dados, setDados] = useState<RelatorioResposta | null>(null);
+  const [deslize, setDeslize] = useState(0);
   const [falhou, setFalhou] = useState(false);
   const [carregando, setCarregando] = useState(true);
 
@@ -114,7 +116,10 @@ export default function RelatoriosPage() {
                 className="size-10 px-0 disabled:opacity-60"
                 aria-label="Ano anterior"
                 disabled={carregando || dados.year <= dados.workflow.year}
-                onClick={() => void carregar(dados.year - 1)}
+                onClick={() => {
+                  setDeslize(-1);
+                  void carregar(dados.year - 1);
+                }}
               >
                 ‹
               </Button>
@@ -124,7 +129,10 @@ export default function RelatoriosPage() {
                 className="size-10 px-0"
                 aria-label="Próximo ano"
                 disabled={carregando}
-                onClick={() => void carregar(dados.year + 1)}
+                onClick={() => {
+                  setDeslize(1);
+                  void carregar(dados.year + 1);
+                }}
               >
                 ›
               </Button>
@@ -134,6 +142,7 @@ export default function RelatoriosPage() {
             </Chip>
           </div>
 
+          <Troca id={String(dados.year)} direcao={deslize} className="grid min-w-0 gap-8">
           <dl className="flex min-w-0 flex-wrap gap-x-8 gap-y-4 border-y border-line py-4" aria-label="Totais do ano">
             <Stat label="Entradas">
               <Money cents={dados.entradas} strong />
@@ -246,6 +255,7 @@ export default function RelatoriosPage() {
               </List>
             </section>
           ) : null}
+          </Troca>
         </div>
       ) : null}
     </>

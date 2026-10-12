@@ -10,6 +10,11 @@ export function fimDaSessao(agora = new Date()) {
   return data(ano, mes, dia);
 }
 
+export function hojeNoFuso(agora = new Date()) {
+  const { ano, mes, dia } = calendario(agora);
+  return { year: ano, month: mes, day: dia };
+}
+
 function calendario(agora: Date) {
   const partes = new Intl.DateTimeFormat("en-CA", {
     timeZone: fuso,

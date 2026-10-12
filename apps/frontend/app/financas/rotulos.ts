@@ -48,6 +48,19 @@ export const ROTULO_RECORRENCIA: Record<Recorrencia, string> = {
   customize: "Personalizada",
 };
 
+export function tomDoStatus(status: StatusTransacao) {
+  if (status === "completed") return "ok" as const;
+  if (status === "pending") return "ai" as const;
+  if (status === "cancelled") return "neg" as const;
+  return "default" as const;
+}
+
+export function tomDaPrioridade(priority: PrioridadeTransacao) {
+  if (priority === "high") return "neg" as const;
+  if (priority === "low") return "ai" as const;
+  return "default" as const;
+}
+
 export function unidadeDaRecorrencia(recurrence: Recorrencia) {
   if (recurrence === "weekly") return "semanas";
   if (recurrence === "monthly") return "meses";
@@ -55,12 +68,4 @@ export function unidadeDaRecorrencia(recurrence: Recorrencia) {
   if (recurrence === "semi_annual") return "semestres";
   if (recurrence === "annual") return "anos";
   return "dias";
-}
-
-export function textoDaCategoria(category: CategoriaTransacao) {
-  if (category === "fixed") return "O valor se repete a partir da data, sem previsão de término.";
-  if (category === "installment") return "Cada parcela repete o valor a partir da data.";
-  if (category === "loan") return "O empréstimo repete o valor em cada parcela, com vencimento e juros.";
-  if (category === "additional") return "Entrada extra, só na data informada.";
-  return "Saída fora da rotina, só na data informada.";
 }

@@ -27,13 +27,17 @@ import {
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
+import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
+import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 import { AcoesTransacao } from "./acoes";
 import { TabelaLancamentos } from "./tabela";
+import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
+import { CampoValor } from "./campo-valor";
 import { centavosParaReais, doisDigitos, reaisParaCentavos } from "./reais";
 import {
   ROTULO_CATEGORIA,
@@ -42,7 +46,6 @@ import {
   ROTULO_RECORRENCIA,
   ROTULO_STATUS,
   ROTULO_TIPO,
-  textoDaCategoria,
   unidadeDaRecorrencia,
 } from "./rotulos";
 
@@ -72,7 +75,7 @@ type Rascunho = {
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 max-h-dvh w-full max-w-none overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-md tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 export default function Financas() {
   const toast = useToast();
@@ -80,6 +83,7 @@ export default function Financas() {
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
   const [visao, setVisao] = useState<Visao>("geral");
+  const [deslize, setDeslize] = useState(0);
   const [year, setYear] = useState<number | null>(null);
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
@@ -294,6 +298,7 @@ export default function Financas() {
 
   return (
     <div className="min-w-0">
+      <ViradaDoAno />
       <PageHeader
         title="Finanças"
         subtitle={workflow ? subtitulo(workflow) : undefined}
@@ -303,7 +308,10 @@ export default function Financas() {
               <button
                 type="button"
                 aria-pressed={visao === "base"}
-                onClick={() => setVisao("base")}
+                onClick={() => {
+                  setDeslize(-1);
+                  setVisao("base");
+                }}
                 className={cn(
                   "min-h-10 px-4 font-semibold",
                   focusRing,
@@ -315,7 +323,10 @@ export default function Financas() {
               <button
                 type="button"
                 aria-pressed={visao === "geral"}
-                onClick={() => setVisao("geral")}
+                onClick={() => {
+                  setDeslize(1);
+                  setVisao("geral");
+                }}
                 className={cn(
                   "min-h-10 px-4 font-semibold",
                   focusRing,
@@ -337,24 +348,33 @@ export default function Financas() {
               Carregando finanças.
             </p>
           ) : null}
-          {ready && workflow && data && visao === "geral" ? (
-            <>
-              <Ano
-                year={ano}
-                workflow={workflow}
-                onPrevious={() => setYear(ano - 1)}
-                onNext={() => setYear(ano + 1)}
-              />
-              <VisaoGeral entries={data.entries} workflow={workflow} year={ano} />
-            </>
-          ) : null}
-          {ready && workflow && data && visao === "base" ? (
-            <TabelaLancamentos
-              entries={data.entries}
-              workflow={workflow}
-              year={ano}
-              onEditar={(entry) => void abrirEdicao(entry)}
-            />
+          {ready && workflow && data ? (
+            <Troca id={`${visao}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">
+              {visao === "geral" ? (
+                <>
+                  <Ano
+                    year={ano}
+                    workflow={workflow}
+                    onPrevious={() => {
+                      setDeslize(-1);
+                      setYear(ano - 1);
+                    }}
+                    onNext={() => {
+                      setDeslize(1);
+                      setYear(ano + 1);
+                    }}
+                  />
+                  <VisaoGeral entries={data.entries} workflow={workflow} year={ano} />
+                </>
+              ) : (
+                <TabelaLancamentos
+                  entries={data.entries}
+                  workflow={workflow}
+                  year={ano}
+                  onEditar={(entry) => void abrirEdicao(entry)}
+                />
+              )}
+            </Troca>
           ) : null}
         </div>
         <dialog
@@ -363,11 +383,12 @@ export default function Financas() {
           onClose={() => setDraft(null)}
         >
           <h2 className="mb-4 font-display text-lg">{editando ? "Editar lançamento" : "Novo lançamento"}</h2>
-          <form className="grid gap-4" onSubmit={salvar}>
+          <form onSubmit={salvar}>
+            <div className="dialog-corpo grid gap-4">
             <div className="grid gap-1">
-              <label htmlFor="lancamento-sessao" className="text-sm font-medium">
+              <Rotulo htmlFor="lancamento-sessao" dica="Onde este lançamento entra. A sessão pertence a um grupo.">
                 Sessão
-              </label>
+              </Rotulo>
               <select
                 id="lancamento-sessao"
                 value={draft?.sessionId ?? ""}
@@ -386,9 +407,9 @@ export default function Financas() {
               </select>
             </div>
             <div className="grid gap-1">
-              <label htmlFor="lancamento-nome" className="text-sm font-medium">
+              <Rotulo htmlFor="lancamento-nome" dica="Como este lançamento aparece na lista.">
                 Nome
-              </label>
+              </Rotulo>
               <input
                 id="lancamento-nome"
                 value={draft?.name ?? ""}
@@ -399,44 +420,47 @@ export default function Financas() {
                 className={field}
               />
             </div>
-            <div className="grid gap-1">
-              <label htmlFor="lancamento-descricao" className="text-sm font-medium">
-                Descrição
-              </label>
-              <input
-                id="lancamento-descricao"
-                value={draft?.description ?? ""}
-                maxLength={160}
-                placeholder="Opcional"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, description: event.target.value } : current,
-                  )
-                }
-                className={field}
-              />
-            </div>
-            <div className="grid gap-1">
-              <label htmlFor="lancamento-justificativa" className="text-sm font-medium">
-                Justificativa
-              </label>
-              <input
-                id="lancamento-justificativa"
-                value={draft?.justification ?? ""}
-                maxLength={160}
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, justification: event.target.value } : current,
-                  )
-                }
-                className={field}
-              />
-            </div>
-            <div className="grid gap-4 tab:grid-cols-2">
+            <div className="dialog-par">
               <div className="grid gap-1">
-                <label htmlFor="lancamento-data" className="text-sm font-medium">
+                <Rotulo htmlFor="lancamento-descricao" dica="Um detalhe a mais sobre este lançamento.">
+                  Descrição
+                </Rotulo>
+                <input
+                  id="lancamento-descricao"
+                  value={draft?.description ?? ""}
+                  maxLength={160}
+                  placeholder="Opcional"
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, description: event.target.value } : current,
+                    )
+                  }
+                  className={field}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Rotulo htmlFor="lancamento-justificativa" dica="Por que este valor existe.">
+                  Justificativa
+                </Rotulo>
+                <input
+                  id="lancamento-justificativa"
+                  value={draft?.justification ?? ""}
+                  maxLength={160}
+                  placeholder="Opcional"
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, justification: event.target.value } : current,
+                    )
+                  }
+                  className={field}
+                />
+              </div>
+            </div>
+            <div className="dialog-par">
+              <div className="grid gap-1">
+                <Rotulo htmlFor="lancamento-data" dica="O dia deste lançamento.">
                   Data
-                </label>
+                </Rotulo>
                 <input
                   id="lancamento-data"
                   type="date"
@@ -450,85 +474,24 @@ export default function Financas() {
                 />
               </div>
               <div className="grid gap-1">
-                <label htmlFor="lancamento-valor" className="text-sm font-medium">
+                <Rotulo htmlFor="lancamento-valor" dica="O valor em reais. Os centavos entram enquanto você digita.">
                   Valor
-                </label>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="w-4 text-center font-semibold" aria-hidden="true">
-                    {vista?.mode === "inflows" ? "+" : "−"}
-                  </span>
-                  <input
-                    id="lancamento-valor"
-                    inputMode="decimal"
-                    placeholder="Ex.: 350"
-                    aria-describedby="lancamento-sinal"
-                    value={(draft?.amount ?? "").replace(/^[-−+]/, "")}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? { ...current, amount: event.target.value.replace(/^[-−+]/, "") }
-                          : current,
-                      )
-                    }
-                    className={field}
-                  />
-                </div>
-                <p id="lancamento-sinal" className="text-xs text-ink-2">
-                  {vista?.mode === "inflows"
-                    ? "O valor é enviado positivo."
-                    : "O valor é enviado negativo."}
-                </p>
+                </Rotulo>
+                <CampoValor
+                  id="lancamento-valor"
+                  value={(draft?.amount ?? "").replace(/^[-−+]/, "")}
+                  onChange={(valor) =>
+                    setDraft((current) => (current ? { ...current, amount: valor } : current))
+                  }
+                  className={field}
+                />
               </div>
             </div>
-            <div className="grid gap-4 tab:grid-cols-2">
-              {vista && categoriaSempreEntrada(vista.category) ? (
-                <p className="text-sm text-ink-2">Movimento: Entrada.</p>
-              ) : vista && categoriaSempreSaida(vista.category) ? (
-                <p className="text-sm text-ink-2">Movimento: Saída.</p>
-              ) : (
-                <CampoSelect
-                  id="lancamento-movimento"
-                  label="Movimento"
-                  value={vista?.mode ?? "outflows"}
-                  options={MODOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_MODO[item] }))}
-                  onChange={(mode) =>
-                    setDraft((current) =>
-                      current ? { ...current, mode: mode as ModoTransacao } : current,
-                    )
-                  }
-                />
-              )}
-              <CampoSelect
-                id="lancamento-status"
-                label="Status"
-                value={draft?.status ?? "pending"}
-                options={STATUS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_STATUS[item] }))}
-                onChange={(status) =>
-                  setDraft((current) =>
-                    current ? { ...current, status: status as StatusTransacao } : current,
-                  )
-                }
-              />
-              {vista && categoriaDeCompromisso(vista.category) ? (
-                <p className="text-sm text-ink-2">Tipo: Compromisso.</p>
-              ) : (
-                <CampoSelect
-                  id="lancamento-tipo"
-                  label="Tipo"
-                  value={vista?.transactionType ?? "unusual"}
-                  options={TIPOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_TIPO[item] }))}
-                  onChange={(transactionType) =>
-                    setDraft((current) =>
-                      current
-                        ? { ...current, transactionType: transactionType as TipoTransacao }
-                        : current,
-                    )
-                  }
-                />
-              )}
+            <div className="dialog-par">
               <CampoSelect
                 id="lancamento-categoria"
                 label="Categoria"
+                dica="Extra, parcela, empréstimo, fixa ou única."
                 value={draft?.category ?? "fixed"}
                 options={CATEGORIAS_TRANSACAO.map((item) => ({
                   value: item,
@@ -540,10 +503,53 @@ export default function Financas() {
                   )
                 }
               />
+              <CampoSelect
+                id="lancamento-status"
+                label="Status"
+                dica="Pendente, paga, cancelada ou estornada."
+                value={draft?.status ?? "pending"}
+                options={STATUS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_STATUS[item] }))}
+                onChange={(status) =>
+                  setDraft((current) =>
+                    current ? { ...current, status: status as StatusTransacao } : current,
+                  )
+                }
+              />
+              {vista && !categoriaSempreEntrada(vista.category) && !categoriaSempreSaida(vista.category) ? (
+                <CampoSelect
+                  id="lancamento-movimento"
+                  label="Movimento"
+                  dica="Entrada ou saída. Algumas categorias já definem isso."
+                  value={vista.mode}
+                  options={MODOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_MODO[item] }))}
+                  onChange={(mode) =>
+                    setDraft((current) =>
+                      current ? { ...current, mode: mode as ModoTransacao } : current,
+                    )
+                  }
+                />
+              ) : null}
+              {vista && !categoriaDeCompromisso(vista.category) ? (
+                <CampoSelect
+                  id="lancamento-tipo"
+                  label="Tipo"
+                  dica="Compromisso combinado ou um lançamento incomum."
+                  value={vista.transactionType}
+                  options={TIPOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_TIPO[item] }))}
+                  onChange={(transactionType) =>
+                    setDraft((current) =>
+                      current
+                        ? { ...current, transactionType: transactionType as TipoTransacao }
+                        : current,
+                    )
+                  }
+                />
+              ) : null}
               {vista && prioridadeAplicavel(vista.category, vista.mode) ? (
                 <CampoSelect
                   id="lancamento-prioridade"
                   label="Prioridade"
+                  dica="Baixa, normal ou alta. Só aparece quando a categoria permite."
                   value={vista.priority === "nopriority" ? "normal" : vista.priority}
                   options={PRIORIDADES_TRANSACAO.filter((item) => item !== "nopriority").map((item) => ({
                     value: item,
@@ -555,17 +561,14 @@ export default function Financas() {
                     )
                   }
                 />
-              ) : (
-                <p className="text-sm text-ink-2">Sem prioridade.</p>
-              )}
+              ) : null}
             </div>
-            <p className="text-xs text-ink-2">{textoDaCategoria(draft?.category ?? "fixed")}</p>
             {draft?.category === "installment" || draft?.category === "loan" ? (
-              <div className="grid gap-4 tab:grid-cols-2">
+              <div className="dialog-par">
                 <div className="grid gap-1">
-                  <label htmlFor="lancamento-parcela" className="text-sm font-medium">
+                  <Rotulo htmlFor="lancamento-parcela" dica="Qual parcela está em andamento.">
                     Parcela atual
-                  </label>
+                  </Rotulo>
                   <input
                     id="lancamento-parcela"
                     inputMode="numeric"
@@ -579,9 +582,9 @@ export default function Financas() {
                   />
                 </div>
                 <div className="grid gap-1">
-                  <label htmlFor="lancamento-parcelas" className="text-sm font-medium">
+                  <Rotulo htmlFor="lancamento-parcelas" dica="Quantas parcelas este lançamento tem.">
                     Total de parcelas
-                  </label>
+                  </Rotulo>
                   <input
                     id="lancamento-parcelas"
                     inputMode="numeric"
@@ -597,11 +600,11 @@ export default function Financas() {
               </div>
             ) : null}
             {draft?.category === "loan" ? (
-              <div className="grid gap-4 tab:grid-cols-2">
+              <div className="dialog-par">
                 <div className="grid gap-1">
-                  <label htmlFor="lancamento-vencimento" className="text-sm font-medium">
+                  <Rotulo htmlFor="lancamento-vencimento" dica="O dia em que o empréstimo vence.">
                     Vencimento
-                  </label>
+                  </Rotulo>
                   <input
                     id="lancamento-vencimento"
                     type="date"
@@ -615,9 +618,9 @@ export default function Financas() {
                   />
                 </div>
                 <div className="grid gap-1">
-                  <label htmlFor="lancamento-juros" className="text-sm font-medium">
+                  <Rotulo htmlFor="lancamento-juros" dica="A taxa de juros do empréstimo.">
                     Juros (%)
-                  </label>
+                  </Rotulo>
                   <input
                     id="lancamento-juros"
                     inputMode="decimal"
@@ -634,10 +637,11 @@ export default function Financas() {
             ) : null}
             {draft?.category === "fixed" ? (
               <div className="grid gap-4">
-                <div className="grid gap-4 tab:grid-cols-2">
+                <div className="dialog-par">
                   <CampoSelect
                     id="lancamento-recorrencia"
                     label="Recorrência"
+                    dica="De quanto em quanto o valor fixo se repete neste ano."
                     value={draft.recurrence}
                     options={RECORRENCIAS.map((item) => ({
                       value: item,
@@ -650,9 +654,12 @@ export default function Financas() {
                     }
                   />
                   <div className="grid gap-1">
-                    <label htmlFor="lancamento-intervalo" className="text-sm font-medium">
-                      Intervalo
-                    </label>
+                    <Rotulo
+                      htmlFor="lancamento-intervalo"
+                      dica="Quantos períodos separam uma ocorrência da outra."
+                    >
+                      Intervalo em {unidadeDaRecorrencia(draft.recurrence)}
+                    </Rotulo>
                     <input
                       id="lancamento-intervalo"
                       inputMode="numeric"
@@ -666,13 +673,10 @@ export default function Financas() {
                     />
                   </div>
                 </div>
-                <p className="text-xs text-ink-2">
-                  A cada {draft.recurrenceInterval || "1"} {unidadeDaRecorrencia(draft.recurrence)}.
-                </p>
                 <div className="grid gap-1">
-                  <label htmlFor="lancamento-proximo" className="text-sm font-medium">
+                  <Rotulo htmlFor="lancamento-proximo" dica="A próxima data em que o valor fixo acontece.">
                     Próximo vencimento
-                  </label>
+                  </Rotulo>
                   <input
                     id="lancamento-proximo"
                     type="date"
@@ -702,8 +706,16 @@ export default function Financas() {
                 }}
               />
             ) : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="quiet" onClick={() => setDraft(null)}>
+            </div>
+            <div className="dialog-acoes">
+              <Button
+                type="button"
+                variant="quiet"
+                onClick={() => {
+                  setDraft(null);
+                  dialog.current?.close();
+                }}
+              >
                 Cancelar
               </Button>
               <Button type="submit" variant="primary">
@@ -791,21 +803,23 @@ function dataIso(year: number, month: number, day: number) {
 function CampoSelect({
   id,
   label,
+  dica,
   value,
   options,
   onChange,
 }: {
   id: string;
   label: string;
+  dica: string;
   value: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
   return (
     <div className="grid gap-1">
-      <label htmlFor={id} className="text-sm font-medium">
+      <Rotulo htmlFor={id} dica={dica}>
         {label}
-      </label>
+      </Rotulo>
       <select id={id} value={value} onChange={(event) => onChange(event.target.value)} className={field}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>

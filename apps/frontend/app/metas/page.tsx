@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { calcularMeta, type CalculoMeta, type Meta, type MetasResposta } from "@finnagent/contracts";
+import { CampoValor } from "../financas/campo-valor";
 import { reaisParaCentavos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
+import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
 
@@ -28,7 +30,7 @@ const MESES = [
 
 const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogClass =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:max-w-lg tab:rounded-lg";
+  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 function reais(cents: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
@@ -272,11 +274,12 @@ export default function MetasPage() {
         <h2 id="titulo-nova-meta" className="mb-4 font-display text-lg">
           Nova meta
         </h2>
-        <form className="grid gap-4" onSubmit={salvar}>
+        <form onSubmit={salvar}>
+          <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <label htmlFor="meta-nome" className="text-sm font-medium">
+            <Rotulo htmlFor="meta-nome" dica="O nome da meta.">
               Nome
-            </label>
+            </Rotulo>
             <input
               id="meta-nome"
               className={field}
@@ -288,31 +291,16 @@ export default function MetasPage() {
           </div>
           <div className="grid gap-4 tab:grid-cols-2">
             <div className="grid gap-1">
-              <label htmlFor="meta-alvo" className="text-sm font-medium">
+              <Rotulo htmlFor="meta-alvo" dica="O valor que você quer juntar.">
                 Quanto você quer
-              </label>
-              <input
-                id="meta-alvo"
-                className={field}
-                inputMode="decimal"
-                required
-                placeholder="0,00"
-                value={alvo}
-                onChange={(event) => setAlvo(event.target.value)}
-              />
+              </Rotulo>
+              <CampoValor id="meta-alvo" className={field} required value={alvo} onChange={setAlvo} />
             </div>
             <div className="grid gap-1">
-              <label htmlFor="meta-guardado" className="text-sm font-medium">
+              <Rotulo htmlFor="meta-guardado" dica="O que já está guardado para esta meta.">
                 Quanto você já separou
-              </label>
-              <input
-                id="meta-guardado"
-                className={field}
-                inputMode="decimal"
-                placeholder="0,00"
-                value={guardado}
-                onChange={(event) => setGuardado(event.target.value)}
-              />
+              </Rotulo>
+              <CampoValor id="meta-guardado" className={field} value={guardado} onChange={setGuardado} />
             </div>
           </div>
           <label className="flex min-h-10 items-center gap-2 text-sm">
@@ -322,14 +310,17 @@ export default function MetasPage() {
               checked={comPrazo}
               onChange={(event) => setComPrazo(event.target.checked)}
             />
-            Definir um prazo
+            <span className="inline-flex items-center gap-1">
+              Definir um prazo
+              <Dica texto="Calcula quanto separar por mês até essa data." />
+            </span>
           </label>
           {comPrazo ? (
             <div className="grid gap-4 tab:grid-cols-2">
               <div className="grid gap-1">
-                <label htmlFor="meta-mes" className="text-sm font-medium">
+                <Rotulo htmlFor="meta-mes" dica="O mês do prazo.">
                   Mês
-                </label>
+                </Rotulo>
                 <select
                   id="meta-mes"
                   className={field}
@@ -344,9 +335,9 @@ export default function MetasPage() {
                 </select>
               </div>
               <div className="grid gap-1">
-                <label htmlFor="meta-ano" className="text-sm font-medium">
+                <Rotulo htmlFor="meta-ano" dica="O ano do prazo.">
                   Ano
-                </label>
+                </Rotulo>
                 <input
                   id="meta-ano"
                   className={field}
@@ -371,7 +362,8 @@ export default function MetasPage() {
               ))}
             </div>
           ) : null}
-          <div className="flex flex-wrap justify-end gap-2">
+          </div>
+          <div className="dialog-acoes">
             <Button type="button" variant="quiet" onClick={() => dialogo.current?.close()}>
               Cancelar
             </Button>
@@ -383,12 +375,13 @@ export default function MetasPage() {
       </dialog>
 
       <dialog ref={exclusao} className={dialogClass} aria-labelledby="titulo-excluir-meta">
-        <div className="grid gap-4">
+        <div className="dialog-corpo grid gap-4">
           <h2 id="titulo-excluir-meta" className="font-display text-lg">
             Excluir esta meta?
           </h2>
           <p>{apagando?.name}</p>
-          <div className="flex flex-wrap justify-end gap-2">
+        </div>
+        <div className="dialog-acoes">
             <Button
               variant="quiet"
               onClick={() => {
@@ -402,7 +395,6 @@ export default function MetasPage() {
               Excluir
             </Button>
           </div>
-        </div>
       </dialog>
     </>
   );

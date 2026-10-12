@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --bg: #edf0f2;
   --surface: #ffffff;
   --surface-2: #f5f7f8;
@@ -18,10 +19,12 @@
   --event: #3a4fa3;
   --event-soft: #e4e8f6;
   --overlay: #14202b;
+  --cursor-prumo: url("/cursor.svg") 1 1;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --bg: #0f161c;
     --surface: #17212a;
     --surface-2: #1d2833;
@@ -39,6 +42,7 @@
     --event: #8fa2f0;
     --event-soft: #1e2547;
     --overlay: #05080c;
+    --cursor-prumo: url("/cursor-dark.svg") 1 1;
   }
 }
 
@@ -109,6 +113,97 @@ button {
   cursor: pointer;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-2) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-2);
+  border-radius: var(--radius-sm);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog:not([open]) {
+  display: none;
+}
+
+dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  overflow: hidden;
+  padding: 1.5rem 1.5rem 0;
+}
+
+dialog[data-largura="media"] {
+  width: min(42rem, calc(100vw - 2rem));
+}
+
+dialog[data-largura="larga"] {
+  width: min(48rem, calc(100vw - 2rem));
+}
+
+dialog > * {
+  flex-shrink: 0;
+}
+
+dialog > form,
+dialog > .dialog-miolo,
+dialog > .dialog-corpo {
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+dialog > form,
+dialog > .dialog-miolo {
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-corpo {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 1rem;
+  padding-bottom: 1.5rem;
+}
+
+.dialog-par {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+}
+
+.dialog-acoes {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-right: -1.5rem;
+  margin-left: -1.5rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 1rem 1.5rem 1.5rem;
+}
+
 [data-toaster] {
   position: fixed;
   top: max(1rem, env(safe-area-inset-top));
@@ -134,4 +229,36 @@ button {
 
 [data-toaster] article {
   pointer-events: auto;
+}
+
+html {
+  cursor: var(--cursor-prumo), auto;
+}
+
+body * {
+  cursor: inherit;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+}
+
+[data-dica] {
+  position: fixed;
+  inset: auto;
+  width: max-content;
+  max-width: min(16rem, calc(100vw - 1rem));
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.5rem;
+  color: var(--ink);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  box-shadow: none;
 }

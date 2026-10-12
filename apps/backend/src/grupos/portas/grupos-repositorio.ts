@@ -1,4 +1,4 @@
-import type { GruposResposta, Grupo, Sessao } from "@finnagent/contracts";
+import type { GruposResposta, Grupo, Sessao, ViradaResposta } from "@finnagent/contracts";
 
 export const GRUPOS_REPOSITORIO = Symbol("GRUPOS_REPOSITORIO");
 
@@ -40,4 +40,11 @@ export interface GruposRepositorio {
     dados: DadosDaSessao,
   ): Promise<Sessao | FalhaDeSessao | "ausente">;
   removerSessao(tenantId: string, id: string, endedAt: string): Promise<boolean>;
+  consultarVirada(tenantId: string): Promise<ViradaResposta>;
+  permanecer(
+    tenantId: string,
+    year: number,
+    groupIds: string[],
+    sessionIds: string[],
+  ): Promise<void>;
 }

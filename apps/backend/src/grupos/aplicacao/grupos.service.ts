@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Grupo, Sessao } from "@finnagent/contracts";
-import { Conflito, NaoEncontrado } from "../dominio/erros.js";
+import { Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
 import { fimDaSessao, inicioDaSessao } from "../dominio/sessao.js";
 import {
   GRUPOS_REPOSITORIO,
@@ -16,6 +16,18 @@ export class GruposService {
 
   listar(tenantId: string) {
     return this.grupos.listar(tenantId);
+  }
+
+  consultarVirada(tenantId: string) {
+    return this.grupos.consultarVirada(tenantId);
+  }
+
+  async permanecer(tenantId: string, year: number, groupIds: string[], sessionIds: string[]) {
+    const atual = await this.grupos.consultarVirada(tenantId);
+    if (atual.pendente && atual.year !== year) {
+      throw new PedidoInvalido("Esse ano não está em aberto.");
+    }
+    await this.grupos.permanecer(tenantId, year, groupIds, sessionIds);
   }
 
   async criarGrupo(
