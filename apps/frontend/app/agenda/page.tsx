@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
+  FUSO_PADRAO,
+  FUSOS_AGENDA,
   type AgendaResposta,
   type CategoriaCompromisso,
+  type FusoAgenda,
   type NomeAgenda,
+  type StatusCompromisso,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
@@ -14,7 +18,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 import { GradeMes } from "./grade";
-import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia } from "./itens";
+import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
 import { ListaDoDia, ListaMes } from "./lista";
 
 type Visao = "mes" | "lista";
@@ -23,25 +27,29 @@ type Menu = { x: number; y: number };
 type Rascunho = {
   id: string;
   title: string;
+  description: string;
+  location: string;
   date: string;
   endDate: string;
+  allDay: boolean;
   time: string;
+  endTime: string;
   calendar: NomeAgenda;
   category: CategoriaCompromisso;
   entryId: string;
 };
 
 const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
-  unico: "Acontece só neste dia.",
-  recorrente: "Repete neste dia, todo mês, até dezembro deste ano.",
-  validade: "Aparece em cada dia do período.",
+  fixed: "Acontece só neste dia.",
+  periodical: "Repete neste dia, todo mês.",
+  time: "Repete neste dia, todo mês, até a validade.",
 };
 
-const field = `min-h-11 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
+const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
 const dialogDia =
   "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:w-[min(560px,calc(100vw-2rem))] tab:rounded-lg";
 const dialogForm =
-  "mt-auto mb-0 w-full max-w-none rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:w-[min(460px,calc(100vw-2rem))] tab:rounded-lg";
+  "mt-auto mb-0 max-h-dvh w-full max-w-none overflow-y-auto rounded-t-lg border border-line bg-surface p-6 text-ink backdrop:bg-overlay/80 tab:m-auto tab:w-[min(460px,calc(100vw-2rem))] tab:rounded-lg";
 
 const meses = [
   "Janeiro",
@@ -195,11 +203,15 @@ export default function Agenda() {
     setDraft({
       id: crypto.randomUUID(),
       title: "",
+      description: "",
+      location: "",
       date: dataIso(year, month, selected),
       endDate: dataIso(year, month, selected),
+      allDay: false,
       time: "",
+      endTime: "",
       calendar: "Pessoal",
-      category: "unico",
+      category: "fixed",
       entryId: "",
     });
   }
@@ -216,11 +228,16 @@ export default function Agenda() {
         body: JSON.stringify({
           id: draft.id,
           title: draft.title,
+          description: draft.description,
+          location: draft.location,
+          allDay: draft.allDay,
           year: Number(anoTexto),
           month: Number(mesTexto),
           day: Number(diaTexto),
-          time: draft.time || null,
+          time: draft.allDay ? null : draft.time || null,
+          endTime: draft.allDay ? null : draft.endTime || null,
           calendar: draft.calendar,
+          timezone: fusoDaAgenda(data, draft.calendar),
           category: draft.category,
           ...fimDoRascunho(draft),
           entryId: draft.entryId || null,
@@ -242,8 +259,63 @@ export default function Agenda() {
     }
   }
 
-  function sincronizar() {
-    toast.alerta("Conecte o Google Calendar para sincronizar.");
+  async function sincronizar() {
+    try {
+      const response = await fetch("/api/agenda/sincronizar", { method: "POST" });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message || "Não foi possível sincronizar.");
+      const resposta = await carregar();
+      setData(resposta);
+      setCarregado({ year, month });
+      setFalhou(false);
+      toast.sucesso("Agenda sincronizada.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível sincronizar.");
+    }
+  }
+
+  async function salvarFuso(name: NomeAgenda, timezone: FusoAgenda) {
+    try {
+      const response = await fetch("/api/calendarios", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, timezone }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message || "Não foi possível salvar o fuso.");
+      setData((atual) =>
+        atual
+          ? {
+              ...atual,
+              calendars: atual.calendars.map((calendario) =>
+                calendario.name === name ? { ...calendario, timezone } : calendario,
+              ),
+            }
+          : atual,
+      );
+      toast.sucesso("Fuso atualizado.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o fuso.");
+    }
+  }
+
+  async function atualizarStatus(id: string, status: StatusCompromisso) {
+    try {
+      const response = await fetch(`/api/compromissos/${id}/status`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message || "Não foi possível atualizar o status.");
+      const resposta = await carregar();
+      setData(resposta);
+      setCarregado({ year, month });
+      setFalhou(false);
+      toast.sucesso(status === "done" ? "Compromisso cumprido." : "Compromisso marcado como descumprido.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível atualizar o status.");
+    }
   }
 
   return (
@@ -251,9 +323,12 @@ export default function Agenda() {
       <PageHeader
         title="Agenda"
         subtitle={
-          <span className="inline-flex items-center">
-            <span className="mr-2 inline-block size-2 rounded-full bg-ink-2" />
-            Google Calendar desconectado
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block size-2 shrink-0 rounded-full bg-ink-2" />
+              Google Calendar desconectado
+            </span>
+            <span>{textoDosFusos(data)}</span>
           </span>
         }
         actions={
@@ -294,7 +369,29 @@ export default function Agenda() {
           {!mesPronto && !falhou ? (
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
-          <ConectarGoogle onConnect={sincronizar} />
+          <ConectarGoogle onConnect={() => void sincronizar()} />
+          <div className="flex flex-wrap gap-4">
+            {AGENDAS.map((nome) => (
+              <div key={nome} className="grid gap-1">
+                <label htmlFor={`fuso-${nome}`} className="text-sm font-medium">
+                  Fuso · {nome}
+                </label>
+                <select
+                  id={`fuso-${nome}`}
+                  className={field}
+                  disabled={!data}
+                  value={fusoDaAgenda(data, nome)}
+                  onChange={(event) => void salvarFuso(nome, event.target.value as FusoAgenda)}
+                >
+                  {FUSOS_AGENDA.map((fuso) => (
+                    <option key={fuso} value={fuso}>
+                      {rotuloDoFuso(fuso)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1 font-display text-lg font-bold">
               <Button variant="quiet" className="min-w-10 px-0" aria-label="Mês anterior" onClick={mesAnterior}>
@@ -318,18 +415,18 @@ export default function Agenda() {
                 pressed={camadas.compromisso}
                 onClick={() => setCamadas((atual) => ({ ...atual, compromisso: !atual.compromisso }))}
               >
-                <i className="size-2.5 rounded-full bg-event" />
+                <i className="size-2 shrink-0 rounded-full bg-event" />
                 Compromissos
               </Camada>
               <Camada
                 pressed={camadas.lancamento}
                 onClick={() => setCamadas((atual) => ({ ...atual, lancamento: !atual.lancamento }))}
               >
-                <i className="size-2.5 rounded-full bg-neg" />
-                <i className="size-2.5 rounded-full bg-pos" />
+                <i className="size-2 shrink-0 rounded-full bg-neg" />
+                <i className="size-2 shrink-0 rounded-full bg-pos" />
                 Lançamentos
               </Camada>
-              <Button onClick={sincronizar}>Sincronizar</Button>
+              <Button onClick={() => void sincronizar()}>Sincronizar</Button>
             </div>
           </div>
           {mesPronto && visao === "mes" ? (
@@ -343,7 +440,9 @@ export default function Agenda() {
               onContext={abrirMenu}
             />
           ) : null}
-          {mesPronto && visao === "lista" ? <ListaMes year={year} month={month} itens={itens} /> : null}
+          {mesPronto && visao === "lista" ? (
+            <ListaMes year={year} month={month} itens={itens} onStatus={(id, status) => void atualizarStatus(id, status)} />
+          ) : null}
         </div>
       </PageHeader>
 
@@ -413,7 +512,13 @@ export default function Agenda() {
           </Button>
         </div>
         <div className="max-h-[60dvh] overflow-auto">
-          <ListaDoDia year={year} month={month} day={selected} itens={doDia} />
+          <ListaDoDia
+            year={year}
+            month={month}
+            day={selected}
+            itens={doDia}
+            onStatus={(id, status) => void atualizarStatus(id, status)}
+          />
         </div>
         <div className="mt-2 flex justify-end">
           <Button variant="primary" onClick={novoCompromisso}>
@@ -449,15 +554,43 @@ export default function Agenda() {
             />
           </div>
           <div className="grid gap-1">
+            <label htmlFor="compromisso-descricao" className="text-sm font-medium">
+              Descrição <span className="font-normal text-ink-2">(opcional)</span>
+            </label>
+            <input
+              id="compromisso-descricao"
+              maxLength={160}
+              value={draft?.description ?? ""}
+              onChange={(event) =>
+                setDraft((atual) => (atual ? { ...atual, description: event.target.value } : atual))
+              }
+              className={field}
+            />
+          </div>
+          <div className="grid gap-1">
+            <label htmlFor="compromisso-local" className="text-sm font-medium">
+              Local <span className="font-normal text-ink-2">(opcional)</span>
+            </label>
+            <input
+              id="compromisso-local"
+              maxLength={160}
+              value={draft?.location ?? ""}
+              onChange={(event) =>
+                setDraft((atual) => (atual ? { ...atual, location: event.target.value } : atual))
+              }
+              className={field}
+            />
+          </div>
+          <div className="grid gap-1">
             <label htmlFor="compromisso-categoria" className="text-sm font-medium">
               Categoria
             </label>
             <select
               id="compromisso-categoria"
-              value={draft?.category ?? "unico"}
+              value={draft?.category ?? "fixed"}
               onChange={(event) =>
                 setDraft((atual) =>
-                  atual ? ajustarCategoria(atual, event.target.value as CategoriaCompromisso) : atual,
+                  atual ? { ...atual, category: event.target.value as CategoriaCompromisso } : atual,
                 )
               }
               className={field}
@@ -468,19 +601,17 @@ export default function Agenda() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-ink-2">{dicaDaCategoria[draft?.category ?? "unico"]}</p>
+            <p className="text-xs text-ink-2">{dicaDaCategoria[draft?.category ?? "fixed"]}</p>
           </div>
           <div className="grid gap-3 tab:grid-cols-2">
             <div className="grid gap-1">
               <label htmlFor="compromisso-data" className="text-sm font-medium">
-                {draft?.category === "validade" ? "Início" : draft?.category === "recorrente" ? "Primeiro dia" : "Data"}
+                {draft?.category === "fixed" ? "Data" : "Primeiro dia"}
               </label>
               <input
                 id="compromisso-data"
                 type="date"
                 required
-                min={draft?.category === "recorrente" ? `${hoje.getFullYear()}-01-01` : undefined}
-                max={draft?.category === "recorrente" ? `${hoje.getFullYear()}-12-31` : undefined}
                 value={draft?.date ?? ""}
                 onChange={(event) =>
                   setDraft((atual) => (atual ? { ...atual, date: event.target.value } : atual))
@@ -488,10 +619,10 @@ export default function Agenda() {
                 className={field}
               />
             </div>
-            {draft?.category === "validade" ? (
+            {draft?.category === "time" ? (
               <div className="grid gap-1">
                 <label htmlFor="compromisso-fim" className="text-sm font-medium">
-                  Fim
+                  Válido até
                 </label>
                 <input
                   id="compromisso-fim"
@@ -505,14 +636,29 @@ export default function Agenda() {
                   className={field}
                 />
               </div>
-            ) : (
+            ) : null}
+          </div>
+          <label className="flex min-h-10 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className={`size-4 accent-brand ${focusRing}`}
+              checked={draft?.allDay ?? false}
+              onChange={(event) =>
+                setDraft((atual) => (atual ? { ...atual, allDay: event.target.checked } : atual))
+              }
+            />
+            Dia todo
+          </label>
+          {draft?.allDay ? null : (
+            <div className="grid gap-3 tab:grid-cols-2">
               <div className="grid gap-1">
                 <label htmlFor="compromisso-hora" className="text-sm font-medium">
-                  Hora <span className="font-normal text-ink-2">(opcional)</span>
+                  Hora inicial
                 </label>
                 <input
                   id="compromisso-hora"
                   type="time"
+                  required
                   value={draft?.time ?? ""}
                   onChange={(event) =>
                     setDraft((atual) => (atual ? { ...atual, time: event.target.value } : atual))
@@ -520,24 +666,23 @@ export default function Agenda() {
                   className={field}
                 />
               </div>
-            )}
-          </div>
-          {draft?.category === "validade" ? (
-            <div className="grid gap-1">
-              <label htmlFor="compromisso-hora" className="text-sm font-medium">
-                Hora <span className="font-normal text-ink-2">(opcional)</span>
-              </label>
-              <input
-                id="compromisso-hora"
-                type="time"
-                value={draft.time}
-                onChange={(event) =>
-                  setDraft((atual) => (atual ? { ...atual, time: event.target.value } : atual))
-                }
-                className={field}
-              />
+              <div className="grid gap-1">
+                <label htmlFor="compromisso-hora-fim" className="text-sm font-medium">
+                  Hora final
+                </label>
+                <input
+                  id="compromisso-hora-fim"
+                  type="time"
+                  required
+                  value={draft?.endTime ?? ""}
+                  onChange={(event) =>
+                    setDraft((atual) => (atual ? { ...atual, endTime: event.target.value } : atual))
+                  }
+                  className={field}
+                />
+              </div>
             </div>
-          ) : null}
+          )}
           <div className="grid gap-1">
             <label htmlFor="compromisso-agenda" className="text-sm font-medium">
               Agenda do Google
@@ -638,18 +783,18 @@ function dataIso(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function ajustarCategoria(atual: Rascunho, category: CategoriaCompromisso): Rascunho {
-  if (category !== "recorrente") return { ...atual, category };
-  const ano = new Date().getFullYear();
-  if (atual.date.startsWith(`${ano}-`)) return { ...atual, category };
-  const hoje = new Date();
-  return { ...atual, category, date: dataIso(ano, hoje.getMonth() + 1, hoje.getDate()) };
-}
-
 function fimDoRascunho(draft: Rascunho) {
-  if (draft.category !== "validade") return { endYear: null, endMonth: null, endDay: null };
+  if (draft.category !== "time") return { endYear: null, endMonth: null, endDay: null };
   const [anoTexto, mesTexto, diaTexto] = draft.endDate.split("-");
   return { endYear: Number(anoTexto), endMonth: Number(mesTexto), endDay: Number(diaTexto) };
+}
+
+function fusoDaAgenda(data: AgendaResposta | null, nome: NomeAgenda): FusoAgenda {
+  return data?.calendars.find((calendario) => calendario.name === nome)?.timezone ?? FUSO_PADRAO;
+}
+
+function textoDosFusos(data: AgendaResposta | null) {
+  return AGENDAS.map((nome) => `${nome}: ${rotuloDoFuso(fusoDaAgenda(data, nome))}`).join(" · ");
 }
 
 function posicaoDoMenu(menu: Menu) {

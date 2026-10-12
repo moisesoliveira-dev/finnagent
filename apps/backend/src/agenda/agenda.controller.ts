@@ -6,31 +6,43 @@ import {
   Get,
   Headers,
   NotFoundException,
+  Param,
+  Patch,
   Post,
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { AGENDAS, CATEGORIAS_COMPROMISSO } from "@finnagent/contracts";
+import {
+  AGENDAS,
+  CATEGORIAS_COMPROMISSO,
+  FUSOS_AGENDA,
+  STATUS_COMPROMISSO,
+} from "@finnagent/contracts";
 import { z } from "zod";
 import { AgendaService } from "./aplicacao/agenda.service.js";
 import { PedidoInvalido } from "./dominio/erros.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 
 const tenantId = z.uuid();
+const hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const periodo = z.object({
   year: z.coerce.number().int().min(2000).max(2100),
   month: z.coerce.number().int().min(1).max(12),
 });
-const hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const criarCompromisso = z
   .object({
     id: z.uuid(),
     title: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(160).default(""),
+    location: z.string().trim().max(160).default(""),
+    allDay: z.boolean().default(false),
     year: z.number().int().min(2000).max(2100),
     month: z.number().int().min(1).max(12),
     day: z.number().int().min(1).max(31),
     time: hora.nullable(),
+    endTime: hora.nullable(),
     calendar: z.enum(AGENDAS),
+    timezone: z.enum(FUSOS_AGENDA),
     category: z.enum(CATEGORIAS_COMPROMISSO),
     endYear: z.number().int().min(2000).max(2100).nullable(),
     endMonth: z.number().int().min(1).max(12).nullable(),
@@ -39,8 +51,16 @@ const criarCompromisso = z
   })
   .superRefine((pedido, contexto) => {
     const ultimo = new Date(pedido.year, pedido.month, 0).getDate();
-    if (pedido.day > ultimo) contexto.addIssue({ code: "custom", path: ["day"] });
+    if (pedido.day > ultimo) contexto.addIssue({ code: "custom", message: "Esse dia não existe nesse mês.", path: ["day"] });
+    if (!pedido.allDay && (!pedido.time || !pedido.endTime)) {
+      contexto.addIssue({ code: "custom", message: "Informe a hora inicial e a final.", path: ["time"] });
+    }
   });
+const fuso = z.object({
+  name: z.enum(AGENDAS),
+  timezone: z.enum(FUSOS_AGENDA),
+});
+const status = z.object({ status: z.enum(STATUS_COMPROMISSO) });
 
 @Controller()
 export class AgendaController {
@@ -59,23 +79,51 @@ export class AgendaController {
     );
   }
 
+  @Post("agenda/sincronizar")
+  sincronizar(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.agenda.sincronizarGoogleCalendar(this.tenant(tenant)));
+  }
+
+  @Patch("calendarios")
+  fuso(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = fuso.safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha o fuso da agenda.");
+    return this.executar(() =>
+      this.agenda.atualizarFuso(this.tenant(tenant), pedido.data.name, pedido.data.timezone),
+    );
+  }
+
   @Post("compromissos")
   criar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = criarCompromisso.safeParse(body);
     if (!pedido.success) {
-      const campo = pedido.error.issues[0]?.path[0];
+      const issue = pedido.error.issues[0];
+      const campo = issue?.path[0];
+      if (issue?.code === "custom" && issue.message) throw new BadRequestException(issue.message);
       if (campo === "title") throw new BadRequestException("Dê um título ao compromisso.");
       if (campo === "day") throw new BadRequestException("Esse dia não existe nesse mês.");
-      if (campo === "time") throw new BadRequestException("Informe a hora.");
+      if (campo === "time" || campo === "endTime") throw new BadRequestException("Informe a hora.");
       if (campo === "entryId") throw new BadRequestException("Escolha um lançamento.");
       if (campo === "category") throw new BadRequestException("Escolha a categoria.");
-      const mensagem = pedido.error.issues[0]?.message;
-      if (mensagem && pedido.error.issues[0]?.code === "custom") {
-        throw new BadRequestException(mensagem);
-      }
+      if (campo === "timezone") throw new BadRequestException("Escolha o fuso da agenda.");
       throw new BadRequestException("Não foi possível salvar o compromisso.");
     }
     return this.executar(() => this.agenda.criar(this.tenant(tenant), pedido.data));
+  }
+
+  @Patch("compromissos/:id/status")
+  status(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const pedido = status.safeParse(body);
+    const identificador = z.uuid().safeParse(id);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    if (!pedido.success) throw new BadRequestException("Escolha o status do compromisso.");
+    return this.executar(() =>
+      this.agenda.atualizarStatus(this.tenant(tenant), identificador.data, pedido.data.status),
+    );
   }
 
   private tenant(value: string | undefined) {

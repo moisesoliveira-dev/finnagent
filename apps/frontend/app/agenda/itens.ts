@@ -1,4 +1,10 @@
-import type { CategoriaCompromisso, Compromisso, LancamentoDoMes, NomeAgenda } from "@finnagent/contracts";
+import type {
+  CategoriaCompromisso,
+  Compromisso,
+  LancamentoDoMes,
+  NomeAgenda,
+  StatusCompromisso,
+} from "@finnagent/contracts";
 
 export type ItemDia = {
   id: string;
@@ -6,15 +12,31 @@ export type ItemDia = {
   day: number;
   time: string | null;
   title: string;
+  description: string;
+  location: string;
+  status: StatusCompromisso | null;
   calendar: NomeAgenda | null;
   category: CategoriaCompromisso | null;
   link: { groupName: string; sessionName: string; cents: number } | null;
 };
 
 export function rotuloDaCategoria(categoria: CategoriaCompromisso) {
-  if (categoria === "recorrente") return "Recorrente";
-  if (categoria === "validade") return "Validade";
-  return "Único";
+  if (categoria === "periodical") return "Periódico";
+  if (categoria === "time") return "Com validade";
+  return "Fixo";
+}
+
+export function rotuloDoStatus(status: StatusCompromisso) {
+  return status === "done" ? "Cumprido" : "Descumprido";
+}
+
+export function rotuloDoFuso(fuso: string) {
+  if (fuso === "America/Sao_Paulo") return "Brasília";
+  if (fuso === "America/Manaus") return "Manaus";
+  if (fuso === "America/Rio_Branco") return "Rio Branco";
+  if (fuso === "America/Noronha") return "Fernando de Noronha";
+  if (fuso === "UTC") return "UTC";
+  return fuso;
 }
 
 export function montarItens(
@@ -31,6 +53,9 @@ export function montarItens(
         day: item.day,
         time: item.time,
         title: item.title,
+        description: item.description,
+        location: item.location,
+        status: item.status,
         calendar: item.calendar,
         category: item.category,
         link: item.link,
@@ -45,6 +70,9 @@ export function montarItens(
         day: item.day,
         time: null,
         title: item.description,
+        description: "",
+        location: "",
+        status: null,
         calendar: null,
         category: null,
         link: {
