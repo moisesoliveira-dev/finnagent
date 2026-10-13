@@ -5,7 +5,7 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
-import type { ExtratosRepositorio, GravacaoExtrato, LinhaImportada } from "../portas/extratos-repositorio.js";
+import type { ExtratosRepositorio, GravacaoExtrato, ReservaExtrato, LinhaImportada } from "../portas/extratos-repositorio.js";
 
 const LIMITE_LINHAS = 100;
 
@@ -104,7 +104,13 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     return { filename: row.filename, bytes: Buffer.from(row.content), mapping: mapeamentoDe(row) };
   }
 
-  async substituir(tenantId: string, id: string, leitura: LeituraExtrato, mapping: MapeamentoExtrato | null) {
+  async substituir(
+    tenantId: string,
+    id: string,
+    leitura: LeituraExtrato,
+    mapping: MapeamentoExtrato | null,
+    operacao: "importar-extrato" | "reprocessar-extrato" = "reprocessar-extrato",
+  ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.statement.findFirst({ where: { id, tenantId }, select: { accountId: true } });
@@ -128,7 +134,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
           amountColumn: mapping?.amount ?? null,
         },
       });
-      await gravarOutbox(tx, tenantId, "reprocessar-extrato", id, payload, marcaDe(payload));
+      await gravarOutbox(tx, tenantId, operacao, id, payload, marcaDe(payload));
       const criado = await tx.statement.findFirstOrThrow({ where: { id, tenantId }, select: selecao });
       return extratoDe(criado);
     });
@@ -215,6 +221,136 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         data: { entryId },
       });
       await gravarOutbox(tx, tenantId, "cruzar-linha", `${statementId}:${line}`, { statementId, line, entryId }, entryId);
+    });
+  }
+
+  async gravarAssociacao(tenantId: string, name: string, sessionId: string) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const sessao = await tx.session.findFirst({
+        where: { id: sessionId, tenantId },
+        select: { id: true, endedAt: true },
+      });
+      if (!sessao) return "sessao-ausente" as const;
+      if (sessao.endedAt) return "sessao-encerrada" as const;
+      await tx.statementAlias.upsert({
+        where: { tenantId_name: { tenantId, name } },
+        create: { tenantId, name, sessionId },
+        update: { sessionId },
+      });
+      const payload = { name, sessionId };
+      await gravarOutbox(tx, tenantId, "associar-nome-extrato", name, payload, marcaDe(payload));
+    });
+  }
+
+  async listarAssociacoes(tenantId: string) {
+    const db = this.banco();
+    return db.statementAlias.findMany({
+      where: { tenantId, session: { tenantId, endedAt: null } },
+      select: { name: true, sessionId: true },
+    });
+  }
+
+  async linhasSemVinculo(tenantId: string) {
+    const db = this.banco();
+    const rows = await db.statementLine.findMany({
+      where: { tenantId, entryId: null, error: "", cents: { not: null }, postedOn: { not: null } },
+      orderBy: [{ postedOn: "asc" }, { line: "asc" }],
+      select: {
+        statementId: true,
+        line: true,
+        postedOn: true,
+        description: true,
+        cents: true,
+        entryId: true,
+        statement: { select: { filename: true, account: { select: { name: true } } } },
+      },
+    });
+    return rows.flatMap((row) => {
+      if (row.cents === null || !row.postedOn || !row.cents) return [];
+      const linha: LinhaImportada = {
+        statementId: row.statementId,
+        line: row.line,
+        date: isoDe(row.postedOn) ?? "",
+        description: row.description,
+        cents: row.cents,
+        accountName: row.statement.account.name,
+        filename: row.statement.filename,
+        entryId: row.entryId,
+      };
+      return linha.date ? [linha] : [];
+    });
+  }
+
+  async reservar(tenantId: string, pedido: ReservaExtrato) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.statement.findFirst({ where: { id: pedido.id, tenantId }, select: selecao });
+      if (atual) {
+        if (atual.contentHash === pedido.contentHash) return { extrato: extratoDe(atual), novo: false };
+        return "identificador" as const;
+      }
+      const conta = await contaDe(tx, tenantId, pedido.accountId, pedido.accountName);
+      if (conta === "ausente") return "conta-ausente" as const;
+      const importedAt = new Date();
+      await tx.statement.create({
+        data: {
+          id: pedido.id,
+          tenantId,
+          accountId: conta.id,
+          filename: pedido.filename,
+          format: "ocr",
+          status: "processando",
+          message: "",
+          lineCount: 0,
+          errorCount: 0,
+          importedAt,
+          content: new Uint8Array(pedido.bytes),
+          contentHash: pedido.contentHash,
+        },
+      });
+      const payload = { id: pedido.id, status: "processando" };
+      await gravarOutbox(tx, tenantId, "importar-extrato", pedido.id, payload, pedido.contentHash);
+      const criado = await tx.statement.findFirstOrThrow({ where: { id: pedido.id, tenantId }, select: selecao });
+      return { extrato: extratoDe(criado), novo: true };
+    });
+  }
+
+  async marcarProcessando(tenantId: string, id: string) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.statement.findFirst({ where: { id, tenantId }, select: { id: true } });
+      if (!atual) return "ausente" as const;
+      await tx.statementLine.deleteMany({ where: { statementId: id, tenantId } });
+      await tx.statement.updateMany({
+        where: { id, tenantId },
+        data: {
+          status: "processando",
+          message: "",
+          startDate: null,
+          endDate: null,
+          lineCount: 0,
+          errorCount: 0,
+        },
+      });
+      const payload = { id, status: "processando" };
+      await gravarOutbox(tx, tenantId, "reprocessar-extrato", id, payload, marcaDe(payload));
+      const criado = await tx.statement.findFirstOrThrow({ where: { id, tenantId }, select: selecao });
+      return extratoDe(criado);
+    });
+  }
+
+  async falhar(tenantId: string, id: string, message: string) {
+    const db = this.banco();
+    const texto = message.replace(/sk-[A-Za-z0-9_-]+/g, "").trim().slice(0, 300);
+    await db.$transaction(async (tx) => {
+      const atualizado = await tx.statement.updateMany({
+        where: { id, tenantId, status: "processando" },
+        data: { status: "falhou", message: texto || "Não foi possível ler o extrato." },
+      });
+      if (!atualizado.count) return;
+      const payload = { id, status: "falhou", message: texto };
+      await gravarOutbox(tx, tenantId, "importar-extrato", id, payload, marcaDe(payload));
     });
   }
 

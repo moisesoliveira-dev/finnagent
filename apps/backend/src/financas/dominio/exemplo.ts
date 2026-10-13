@@ -41,6 +41,7 @@ type CampoGerado =
   | "adjustments"
   | "recurrence"
   | "recurrenceInterval"
+  | "synced"
   | "months"
   | "cents"
   | "startYear"
@@ -91,6 +92,7 @@ function linha(
     adjustments: [],
     recurrence: base.type === "fixo" ? "monthly" : null,
     recurrenceInterval: base.type === "fixo" ? 1 : null,
+    synced: false,
   };
 }
 

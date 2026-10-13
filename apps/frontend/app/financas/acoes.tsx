@@ -140,6 +140,22 @@ function Formulario({
     }
   }
 
+  async function apagarLancamento() {
+    if (!entry || ocupado || entry.synced) return;
+    setOcupado(true);
+    try {
+      await api(`/api/lancamentos/${entry.id}`, { method: "DELETE" });
+      toast.sucesso("Lançamento apagado.");
+      await onAtualizar();
+      onClose();
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível apagar o lançamento.");
+      throw error;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   const outras = entries.filter((item) => item.category === "fixed" && item.id !== entry?.id);
 
   const corpo = (
@@ -326,6 +342,9 @@ function Formulario({
     >
       <div className="dialog-corpo grid gap-4">{corpo}</div>
       <div className="dialog-acoes">
+        <div className="mr-auto">
+          <ControleExclusao synced={entry.synced} ocupado={ocupado} onExcluir={apagarLancamento} />
+        </div>
         <Button type="button" variant="quiet" onClick={onClose}>
           Fechar
         </Button>
@@ -451,5 +470,107 @@ function atualizarValor(
     "/api/lancamentos/fixos/valor",
     { method: "POST", body: JSON.stringify({ updates }) },
     "Valor atualizado.",
+  );
+}
+
+export function ControleExclusao({
+  synced,
+  compact = false,
+  ocupado = false,
+  onExcluir,
+}: {
+  synced: boolean;
+  compact?: boolean;
+  ocupado?: boolean;
+  onExcluir: () => Promise<void>;
+}) {
+  const [confirma, setConfirma] = useState(false);
+  const [local, setLocal] = useState(false);
+  const busy = ocupado || local;
+
+  async function confirmar() {
+    setLocal(true);
+    try {
+      await onExcluir();
+      setConfirma(false);
+    } catch {
+      setConfirma(true);
+    } finally {
+      setLocal(false);
+    }
+  }
+
+  if (synced) {
+    if (compact) {
+      return (
+        <Button
+          type="button"
+          variant="quiet"
+          className="size-10 px-0"
+          disabled
+          aria-label="Sincronizado com o extrato. Não pode ser apagado."
+        >
+          <Lixeira />
+        </Button>
+      );
+    }
+    return <p className="text-sm text-ink-2">Sincronizado com o extrato. Não pode ser apagado.</p>;
+  }
+
+  if (confirma && compact) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="danger" disabled={busy} onClick={() => void confirmar()}>
+          Apagar
+        </Button>
+        <Button type="button" variant="quiet" disabled={busy} onClick={() => setConfirma(false)}>
+          Cancelar
+        </Button>
+      </div>
+    );
+  }
+
+  if (!confirma) {
+    if (compact) {
+      return (
+        <Button
+          type="button"
+          variant="quiet"
+          className="size-10 px-0"
+          aria-label="Excluir lançamento"
+          disabled={busy}
+          onClick={() => setConfirma(true)}
+        >
+          <Lixeira />
+        </Button>
+      );
+    }
+    return (
+      <Button type="button" variant="danger" disabled={busy} onClick={() => setConfirma(true)}>
+        Excluir
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-sm">Apagar este lançamento?</p>
+      <Button type="button" variant="danger" disabled={busy} onClick={() => void confirmar()}>
+        Apagar
+      </Button>
+      <Button type="button" variant="quiet" disabled={busy} onClick={() => setConfirma(false)}>
+        Cancelar
+      </Button>
+    </div>
+  );
+}
+
+function Lixeira() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <path d="M4 7h16" />
+      <path d="M9 7V5h6v2" />
+      <path d="M7 7l1 13h8l1-13" />
+    </svg>
   );
 }

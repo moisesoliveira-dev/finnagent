@@ -65,35 +65,17 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
       const atual = await tx.appointment.findFirst({ where: { id: pedido.id, tenantId } });
       if (atual) {
         if (!mesmoCompromisso(atual, pedido)) return "identificador" as const;
-        const fuso = await tx.calendar.findFirst({ where: { tenantId, name: pedido.calendar } });
-        if (fuso?.timezone !== pedido.timezone) {
-          await this.gravarFuso(tx, tenantId, pedido.calendar, pedido.timezone);
-          const payload = { name: pedido.calendar, timezone: pedido.timezone };
-          await gravarOutbox(
-            tx,
-            tenantId,
-            "atualizar-fuso-calendario",
-            pedido.calendar,
-            payload,
-            marcaDe(payload),
-          );
-        }
+        await this.alinharFuso(tx, tenantId, pedido.timezone);
         return compromissoDe(atual, pedido.timezone);
       }
       if (pedido.entryId) {
         const lancamento = await tx.entry.findFirst({ where: { id: pedido.entryId, tenantId } });
         if (!lancamento) return "lancamento-ausente" as const;
       }
-      const fuso = await tx.calendar.findFirst({ where: { tenantId, name: pedido.calendar } });
-      const mudouFuso = fuso?.timezone !== pedido.timezone;
-      await this.gravarFuso(tx, tenantId, pedido.calendar, pedido.timezone);
+      await this.alinharFuso(tx, tenantId, pedido.timezone);
       const criado = await tx.appointment.create({ data: dadosDe(tenantId, pedido) });
       const serial = pedidoSerial(pedido);
       await gravarOutbox(tx, tenantId, "criar-compromisso", pedido.id, serial, marcaDe(serial));
-      if (mudouFuso) {
-        const payload = { name: pedido.calendar, timezone: pedido.timezone };
-        await gravarOutbox(tx, tenantId, "atualizar-fuso-calendario", pedido.calendar, payload, marcaDe(payload));
-      }
       return compromissoDe(criado, pedido.timezone);
     });
   }
@@ -101,17 +83,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
   async atualizarFuso(tenantId: string, name: NomeAgenda, timezone: FusoAgenda) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
-      const atual = await tx.calendar.findFirst({ where: { tenantId, name } });
-      if (atual?.timezone === timezone) return { name, timezone };
-      await this.gravarFuso(tx, tenantId, name, timezone);
-      await gravarOutbox(
-        tx,
-        tenantId,
-        "atualizar-fuso-calendario",
-        name,
-        { name, timezone },
-        marcaDe({ name, timezone }),
-      );
+      await this.alinharFuso(tx, tenantId, timezone);
       return { name, timezone };
     });
   }
@@ -187,6 +159,22 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     }
     if (atual.timezone === timezone) return;
     await tx.calendar.updateMany({ where: { id: atual.id, tenantId }, data: { timezone } });
+  }
+
+  private async alinharFuso(tx: Prisma.TransactionClient, tenantId: string, timezone: FusoAgenda) {
+    for (const name of AGENDAS) {
+      const atual = await tx.calendar.findFirst({ where: { tenantId, name }, select: { timezone: true } });
+      if (atual?.timezone === timezone) continue;
+      await this.gravarFuso(tx, tenantId, name, timezone);
+      const payload = { name, timezone };
+      await gravarOutbox(tx, tenantId, "atualizar-fuso-calendario", name, payload, marcaDe(payload));
+    }
+    const preferencia = await tx.preference.findUnique({ where: { tenantId }, select: { timezone: true } });
+    if (preferencia && preferencia.timezone !== timezone) {
+      await tx.preference.update({ where: { tenantId }, data: { timezone } });
+      const payload = { timezone };
+      await gravarOutbox(tx, tenantId, "atualizar-fuso", tenantId, payload, marcaDe(payload));
+    }
   }
 
   private banco() {

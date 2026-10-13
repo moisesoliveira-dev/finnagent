@@ -28,13 +28,20 @@ export class HttpOrganizadorDeExtrato implements OrganizadorDeExtrato {
     } catch {
       throw new AgenteIndisponivel();
     }
-    if (resposta.status === 400) {
+    if (!resposta.ok) {
       const corpo = (await resposta.json().catch(() => null)) as { message?: string } | null;
-      throw new PedidoInvalido(corpo?.message || "Envie uma imagem ou um PDF do extrato.");
+      const mensagem = mensagemRecebida(corpo?.message);
+      if (resposta.status === 400) throw new PedidoInvalido(mensagem);
+      throw new AgenteIndisponivel(mensagem);
     }
-    if (!resposta.ok) throw new AgenteIndisponivel();
     const lido = z.object({ lines: z.array(linha) }).safeParse(await resposta.json());
     if (!lido.success) throw new AgenteIndisponivel();
     return lido.data.lines;
   }
+}
+
+function mensagemRecebida(valor: unknown) {
+  if (typeof valor !== "string") return "A leitura do extrato não está disponível.";
+  const limpo = valor.replace(/sk-[A-Za-z0-9_-]+/g, "").trim().slice(0, 300);
+  return limpo || "A leitura do extrato não está disponível.";
 }

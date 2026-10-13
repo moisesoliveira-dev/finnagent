@@ -30,8 +30,9 @@ model Session {
   startedAt     DateTime? @map("started_at") @db.Date
   endedAt       DateTime? @map("ended_at") @db.Date
   cents         Int       @default(0)
-  group         Group     @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  group         Group            @relation(fields: [groupId], references: [id], onDelete: Restrict)
   entries       Entry[]
+  aliases       StatementAlias[]
 
   @@index([tenantId])
   @@map("sessions")
@@ -217,6 +218,17 @@ model StatementLine {
   @@map("statement_lines")
 }
 
+model StatementAlias {
+  tenantId  String  @map("tenant_id")
+  name      String
+  sessionId String  @map("session_id")
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, name])
+  @@index([tenantId])
+  @@map("statement_aliases")
+}
+
 model Goal {
   id          String @id
   tenantId    String @map("tenant_id")
@@ -228,6 +240,36 @@ model Goal {
 
   @@index([tenantId])
   @@map("goals")
+}
+
+model Preference {
+  tenantId         String  @id @map("tenant_id")
+  name             String  @default("")
+  timezone         String
+  theme            String
+  personalCalendar Boolean @default(true) @map("personal_calendar")
+  workCalendar     Boolean @default(true) @map("work_calendar")
+  showEntries      Boolean @default(true) @map("show_entries")
+  categorize       String
+  pendingHours     Int     @map("pending_hours")
+  reminder         String
+  reminders        Boolean @default(true)
+  dueAlerts        Boolean @default(true) @map("due_alerts")
+  emailAlerts      Boolean @default(false) @map("email_alerts")
+  appAlerts        Boolean @default(true) @map("app_alerts")
+  history          String
+  googleClientId         String @default("") @map("google_client_id")
+  googleClientSecret     String @default("") @map("google_client_secret")
+  googleRefreshToken     String @default("") @map("google_refresh_token")
+  googleOauthState       String @default("") @map("google_oauth_state")
+  googleAccount          String @default("") @map("google_account")
+  googleCalendarPersonal String @default("") @map("google_calendar_personal")
+  googleCalendarWork     String @default("") @map("google_calendar_work")
+  aiApiKey               String   @default("") @map("ai_api_key")
+  aiModels               String[] @default([]) @map("ai_models")
+  aiModel                String   @default("") @map("ai_model")
+
+  @@map("preferences")
 }
 
 model Outbox {

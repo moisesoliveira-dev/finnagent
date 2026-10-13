@@ -6,12 +6,6 @@ import type {
   StatusTransacao,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
-import { inicioDaSessao } from "../../grupos/dominio/sessao.js";
-import {
-  GRUPOS_REPOSITORIO,
-  type GruposRepositorio,
-} from "../../grupos/portas/grupos-repositorio.js";
-import { EXEMPLO } from "../dominio/exemplo.js";
 import {
   FINANCAS_REPOSITORIO,
   type FinancasRepositorio,
@@ -21,57 +15,11 @@ import {
 
 @Injectable()
 export class FinancasService {
-  constructor(
-    @Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio,
-    @Inject(GRUPOS_REPOSITORIO) private readonly grupos: GruposRepositorio,
-  ) {}
+  constructor(@Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio) {}
 
-  async listar(tenantId: string): Promise<FinancasResposta> {
+  async listar(tenantId: string, incluirEncerradas = false): Promise<FinancasResposta> {
     await this.financas.garantirWorkflow(tenantId);
-    const { groups } = await this.grupos.listar(tenantId);
-    if (groups.length === 0) await this.semearExemplo(tenantId);
-    return this.financas.listar(tenantId);
-  }
-
-  private async semearExemplo(tenantId: string) {
-    const grupos = new Map<string, { id: string; name: string }>();
-    const sessoes = new Map<
-      string,
-      { id: string; groupId: string; name: string; description: string }
-    >();
-    for (const item of EXEMPLO) {
-      grupos.set(item.groupId, { id: item.groupId, name: item.groupName });
-      sessoes.set(item.sessionId, {
-        id: item.sessionId,
-        groupId: item.groupId,
-        name: item.sessionName,
-        description: item.justification,
-      });
-    }
-    for (const grupo of grupos.values()) {
-      const resultado = await this.grupos.criarGrupo(tenantId, grupo.id, grupo.name, "");
-      if (typeof resultado === "string") {
-        throw new Conflito("Não foi possível preparar o exemplo.");
-      }
-    }
-    for (const sessao of sessoes.values()) {
-      const resultado = await this.grupos.criarSessao(
-        tenantId,
-        sessao.id,
-        {
-          groupId: sessao.groupId,
-          name: sessao.name,
-          description: sessao.description,
-          justification: "",
-        },
-        0,
-        inicioDaSessao(),
-      );
-      if (typeof resultado === "string") {
-        throw new Conflito("Não foi possível preparar o exemplo.");
-      }
-    }
-    await this.financas.semearLancamentos(tenantId);
+    return this.financas.listar(tenantId, incluirEncerradas);
   }
 
   async criar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
@@ -132,6 +80,11 @@ export class FinancasService {
     return resultado;
   }
 
+  async excluir(tenantId: string, id: string) {
+    const resultado = await this.financas.excluir(tenantId, id);
+    if (resultado) this.falha(resultado);
+  }
+
   private async um(pendente: Promise<Lancamento | string>) {
     const resultado = await pendente;
     if (typeof resultado === "string") this.falha(resultado);
@@ -144,6 +97,9 @@ export class FinancasService {
     if (codigo === "categoria") throw new Conflito("Essa ação não vale para esta categoria.");
     if (codigo === "encerrada") throw new Conflito("Essa transação já foi encerrada.");
     if (codigo === "concluida") throw new Conflito("As parcelas já foram concluídas.");
+    if (codigo === "sincronizado") {
+      throw new Conflito("Esse lançamento foi sincronizado com o extrato e não pode ser apagado.");
+    }
     throw new Conflito("Não foi possível atualizar a transação.");
   }
 }

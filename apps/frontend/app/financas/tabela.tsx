@@ -12,6 +12,7 @@ import {
   type Workflow,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { focusRing } from "../../components/ui/cn";
@@ -40,11 +41,13 @@ export function TabelaLancamentos({
   workflow,
   year,
   onEditar,
+  onExcluir,
 }: {
   entries: Lancamento[];
   workflow: Workflow;
   year: number;
   onEditar: (entry: Lancamento) => void;
+  onExcluir: (entry: Lancamento) => Promise<void>;
 }) {
   const [anoFiltro, setAnoFiltro] = useState(year);
   const [month, setMonth] = useState<number | "">("");
@@ -209,7 +212,7 @@ export function TabelaLancamentos({
                 Valor
               </th>
               <th scope="col" className="border-b border-line bg-surface px-3 py-3 text-right">
-                <span className="sr-only">Editar</span>
+                <span className="sr-only">Ações</span>
               </th>
             </tr>
           </thead>
@@ -255,6 +258,8 @@ export function TabelaLancamentos({
                       {valor === undefined ? "—" : <Money cents={valor} />}
                     </td>
                     <td className="border-b border-line px-3 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <ControleExclusao compact synced={entry.synced} onExcluir={() => onExcluir(entry)} />
                       <Button
                         variant="quiet"
                         className="size-10 px-0"
@@ -273,6 +278,7 @@ export function TabelaLancamentos({
                           <path d="m13.5 6.5 3 3" />
                         </svg>
                       </Button>
+                      </div>
                     </td>
                   </tr>
                 );

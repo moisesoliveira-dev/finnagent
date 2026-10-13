@@ -1,0 +1,9 @@
+ALTER TABLE "preferences" ADD COLUMN "google_client_id" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_client_secret" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_refresh_token" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_oauth_state" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_account" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_calendar_personal" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "google_calendar_work" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "ai_api_key" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "preferences" ADD COLUMN "ai_model" TEXT NOT NULL DEFAULT 'gpt-4o';

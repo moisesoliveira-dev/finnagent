@@ -140,6 +140,19 @@ export default function Extratos() {
     };
   }, [toast]);
 
+  useEffect(() => {
+    if (!dados?.statements.some((item) => item.status === "processando")) return;
+    const timer = setInterval(() => {
+      void api<ExtratosResposta>("/api/extratos")
+        .then((resposta) => {
+          setDados(resposta);
+          setFalhou(false);
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [dados]);
+
   function abrir(file?: File) {
     setArquivo(null);
     setPrevia([]);
@@ -174,6 +187,10 @@ export default function Extratos() {
       const transferencia = new DataTransfer();
       transferencia.items.add(file);
       arquivoInput.current.files = transferencia.files;
+    }
+    if (ocr) {
+      setFormato("ocr");
+      return;
     }
     await lerPrevia(file, null);
   }
@@ -212,7 +229,7 @@ export default function Extratos() {
           mapping: formato === "csv" ? mapeamento : null,
         }),
       });
-      toast.sucesso("Extrato importado.");
+      toast.sucesso(formato === "ocr" ? "Extrato recebido. A leitura segue na lista." : "Extrato importado.");
       await carregar();
       importacao.current?.close();
     } catch (error) {
@@ -374,7 +391,10 @@ export default function Extratos() {
                         <Chip tone="neg">{item.errorCount} linhas com erro</Chip>
                       </div>
                     ) : null}
-                    {item.status === "falhou" && item.message ? <p className="mt-2 text-sm text-neg">{item.message}</p> : null}
+                    {item.status === "processando" ? <p className="mt-2 text-sm text-ink-2">Lendo o arquivo.</p> : null}
+                    {item.message && item.status !== "processando" ? (
+                      <p className="mt-2 text-sm text-neg">{item.message}</p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 tab:flex-nowrap tab:justify-end">
                     <Chip tone={tom(item.status)}>{ROTULO[item.status]}</Chip>
@@ -431,6 +451,11 @@ export default function Extratos() {
               }}
             />
             <span className="text-xs text-ink-2">OFX, CSV, foto ou PDF, até 5 MB.</span>
+            {formato === "ocr" ? (
+              <p className="text-sm text-ink-2">
+                A leitura acontece depois de importar. O status do extrato mostra o resultado ou o erro.
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-1">
             <Rotulo htmlFor="extrato-conta" dica="A conta deste extrato. Você pode criar uma nova.">
@@ -556,7 +581,7 @@ export default function Extratos() {
         <label className="mb-3 flex min-h-10 items-center gap-2 text-sm">
           <input
             type="checkbox"
-            className={`size-[18px] accent-brand ${focusRing}`}
+            className={`size-4 accent-brand ${focusRing}`}
             checked={soErros}
             onChange={(event) => {
               if (aberto) void verLinhas(aberto, event.target.checked);

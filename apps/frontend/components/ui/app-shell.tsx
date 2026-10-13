@@ -55,7 +55,7 @@ function Item({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios", "/eventos"];
+  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios", "/eventos", "/configuracoes"];
   const assistant =
     pathname !== "/" &&
     !semAssistente.some((rota) => pathname === rota || pathname.startsWith(`${rota}/`));
@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label="Principal"
         className={cn(
-          "flex items-center gap-1 overflow-x-auto border-b border-line p-3 tab:row-span-2 tab:flex-col tab:items-stretch tab:gap-6 tab:border-r tab:border-b-0 tab:p-4",
+          "sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:max-h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4",
           assistant && "desk:row-span-1",
         )}
       >
@@ -106,6 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {items.slice(3).map((item) => (
             <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
           ))}
+          <Item href="/configuracoes" label="Configurações" current={pathname === "/configuracoes"} />
         </ul>
       </nav>
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
