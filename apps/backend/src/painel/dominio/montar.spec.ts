@@ -43,6 +43,7 @@ function lancamento(parcial: Partial<Lancamento> & Pick<Lancamento, "id" | "cent
     adjustments: [],
     recurrence: base.type === "fixo" ? "monthly" : null,
     recurrenceInterval: base.type === "fixo" ? 1 : null,
+    synced: false,
   };
 }
 

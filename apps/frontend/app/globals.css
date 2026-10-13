@@ -22,8 +22,30 @@
   --cursor-prumo: url("/cursor.svg") 1 1;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f161c;
+  --surface: #17212a;
+  --surface-2: #1d2833;
+  --ink: #e8edf1;
+  --ink-2: #9daab6;
+  --line: #2a3743;
+  --brand: #4db8a8;
+  --brand-ink: #06201c;
+  --brand-soft: #153630;
+  --pending: #e8b866;
+  --pending-soft: #33290f;
+  --pending-line: #c8912f;
+  --pos: #5cc98a;
+  --neg: #f0847a;
+  --event: #8fa2f0;
+  --event-soft: #1e2547;
+  --overlay: #05080c;
+  --cursor-prumo: url("/cursor-dark.svg") 1 1;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg: #0f161c;
     --surface: #17212a;

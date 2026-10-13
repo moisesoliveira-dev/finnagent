@@ -240,6 +240,7 @@ export type Lancamento = {
   adjustments: AjusteTransacao[];
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
+  synced: boolean;
 };
 
 export type FinancasResposta = {
@@ -432,6 +433,78 @@ export type FusoAgenda = (typeof FUSOS_AGENDA)[number];
 
 export const FUSO_PADRAO: FusoAgenda = "America/Sao_Paulo";
 
+export const TEMAS = ["auto", "light", "dark"] as const;
+
+export type Tema = (typeof TEMAS)[number];
+
+export const LIMITE_MODELOS_IA = 20;
+
+export const LIMITE_ID_MODELO = 120;
+
+export function idDeModelo(valor: string) {
+  const nome = valor.trim();
+  if (nome.length < 1 || nome.length > LIMITE_ID_MODELO) return "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(nome)) return "";
+  return nome;
+}
+
+export const MODOS_CATEGORIA = ["confirmar", "aplicar"] as const;
+
+export type ModoCategoria = (typeof MODOS_CATEGORIA)[number];
+
+export const HORAS_PENDENTE = [12, 24, 48, 72] as const;
+
+export type HorasPendente = (typeof HORAS_PENDENTE)[number];
+
+export const LEMBRETES = ["15m", "1h", "1d"] as const;
+
+export type Lembrete = (typeof LEMBRETES)[number];
+
+export const RETENCOES = ["90d", "1a", "sempre"] as const;
+
+export type Retencao = (typeof RETENCOES)[number];
+
+export type Preferencias = {
+  name: string;
+  timezone: FusoAgenda;
+  theme: Tema;
+  workflowDate: string;
+  personalCalendar: boolean;
+  workCalendar: boolean;
+  showEntries: boolean;
+  categorize: ModoCategoria;
+  pendingHours: HorasPendente;
+  reminder: Lembrete;
+  reminders: boolean;
+  dueAlerts: boolean;
+  emailAlerts: boolean;
+  appAlerts: boolean;
+  history: Retencao;
+  googleClientId: string;
+  googleClientSecret: string;
+  limparSegredoGoogle: boolean;
+  googleCalendarPersonal: string;
+  googleCalendarWork: string;
+  aiModels: string[];
+  aiModel: string;
+  aiApiKey: string;
+  limparChaveIa: boolean;
+};
+
+export type AgendaGoogle = {
+  id: string;
+  name: string;
+};
+
+export type Configuracoes = Preferencias & {
+  google: EstadoGoogle;
+  googleSecretConfigured: boolean;
+  googleConnected: boolean;
+  googleAccount: string;
+  googleCalendars: AgendaGoogle[];
+  aiKeyConfigured: boolean;
+};
+
 export type EstadoGoogle = "desconectado" | "sincronizando" | "sincronizado" | "erro";
 
 export type LancamentoDoMes = {
@@ -519,6 +592,8 @@ export type PedidoOrganizarExtrato = {
   filename: string;
   mediaType: string;
   content: string;
+  apiKey?: string;
+  model?: string;
 };
 
 export type Extrato = {
@@ -964,6 +1039,7 @@ const FINANCEIRO = new Set([
   "definir-workflow",
   "criar-lancamento",
   "atualizar-lancamento",
+  "excluir-lancamento",
   "atualizar-status-lancamento",
   "associar-compromisso",
   "adiantar-parcelas",
@@ -990,12 +1066,14 @@ const EXTRATOS = new Set([
   "reprocessar-extrato",
   "cruzar-linha",
   "excluir-extrato",
+  "associar-nome-extrato",
 ]);
 
 const NOME_AGREGADO: Record<string, string> = {
   "definir-workflow": "Fluxo",
   "criar-lancamento": "Lançamento",
   "atualizar-lancamento": "Lançamento",
+  "excluir-lancamento": "Lançamento",
   "atualizar-status-lancamento": "Lançamento",
   "associar-compromisso": "Lançamento",
   "adiantar-parcelas": "Lançamento",
@@ -1015,6 +1093,11 @@ const NOME_AGREGADO: Record<string, string> = {
   "remover-sessao": "Sessão",
   "criar-meta": "Meta",
   "excluir-meta": "Meta",
+  "salvar-configuracoes": "Configurações",
+  "iniciar-google": "Configurações",
+  "conectar-google": "Configurações",
+  "desconectar-google": "Configurações",
+  "atualizar-fuso": "Configurações",
   "criar-compromisso": "Compromisso",
   "atualizar-status-compromisso": "Compromisso",
   "sincronizar-google-agenda": "Calendário",
@@ -1023,6 +1106,7 @@ const NOME_AGREGADO: Record<string, string> = {
   "reprocessar-extrato": "Extrato",
   "cruzar-linha": "Linha de extrato",
   "excluir-extrato": "Extrato",
+  "associar-nome-extrato": "Extrato",
 };
 
 export function montarEventos(linhas: LinhaOutbox[], consumos: LinhaConsumo[]): EventosResposta {
@@ -1081,6 +1165,7 @@ const AGENDA = new Set([
   "atualizar-status-compromisso",
   "sincronizar-google-agenda",
   "atualizar-fuso-calendario",
+  "atualizar-fuso",
 ]);
 
 function categoriaDe(operation: string): CodigoCategoriaEvento {
@@ -1122,7 +1207,7 @@ function mascararValor(valor: unknown): unknown {
 
 function sensivel(chave: string) {
   return (
-    /(token|senha|password|secret|authorization|cpf)/i.test(chave) ||
+    /(token|senha|password|secret|authorization|cpf|apikey|api_key|chave)/i.test(chave) ||
     /^(conta|account|cartao|cartão)$/i.test(chave)
   );
 }

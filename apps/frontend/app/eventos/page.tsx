@@ -8,7 +8,9 @@ import {
   type Evento,
   type EventosResposta,
   type HistoricoEvento,
+  type Preferencias,
   type ResultadoHistorico,
+  type Retencao,
   type StatusEvento,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
@@ -36,6 +38,7 @@ export default function EventosPage() {
   const [resultado, setResultado] = useState("");
   const [buscaHistorico, setBuscaHistorico] = useState("");
   const [aberto, setAberto] = useState<Evento | null>(null);
+  const [retencao, setRetencao] = useState<Retencao>("sempre");
   const detalhes = useRef<HTMLDialogElement>(null);
   const categorias = useRef<HTMLDialogElement>(null);
 
@@ -60,6 +63,22 @@ export default function EventosPage() {
   }, [toast]);
 
   useEffect(() => {
+    let ativo = true;
+    fetch("/api/configuracoes")
+      .then(async (resposta) => {
+        if (!resposta.ok || !ativo) return;
+        const dados = (await resposta.json()) as Preferencias;
+        if (ativo && (dados.history === "90d" || dados.history === "1a" || dados.history === "sempre")) {
+          setRetencao(dados.history);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const dialog = detalhes.current;
     if (!dialog) return;
     if (aberto && !dialog.open) dialog.showModal();
@@ -76,6 +95,7 @@ export default function EventosPage() {
     return `${evento.type} ${evento.aggregate} ${evento.origin}`.toLowerCase().includes(termo);
   });
   const historico = history.filter((linha) => {
+    if (!cabeNoPrazo(linha.occurredAt, retencao)) return false;
     if (resultado && linha.result !== resultado) return false;
     return `${linha.eventType} ${linha.consumer}`.toLowerCase().includes(termoHistorico);
   });
@@ -462,4 +482,14 @@ function duracao(ms: number | null) {
   if (ms === null) return "—";
   if (ms >= 1000) return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
   return `${ms} ms`;
+}
+
+function cabeNoPrazo(iso: string, prazo: Retencao) {
+  if (prazo === "sempre") return true;
+  const quando = new Date(iso);
+  if (Number.isNaN(quando.getTime())) return true;
+  const limite = new Date();
+  if (prazo === "90d") limite.setDate(limite.getDate() - 90);
+  else limite.setFullYear(limite.getFullYear() - 1);
+  return quando >= limite;
 }

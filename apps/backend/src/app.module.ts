@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AgendaModule } from './agenda/agenda.module.js';
+import { ConfiguracoesModule } from './configuracoes/configuracoes.module.js';
 import { EventosModule } from './eventos/eventos.module.js';
 import { ExtratosModule } from './extratos/extratos.module.js';
 import { FinancasModule } from './financas/financas.module.js';
@@ -22,6 +23,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
     MetasModule,
     RelatoriosModule,
     PainelModule,
+    ConfiguracoesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

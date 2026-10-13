@@ -1,0 +1,1113 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import {
+  HORAS_PENDENTE,
+  LEMBRETES,
+  LIMITE_MODELOS_IA,
+  idDeModelo,
+  type AgendaGoogle,
+  type Configuracoes,
+  type EstadoGoogle,
+  type FusoAgenda,
+  type HorasPendente,
+  type Lembrete,
+  type Preferencias,
+  type Retencao,
+  type Tema,
+} from "@finnagent/contracts";
+import { Button } from "../../components/ui/button";
+import { Chip } from "../../components/ui/chip";
+import { cn, focusRing } from "../../components/ui/cn";
+import { PageHeader } from "../../components/ui/page-header";
+import { aplicarTema, segurarTema } from "../../components/ui/tema";
+import { useToast } from "../../components/ui/toast";
+import { rotuloDoFuso } from "../agenda/itens";
+
+type Secao =
+  | "conta"
+  | "aparencia"
+  | "financas"
+  | "google"
+  | "assistente"
+  | "notificacoes"
+  | "eventos"
+  | "dados";
+
+type No = {
+  id: string;
+  rotulo: string;
+  secao?: Secao;
+  filhos?: No[];
+};
+
+type Visivel = {
+  id: string;
+  rotulo: string;
+  secao?: Secao;
+  grupo: boolean;
+  aberto: boolean;
+  pai: string | null;
+};
+
+const ARVORE: No[] = [
+  {
+    id: "geral",
+    rotulo: "Geral",
+    filhos: [
+      { id: "conta", rotulo: "Conta", secao: "conta" },
+      { id: "aparencia", rotulo: "Aparência", secao: "aparencia" },
+    ],
+  },
+  { id: "financas", rotulo: "Finanças", secao: "financas" },
+  {
+    id: "integracoes",
+    rotulo: "Integrações",
+    filhos: [{ id: "google", rotulo: "Google Calendar", secao: "google" }],
+  },
+  {
+    id: "avisos",
+    rotulo: "Assistente e avisos",
+    filhos: [
+      { id: "assistente", rotulo: "Assistente", secao: "assistente" },
+      { id: "notificacoes", rotulo: "Notificações", secao: "notificacoes" },
+    ],
+  },
+  {
+    id: "sistema",
+    rotulo: "Sistema",
+    filhos: [
+      { id: "eventos", rotulo: "Eventos e histórico", secao: "eventos" },
+      { id: "dados", rotulo: "Dados e privacidade", secao: "dados" },
+    ],
+  },
+];
+
+const ABERTOS = { geral: true, integracoes: true, avisos: true, sistema: true };
+
+const FUSOS: Array<[FusoAgenda, string]> = [
+  ["America/Sao_Paulo", "GMT−3"],
+  ["America/Manaus", "GMT−4"],
+  ["America/Rio_Branco", "GMT−5"],
+  ["America/Noronha", "GMT−2"],
+  ["UTC", "GMT+0"],
+];
+
+const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink disabled:opacity-50 ${focusRing}`;
+
+const dialogClass = "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+
+function achatar(nos: No[], abertos: Record<string, boolean>, pai: string | null = null): Visivel[] {
+  const lista: Visivel[] = [];
+  for (const no of nos) {
+    const aberto = Boolean(abertos[no.id]);
+    lista.push({
+      id: no.id,
+      rotulo: no.rotulo,
+      secao: no.secao,
+      grupo: Boolean(no.filhos),
+      aberto,
+      pai,
+    });
+    if (no.filhos && aberto) lista.push(...achatar(no.filhos, abertos, no.id));
+  }
+  return lista;
+}
+
+function rotuloDa(secao: Secao) {
+  const lista = achatar(ARVORE, { geral: true, integracoes: true, avisos: true, sistema: true });
+  return lista.find((item) => item.secao === secao)?.rotulo ?? "Conta";
+}
+
+function formularioDe(dados: Configuracoes): Preferencias {
+  return {
+    name: dados.name,
+    timezone: dados.timezone,
+    theme: dados.theme,
+    workflowDate: dados.workflowDate,
+    personalCalendar: dados.personalCalendar,
+    workCalendar: dados.workCalendar,
+    showEntries: dados.showEntries,
+    categorize: dados.categorize,
+    pendingHours: dados.pendingHours,
+    reminder: dados.reminder,
+    reminders: dados.reminders,
+    dueAlerts: dados.dueAlerts,
+    emailAlerts: dados.emailAlerts,
+    appAlerts: dados.appAlerts,
+    history: dados.history,
+    googleClientId: dados.googleClientId,
+    googleClientSecret: "",
+    limparSegredoGoogle: false,
+    googleCalendarPersonal: dados.googleCalendarPersonal,
+    googleCalendarWork: dados.googleCalendarWork,
+    aiModels: dados.aiModels,
+    aiModel: dados.aiModel,
+    aiApiKey: "",
+    limparChaveIa: false,
+  };
+}
+
+function rotuloGoogle(estado: EstadoGoogle) {
+  if (estado === "sincronizado") return "Conectado";
+  if (estado === "sincronizando") return "Sincronizando";
+  if (estado === "erro") return "Erro na sincronização";
+  return "Desconectado";
+}
+
+function opcoesDoCalendario(lista: AgendaGoogle[], atual: string) {
+  if (!atual || lista.some((agenda) => agenda.id === atual)) return lista;
+  return [{ id: atual, name: atual }, ...lista];
+}
+
+export function Painel() {
+  const toast = useToast();
+  const [secao, setSecao] = useState<Secao>("conta");
+  const [abertos, setAbertos] = useState<Record<string, boolean>>(ABERTOS);
+  const [foco, setFoco] = useState("conta");
+  const [menu, setMenu] = useState(false);
+  const [form, setForm] = useState<Preferencias | null>(null);
+  const [salvo, setSalvo] = useState<Preferencias | null>(null);
+  const [google, setGoogle] = useState<EstadoGoogle>("desconectado");
+  const [googleSecretConfigured, setGoogleSecretConfigured] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleAccount, setGoogleAccount] = useState("");
+  const [googleCalendars, setGoogleCalendars] = useState<AgendaGoogle[]>([]);
+  const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
+  const [retorno, setRetorno] = useState("");
+  const [falhou, setFalhou] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erroNome, setErroNome] = useState("");
+  const [erroData, setErroData] = useState("");
+  const [rascunhoModelo, setRascunhoModelo] = useState("");
+  const [erroModelo, setErroModelo] = useState("");
+  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | null>(null);
+  const [palavra, setPalavra] = useState("");
+  const [permissao, setPermissao] = useState("");
+  const dialogo = useRef<HTMLDialogElement>(null);
+  const arvore = useRef<HTMLUListElement>(null);
+  const sujoRef = useRef(false);
+  const salvoRef = useRef<Preferencias | null>(null);
+  const sujo = Boolean(form && salvo && JSON.stringify(form) !== JSON.stringify(salvo));
+  sujoRef.current = sujo;
+  salvoRef.current = salvo;
+  segurarTema(true);
+
+  function aplicar(dados: Configuracoes) {
+    const base = formularioDe(dados);
+    setForm(base);
+    setSalvo(base);
+    setGoogle(dados.google);
+    setGoogleSecretConfigured(dados.googleSecretConfigured);
+    setGoogleConnected(dados.googleConnected);
+    setGoogleAccount(dados.googleAccount);
+    setGoogleCalendars(dados.googleCalendars);
+    setAiKeyConfigured(dados.aiKeyConfigured);
+    aplicarTema(base.theme);
+  }
+
+  function carregar() {
+    setFalhou(false);
+    return fetch("/api/configuracoes")
+      .then(async (resposta) => {
+        const corpo = (await resposta.json().catch(() => ({}))) as Configuracoes & { message?: string };
+        if (!resposta.ok) throw new Error(corpo.message || "Não foi possível carregar as configurações.");
+        return corpo;
+      })
+      .then((dados) => aplicar(dados))
+      .catch(() => setFalhou(true));
+  }
+
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/configuracoes")
+      .then(async (resposta) => {
+        const corpo = (await resposta.json().catch(() => ({}))) as Configuracoes & { message?: string };
+        if (!resposta.ok) throw new Error(corpo.message || "falha");
+        return corpo;
+      })
+      .then((dados) => {
+        if (!vivo) return;
+        aplicar(dados);
+      })
+      .catch(() => {
+        if (vivo) setFalhou(true);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      segurarTema(false);
+      if (sujoRef.current && salvoRef.current) aplicarTema(salvoRef.current.theme);
+    };
+  }, []);
+
+  useEffect(() => {
+    setRetorno(`${window.location.origin}/api/configuracoes/google/retorno`);
+    const params = new URLSearchParams(window.location.search);
+    const resultado = params.get("google");
+    if (resultado === "conectado") toast.sucesso("Google Calendar conectado");
+    if (resultado === "erro") toast.erro("Não foi possível conectar o Google Calendar.");
+    if (resultado) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("google");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    setPermissao(Notification.permission);
+  }, []);
+
+  useEffect(() => {
+    const atual = dialogo.current;
+    if (!atual) return;
+    if (confirmacao && !atual.open) atual.showModal();
+    if (!confirmacao && atual.open) atual.close();
+  }, [confirmacao]);
+
+  useEffect(() => {
+    const ativo = arvore.current?.querySelector<HTMLButtonElement>("[data-foco='true']");
+    if (
+      ativo &&
+      document.activeElement &&
+      arvore.current?.contains(document.activeElement) &&
+      document.activeElement !== ativo
+    ) {
+      ativo.focus();
+    }
+  }, [foco, abertos]);
+
+  function alterar<K extends keyof Preferencias>(chave: K, valor: Preferencias[K]) {
+    setForm((atual) => (atual ? { ...atual, [chave]: valor } : atual));
+  }
+
+  function adicionarModelo() {
+    if (!form) return;
+    const nome = idDeModelo(rascunhoModelo);
+    if (!nome) {
+      setErroModelo("Informe um identificador de modelo válido.");
+      return;
+    }
+    if (form.aiModels.includes(nome)) {
+      setErroModelo("Esse modelo já está cadastrado.");
+      return;
+    }
+    if (form.aiModels.length >= LIMITE_MODELOS_IA) {
+      setErroModelo(`Cadastre no máximo ${LIMITE_MODELOS_IA} modelos.`);
+      return;
+    }
+    setErroModelo("");
+    setRascunhoModelo("");
+    setForm({
+      ...form,
+      aiModels: [...form.aiModels, nome],
+      aiModel: form.aiModel || nome,
+    });
+  }
+
+  function removerModelo(nome: string) {
+    if (!form) return;
+    const aiModels = form.aiModels.filter((item) => item !== nome);
+    setErroModelo("");
+    setForm({
+      ...form,
+      aiModels,
+      aiModel: form.aiModel === nome ? (aiModels[0] ?? "") : form.aiModel,
+    });
+  }
+
+  function mudarTema(tema: Tema) {
+    alterar("theme", tema);
+    aplicarTema(tema);
+  }
+
+  function descartar() {
+    if (!salvo) return;
+    setForm(salvo);
+    setErroNome("");
+    setErroData("");
+    setErroModelo("");
+    setRascunhoModelo("");
+    aplicarTema(salvo.theme);
+  }
+
+  function escolher(item: Visivel) {
+    if (item.secao) {
+      setSecao(item.secao);
+      setFoco(item.id);
+      setMenu(false);
+      return;
+    }
+    setFoco(item.id);
+    setAbertos((atual) => ({ ...atual, [item.id]: !atual[item.id] }));
+  }
+
+  function aoTeclar(event: React.KeyboardEvent<HTMLUListElement>) {
+    const lista = achatar(ARVORE, abertos);
+    const indice = lista.findIndex((item) => item.id === foco);
+    const atual = lista[indice];
+    if (!atual) return;
+    const proximo = lista[indice + 1];
+    const anterior = lista[indice - 1];
+    if (event.key === "ArrowDown" && proximo) {
+      event.preventDefault();
+      setFoco(proximo.id);
+    } else if (event.key === "ArrowUp" && anterior) {
+      event.preventDefault();
+      setFoco(anterior.id);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setFoco(lista[0].id);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setFoco(lista[lista.length - 1].id);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (atual.grupo && !atual.aberto) setAbertos((estado) => ({ ...estado, [atual.id]: true }));
+      else if (atual.grupo && proximo) setFoco(proximo.id);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (atual.grupo && atual.aberto) setAbertos((estado) => ({ ...estado, [atual.id]: false }));
+      else if (atual.pai) setFoco(atual.pai);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      escolher(atual);
+    }
+  }
+
+  async function salvar(event: React.FormEvent) {
+    event.preventDefault();
+    if (!form) return;
+    setSalvando(true);
+    setErroNome("");
+    setErroData("");
+    setErroModelo("");
+    try {
+      const resposta = await fetch("/api/configuracoes", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const corpo = (await resposta.json().catch(() => ({}))) as Configuracoes & { message?: string };
+      if (!resposta.ok) {
+        const mensagem = corpo.message || "Não foi possível salvar as configurações.";
+        if (mensagem.includes("nome")) {
+          setErroNome(mensagem);
+          setSecao("conta");
+          setFoco("conta");
+        } else if (mensagem.includes("modelo")) {
+          setErroModelo(mensagem);
+          setSecao("assistente");
+          setFoco("assistente");
+        } else if (mensagem.includes("data")) {
+          setErroData(mensagem);
+          setSecao("financas");
+          setFoco("financas");
+        }
+        toast.erro(mensagem);
+        return;
+      }
+      aplicar(corpo);
+      toast.sucesso("Alterações salvas");
+    } catch {
+      toast.erro("Não foi possível salvar as configurações.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function sincronizar() {
+    try {
+      const resposta = await fetch("/api/agenda/sincronizar", { method: "POST" });
+      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível sincronizar.");
+      toast.sucesso("Agenda sincronizada");
+      await carregar();
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível sincronizar.");
+    }
+  }
+
+  function confirmarAcao() {
+    if (confirmacao === "excluir") {
+      toast.alerta("A exclusão da conta ainda não está disponível.");
+      setPalavra("");
+      setConfirmacao(null);
+      return;
+    }
+    void desconectarGoogle();
+  }
+
+  function conectarGoogle() {
+    if (!form || sujo) {
+      toast.alerta("Salve o ID e o segredo antes de conectar.");
+      return;
+    }
+    if (!form.googleClientId.trim() || !googleSecretConfigured) {
+      toast.alerta("Informe o ID e o segredo do cliente Google.");
+      return;
+    }
+    window.location.assign("/api/configuracoes/google/conectar");
+  }
+
+  async function desconectarGoogle() {
+    try {
+      const resposta = await fetch("/api/configuracoes/google/desconectar", { method: "POST" });
+      const corpo = (await resposta.json().catch(() => ({}))) as Configuracoes & { message?: string };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível desconectar o Google Calendar.");
+      aplicar(corpo);
+      toast.sucesso("Google Calendar desconectado");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível desconectar o Google Calendar.");
+    } finally {
+      setPalavra("");
+      setConfirmacao(null);
+    }
+  }
+
+  const lista = achatar(ARVORE, abertos);
+  const exigePalavra = confirmacao === "excluir";
+  const podeConfirmar = !exigePalavra || palavra === "EXCLUIR";
+
+  return (
+    <>
+      <PageHeader title="Configurações" subtitle="Ajuste sua conta, integrações e como o assistente trabalha." />
+      {falhou ? (
+        <div className="grid max-w-prose gap-4">
+          <p>Não foi possível carregar as configurações.</p>
+          <Button variant="primary" onClick={() => void carregar()}>
+            Tentar de novo
+          </Button>
+        </div>
+      ) : !form ? (
+        <p className="text-ink-2">Carregando configurações.</p>
+      ) : (
+        <div className="grid items-start gap-6 desk:grid-cols-4">
+          <nav className="grid min-w-0 gap-2 desk:sticky desk:top-4 desk:col-span-1" aria-label="Seções das configurações">
+            <button
+              type="button"
+              className={`flex min-h-10 w-full items-center justify-between rounded-sm border border-line bg-surface px-3 font-semibold desk:hidden ${focusRing}`}
+              aria-expanded={menu}
+              aria-controls="arvore-configuracoes"
+              onClick={() => setMenu((aberto) => !aberto)}
+            >
+              <span>{rotuloDa(secao)}</span>
+              <span aria-hidden>{menu ? "▴" : "▾"}</span>
+            </button>
+            <ul
+              id="arvore-configuracoes"
+              ref={arvore}
+              role="tree"
+              aria-label="Configurações"
+              className={cn(
+                "gap-1 rounded-lg border border-line bg-surface p-2",
+                menu ? "grid" : "hidden desk:grid",
+              )}
+              onKeyDown={aoTeclar}
+            >
+              {lista.map((item) => (
+                <li key={item.id} role="none" className={item.pai ? "pl-4" : undefined}>
+                  <button
+                    type="button"
+                    role="treeitem"
+                    data-foco={item.id === foco ? "true" : "false"}
+                    tabIndex={item.id === foco ? 0 : -1}
+                    aria-expanded={item.grupo ? item.aberto : undefined}
+                    aria-selected={item.secao ? item.secao === secao : undefined}
+                    aria-level={item.pai ? 2 : 1}
+                    className={cn(
+                      "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-sm px-3 text-left text-sm",
+                      item.secao === secao ? "bg-brand-soft font-semibold text-brand" : "text-ink-2",
+                      focusRing,
+                    )}
+                    onClick={() => escolher(item)}
+                  >
+                    <span aria-hidden className="w-4 shrink-0 text-center">
+                      {item.grupo ? (item.aberto ? "▾" : "▸") : ""}
+                    </span>
+                    <span className="min-w-0">{item.rotulo}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <form className="grid min-w-0 gap-6 desk:col-span-3" onSubmit={(event) => void salvar(event)}>
+            <section hidden={secao !== "conta"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-conta">
+              <h2 id="titulo-conta" className="mb-3 font-display text-lg">Conta</h2>
+              <Linha id="nome" titulo="Nome" dica="Como a conta aparece no Prumo.">
+                <input
+                  id="nome"
+                  value={form.name}
+                  autoComplete="name"
+                  aria-invalid={erroNome ? true : undefined}
+                  aria-describedby={erroNome ? "nome-erro nome-dica" : "nome-dica"}
+                  className={field}
+                  onChange={(event) => {
+                    setErroNome("");
+                    alterar("name", event.target.value);
+                  }}
+                />
+                {erroNome ? (
+                  <p id="nome-erro" className="text-sm text-neg" role="alert">
+                    {erroNome}
+                  </p>
+                ) : null}
+              </Linha>
+              <Linha id="email" titulo="E-mail" dica="O Prumo ainda não entra por e-mail." grupo>
+                <span className="text-sm text-ink-2">Não cadastrado</span>
+              </Linha>
+              <Linha id="fuso" titulo="Fuso horário" dica="Pessoal e Trabalho usam este mesmo fuso.">
+                <select
+                  id="fuso"
+                  value={form.timezone}
+                  aria-describedby="fuso-dica"
+                  className={field}
+                  onChange={(event) => alterar("timezone", event.target.value as FusoAgenda)}
+                >
+                  {FUSOS.map(([fuso, offset]) => (
+                    <option key={fuso} value={fuso}>
+                      {rotuloDoFuso(fuso)} ({offset})
+                    </option>
+                  ))}
+                </select>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "aparencia"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-aparencia">
+              <h2 id="titulo-aparencia" className="mb-3 font-display text-lg">Aparência</h2>
+              <Linha id="tema" titulo="Tema" dica="Automático segue o sistema. A escolha vale como prévia até você salvar." grupo>
+                <div id="tema" role="radiogroup" aria-labelledby="tema-rotulo" aria-describedby="tema-dica" className="flex w-fit flex-wrap rounded-sm border border-line bg-surface">
+                  {(
+                    [
+                      ["auto", "Automático"],
+                      ["light", "Claro"],
+                      ["dark", "Escuro"],
+                    ] as const
+                  ).map(([valor, rotulo]) => (
+                    <button
+                      key={valor}
+                      type="button"
+                      role="radio"
+                      aria-checked={form.theme === valor}
+                      className={cn(
+                        "min-h-10 px-4 font-semibold",
+                        form.theme === valor ? "bg-brand-soft text-brand" : "text-ink-2",
+                        focusRing,
+                      )}
+                      onClick={() => mudarTema(valor)}
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "financas"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-financas">
+              <h2 id="titulo-financas" className="mb-3 font-display text-lg">Finanças</h2>
+              <Linha id="workflow" titulo="Início do workflow" dica="A visão geral mostra os meses a partir desta data, ano a ano.">
+                <input
+                  id="workflow"
+                  type="date"
+                  value={form.workflowDate}
+                  aria-invalid={erroData ? true : undefined}
+                  aria-describedby={erroData ? "workflow-erro workflow-dica" : "workflow-dica"}
+                  className={field}
+                  onChange={(event) => {
+                    setErroData("");
+                    alterar("workflowDate", event.target.value);
+                  }}
+                />
+                {erroData ? (
+                  <p id="workflow-erro" className="text-sm text-neg" role="alert">
+                    {erroData}
+                  </p>
+                ) : null}
+              </Linha>
+              <Linha id="moeda" titulo="Moeda" dica="Os valores do Prumo ficam em real." grupo>
+                <span className="text-sm text-ink-2">Real brasileiro (BRL)</span>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "google"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-google">
+              <h2 id="titulo-google" className="mb-3 font-display text-lg">Google Calendar</h2>
+              <p className="mb-3 text-sm text-ink-2">
+                Crie um cliente OAuth no Google Cloud com leitura do Calendar e autorize a URI de redirecionamento.
+              </p>
+              {retorno ? <p className="mb-3 text-sm text-ink-2">URI de redirecionamento: {retorno}</p> : null}
+              <Linha id="google-cliente" titulo="ID do cliente" dica="O identificador do cliente OAuth. Salve antes de conectar.">
+                <input
+                  id="google-cliente"
+                  value={form.googleClientId}
+                  autoComplete="off"
+                  aria-describedby="google-cliente-dica"
+                  className={field}
+                  onChange={(event) => alterar("googleClientId", event.target.value)}
+                />
+              </Linha>
+              <Linha id="google-segredo" titulo="Segredo do cliente" dica="Fica só no Prumo. O campo vazio mantém o segredo já salvo.">
+                <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                  <input
+                    id="google-segredo"
+                    type="password"
+                    value={form.googleClientSecret}
+                    autoComplete="new-password"
+                    placeholder={googleSecretConfigured && !form.limparSegredoGoogle ? "Segredo já salvo" : ""}
+                    aria-describedby="google-segredo-dica"
+                    className={cn(field, "w-auto min-w-0 flex-1")}
+                    onChange={(event) =>
+                      setForm((atual) =>
+                        atual
+                          ? { ...atual, googleClientSecret: event.target.value, limparSegredoGoogle: false }
+                          : atual,
+                      )
+                    }
+                  />
+                  {googleSecretConfigured && !form.limparSegredoGoogle ? (
+                    <Button
+                      onClick={() =>
+                        setForm((atual) =>
+                          atual ? { ...atual, googleClientSecret: "", limparSegredoGoogle: true } : atual,
+                        )
+                      }
+                    >
+                      Remover segredo
+                    </Button>
+                  ) : null}
+                </span>
+              </Linha>
+              <Linha
+                id="conexao"
+                titulo="Conexão"
+                dica={
+                  google === "erro"
+                    ? "Não foi possível ler os calendários. Confira o cliente ou conecte de novo."
+                    : googleConnected
+                      ? "A sincronização traz os compromissos para a agenda."
+                      : "Depois de salvar o cliente, conecte a conta Google."
+                }
+                grupo
+              >
+                <span className="flex flex-wrap items-center gap-2">
+                  <Chip tone={google === "sincronizado" ? "ok" : google === "erro" ? "neg" : "default"}>{rotuloGoogle(google)}</Chip>
+                  {googleAccount ? <span className="text-sm text-ink-2">{googleAccount}</span> : null}
+                  {googleConnected ? (
+                    <>
+                      <Button onClick={() => void sincronizar()}>Sincronizar agora</Button>
+                      <Button variant="danger" onClick={() => setConfirmacao("desconectar")}>
+                        Desconectar
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="primary" onClick={conectarGoogle}>
+                      Conectar Google Calendar
+                    </Button>
+                  )}
+                </span>
+              </Linha>
+              <Linha id="google-pessoal" titulo="Calendário do Google para Pessoal" dica="Os eventos deste calendário entram na agenda Pessoal.">
+                <select
+                  id="google-pessoal"
+                  value={form.googleCalendarPersonal}
+                  aria-describedby="google-pessoal-dica"
+                  className={field}
+                  onChange={(event) => alterar("googleCalendarPersonal", event.target.value)}
+                >
+                  <option value="">Não sincronizar</option>
+                  {opcoesDoCalendario(googleCalendars, form.googleCalendarPersonal).map((agenda) => (
+                    <option key={agenda.id} value={agenda.id}>
+                      {agenda.name}
+                    </option>
+                  ))}
+                </select>
+              </Linha>
+              <Linha id="google-trabalho" titulo="Calendário do Google para Trabalho" dica="Os eventos deste calendário entram na agenda Trabalho.">
+                <select
+                  id="google-trabalho"
+                  value={form.googleCalendarWork}
+                  aria-describedby="google-trabalho-dica"
+                  className={field}
+                  onChange={(event) => alterar("googleCalendarWork", event.target.value)}
+                >
+                  <option value="">Não sincronizar</option>
+                  {opcoesDoCalendario(googleCalendars, form.googleCalendarWork).map((agenda) => (
+                    <option key={agenda.id} value={agenda.id}>
+                      {agenda.name}
+                    </option>
+                  ))}
+                </select>
+              </Linha>
+              <Linha id="cal-pessoal" titulo="Agenda Pessoal" dica="Mostra os compromissos desse calendário na agenda.">
+                <Interruptor
+                  id="cal-pessoal"
+                  checked={form.personalCalendar}
+                  onChange={(valor) => alterar("personalCalendar", valor)}
+                />
+              </Linha>
+              <Linha id="cal-trabalho" titulo="Agenda Trabalho" dica="Mostra os compromissos desse calendário na agenda.">
+                <Interruptor
+                  id="cal-trabalho"
+                  checked={form.workCalendar}
+                  onChange={(valor) => alterar("workCalendar", valor)}
+                />
+              </Linha>
+              <Linha id="lancamentos" titulo="Mostrar lançamentos previstos na agenda" dica="Exibe datas de transações junto dos compromissos.">
+                <Interruptor id="lancamentos" checked={form.showEntries} onChange={(valor) => alterar("showEntries", valor)} />
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "assistente"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-assistente">
+              <h2 id="titulo-assistente" className="mb-3 font-display text-lg">Assistente</h2>
+              <p className="mb-3 text-sm text-ink-2">A IA propõe e você confirma. Ações com efeito sempre pedem confirmação.</p>
+              <Linha id="chave-ia" titulo="Chave da OpenAI" dica="A leitura de foto e PDF do extrato usa esta chave. Sem chave salva, usa a chave do ambiente. O campo vazio mantém a chave já salva.">
+                <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                  <input
+                    id="chave-ia"
+                    type="password"
+                    value={form.aiApiKey}
+                    autoComplete="new-password"
+                    placeholder={aiKeyConfigured && !form.limparChaveIa ? "Chave já salva" : ""}
+                    aria-describedby="chave-ia-dica"
+                    className={cn(field, "w-auto min-w-0 flex-1")}
+                    onChange={(event) =>
+                      setForm((atual) =>
+                        atual ? { ...atual, aiApiKey: event.target.value, limparChaveIa: false } : atual,
+                      )
+                    }
+                  />
+                  {aiKeyConfigured && !form.limparChaveIa ? (
+                    <Button
+                      onClick={() =>
+                        setForm((atual) => (atual ? { ...atual, aiApiKey: "", limparChaveIa: true } : atual))
+                      }
+                    >
+                      Remover chave
+                    </Button>
+                  ) : null}
+                </span>
+              </Linha>
+              <Linha
+                id="modelos"
+                titulo="Modelos"
+                dica="Cadastre o identificador de cada modelo. O marcado fica em uso na leitura de foto e PDF. Nada vem pronto."
+              >
+                <span className="grid w-full gap-2">
+                  <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                    <input
+                      id="modelos"
+                      value={rascunhoModelo}
+                      autoComplete="off"
+                      aria-invalid={erroModelo ? true : undefined}
+                      aria-describedby={erroModelo ? "modelos-erro modelos-dica" : "modelos-dica"}
+                      className={cn(field, "w-auto min-w-0 flex-1")}
+                      onChange={(event) => {
+                        setErroModelo("");
+                        setRascunhoModelo(event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        adicionarModelo();
+                      }}
+                    />
+                    <Button onClick={adicionarModelo}>Adicionar</Button>
+                  </span>
+                  {erroModelo ? (
+                    <p id="modelos-erro" className="text-sm text-neg" role="alert">
+                      {erroModelo}
+                    </p>
+                  ) : null}
+                  {form.aiModels.length === 0 ? (
+                    <p className="text-sm text-ink-2">Nenhum modelo cadastrado.</p>
+                  ) : (
+                    <span id="modelo-em-uso" role="radiogroup" aria-label="Modelo em uso" className="grid w-full gap-2">
+                      {form.aiModels.map((modelo) => (
+                        <span key={modelo} className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={form.aiModel === modelo}
+                            className={cn(
+                              "min-h-10 min-w-0 max-w-full rounded-sm border px-3 text-left text-sm",
+                              form.aiModel === modelo ? "border-brand bg-brand-soft font-semibold text-brand" : "border-line bg-surface text-ink",
+                              focusRing,
+                            )}
+                            onClick={() => alterar("aiModel", modelo)}
+                          >
+                            {modelo}
+                          </button>
+                          <Button onClick={() => removerModelo(modelo)}>Remover</Button>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              </Linha>
+              <Linha id="registrar" titulo="Registrar lançamentos" dica="Esse passo continua pedindo confirmação.">
+                <select id="registrar" disabled className={field} defaultValue="confirmar" aria-describedby="registrar-dica">
+                  <option value="confirmar">Sempre confirmar</option>
+                </select>
+              </Linha>
+              <Linha id="compromissos" titulo="Criar compromissos" dica="Esse passo continua pedindo confirmação.">
+                <select id="compromissos" disabled className={field} defaultValue="confirmar" aria-describedby="compromissos-dica">
+                  <option value="confirmar">Sempre confirmar</option>
+                </select>
+              </Linha>
+              <Linha id="categorizar" titulo="Categorizar lançamentos" dica="Define o que acontece com a categoria sugerida.">
+                <select
+                  id="categorizar"
+                  value={form.categorize}
+                  aria-describedby="categorizar-dica"
+                  className={field}
+                  onChange={(event) => alterar("categorize", event.target.value === "aplicar" ? "aplicar" : "confirmar")}
+                >
+                  <option value="confirmar">Sugerir e pedir confirmação</option>
+                  <option value="aplicar">Aplicar e avisar</option>
+                </select>
+              </Linha>
+              <Linha id="validade" titulo="Validade das ações pendentes" dica="Depois desse prazo a proposta expira.">
+                <select
+                  id="validade"
+                  value={form.pendingHours}
+                  aria-describedby="validade-dica"
+                  className={field}
+                  onChange={(event) => alterar("pendingHours", Number(event.target.value) as HorasPendente)}
+                >
+                  {HORAS_PENDENTE.map((hora) => (
+                    <option key={hora} value={hora}>
+                      {hora} horas
+                    </option>
+                  ))}
+                </select>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "notificacoes"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-notificacoes">
+              <h2 id="titulo-notificacoes" className="mb-3 font-display text-lg">Notificações</h2>
+              <Linha id="lembretes" titulo="Lembretes de compromissos" dica="A antecedência vale quando os lembretes estão ligados.">
+                <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                  <select
+                    id="antecedencia"
+                    aria-label="Antecedência do lembrete"
+                    value={form.reminder}
+                    className={cn(field, "w-auto min-w-0 flex-1")}
+                    onChange={(event) => alterar("reminder", event.target.value as Lembrete)}
+                  >
+                    {LEMBRETES.map((lembrete) => (
+                      <option key={lembrete} value={lembrete}>
+                        {lembrete === "15m" ? "15 minutos antes" : lembrete === "1h" ? "1 hora antes" : "1 dia antes"}
+                      </option>
+                    ))}
+                  </select>
+                  <Interruptor id="lembretes" checked={form.reminders} onChange={(valor) => alterar("reminders", valor)} />
+                </span>
+              </Linha>
+              <Linha id="vencimentos" titulo="Vencimentos de lançamentos" dica="Avisa quando uma transação prevista está para vencer.">
+                <Interruptor id="vencimentos" checked={form.dueAlerts} onChange={(valor) => alterar("dueAlerts", valor)} />
+              </Linha>
+              <Linha id="email-aviso" titulo="Por e-mail" dica="Depende de um e-mail na conta, que ainda não existe.">
+                <Interruptor id="email-aviso" checked={form.emailAlerts} onChange={(valor) => alterar("emailAlerts", valor)} />
+              </Linha>
+              <Linha
+                id="aplicativo"
+                titulo="No aplicativo"
+                dica={
+                  permissao === "denied"
+                    ? "O navegador bloqueou as notificações deste site."
+                    : "Guarda a preferência de aviso dentro do Prumo."
+                }
+              >
+                <Interruptor id="aplicativo" checked={form.appAlerts} onChange={(valor) => alterar("appAlerts", valor)} />
+              </Linha>
+              <Linha id="cobrar" titulo="Cobrar lançamentos não informados" dica="A IA avisa quando faltar registrar algo que consta no extrato.">
+                <span className="flex flex-wrap items-center gap-2">
+                  <Chip>Em breve</Chip>
+                  <Interruptor id="cobrar" checked={false} disabled onChange={() => undefined} />
+                </span>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "eventos"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-eventos">
+              <h2 id="titulo-eventos" className="mb-3 font-display text-lg">Eventos e histórico</h2>
+              <Linha id="retencao" titulo="Guardar o histórico de processamento por" dica="Os eventos continuam. A lista de histórico mostra as tentativas dentro desse prazo.">
+                <select
+                  id="retencao"
+                  value={form.history}
+                  aria-describedby="retencao-dica"
+                  className={field}
+                  onChange={(event) => alterar("history", event.target.value as Retencao)}
+                >
+                  <option value="90d">90 dias</option>
+                  <option value="1a">1 ano</option>
+                  <option value="sempre">Sem limite</option>
+                </select>
+              </Linha>
+            </section>
+
+            <section hidden={secao !== "dados"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-dados">
+              <h2 id="titulo-dados" className="mb-3 font-display text-lg">Dados e privacidade</h2>
+              <Linha id="exportar" titulo="Exportar meus dados" dica="Lançamentos, sessões, grupos e agenda em um arquivo." grupo>
+                <Button onClick={() => toast.alerta("A exportação ainda não está disponível.")}>Exportar</Button>
+              </Linha>
+              <Linha id="excluir" titulo="Excluir minha conta" dica="Apaga todos os seus dados. Não pode ser desfeito." grupo>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setPalavra("");
+                    setConfirmacao("excluir");
+                  }}
+                >
+                  Excluir conta
+                </Button>
+              </Linha>
+            </section>
+
+            {sujo ? (
+              <div role="status" className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand bg-surface p-4">
+                <p>Você tem alterações não salvas.</p>
+                <span className="flex flex-wrap gap-2">
+                  <Button variant="quiet" onClick={descartar} disabled={salvando}>
+                    Descartar
+                  </Button>
+                  <Button type="submit" variant="primary" disabled={salvando}>
+                    Salvar alterações
+                  </Button>
+                </span>
+              </div>
+            ) : null}
+          </form>
+        </div>
+      )}
+
+      <dialog
+        ref={dialogo}
+        className={dialogClass}
+        aria-labelledby="titulo-confirmacao"
+        onCancel={(event) => {
+          event.preventDefault();
+          setPalavra("");
+          setConfirmacao(null);
+        }}
+      >
+        <div className="dialog-corpo grid gap-4">
+          <h2 id="titulo-confirmacao" className="font-display text-lg">
+            {confirmacao === "desconectar" ? "Desconectar o Google Calendar?" : "Excluir a conta?"}
+          </h2>
+          <p>
+            {confirmacao === "desconectar"
+              ? "Os compromissos deixam de ser sincronizados. Os lançamentos continuam no Prumo."
+              : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
+          </p>
+          {exigePalavra ? (
+            <div className="grid gap-1">
+              <label htmlFor="confirmar-exclusao" className="text-sm font-semibold">
+                Digite EXCLUIR para confirmar
+              </label>
+              <input
+                id="confirmar-exclusao"
+                value={palavra}
+                autoComplete="off"
+                className={field}
+                onChange={(event) => setPalavra(event.target.value)}
+              />
+            </div>
+          ) : null}
+        </div>
+        <div className="dialog-acoes">
+          <Button
+            variant="quiet"
+            onClick={() => {
+              setPalavra("");
+              setConfirmacao(null);
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button variant="danger" disabled={!podeConfirmar} onClick={confirmarAcao}>
+            {confirmacao === "desconectar" ? "Desconectar" : "Excluir conta"}
+          </Button>
+        </div>
+      </dialog>
+    </>
+  );
+}
+
+function Linha({
+  id,
+  titulo,
+  dica,
+  grupo = false,
+  children,
+}: {
+  id: string;
+  titulo: string;
+  dica: string;
+  grupo?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-line py-4 tab:flex-row tab:items-center tab:gap-6">
+      <div className="grid min-w-0 gap-1 tab:flex-1">
+        {grupo ? (
+          <span id={`${id}-rotulo`} className="font-semibold">
+            {titulo}
+          </span>
+        ) : (
+          <label htmlFor={id} className="font-semibold">
+            {titulo}
+          </label>
+        )}
+        <p id={`${id}-dica`} className="max-w-prose text-sm text-ink-2">
+          {dica}
+        </p>
+      </div>
+      <div className="grid min-w-0 justify-items-stretch gap-2 tab:flex-1 tab:justify-items-end">{children}</div>
+    </div>
+  );
+}
+
+function Interruptor({
+  id,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  id: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (valor: boolean) => void;
+}) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-describedby={`${id}-dica`}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn("inline-flex h-10 w-12 shrink-0 items-center", disabled && "opacity-50", focusRing)}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "relative h-6 w-12 rounded-full border",
+          checked ? "border-brand bg-brand" : "border-line bg-surface-2",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-1 left-1 size-4 rounded-full transition-transform motion-reduce:transition-none",
+            checked ? "translate-x-6 bg-brand-ink" : "bg-surface",
+          )}
+        />
+      </span>
+    </button>
+  );
+}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Figtree } from "next/font/google";
 import { AppShell } from "../components/ui/app-shell";
+import { TemaSalvo } from "../components/ui/tema";
 import { ToastProvider } from "../components/ui/toast";
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="pt-BR" className={`${display.variable} ${body.variable} h-full`}>
       <body>
         <ToastProvider>
+          <TemaSalvo />
           <AppShell>{children}</AppShell>
         </ToastProvider>
       </body>

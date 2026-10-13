@@ -69,11 +69,14 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     });
   }
 
-  async listar(tenantId: string) {
+  async listar(tenantId: string, incluirEncerradas = false) {
     const db = this.banco();
     const workflow = await db.workflow.findUnique({ where: { tenantId } });
     const rows = await db.entry.findMany({
-      where: { tenantId },
+      where: {
+        tenantId,
+        ...(incluirEncerradas ? {} : { session: { endedAt: null } }),
+      },
       orderBy: { position: "asc" },
       include: {
         amounts: {
@@ -82,6 +85,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         },
         adjustments: { where: { tenantId } },
         session: { include: { group: true } },
+        statementLines: { where: { tenantId }, select: { line: true }, take: 1 },
       },
     });
     return {
@@ -387,6 +391,21 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     if (!this.prisma.ativo) throw new BancoIndisponivel();
     return this.prisma;
   }
+
+  async excluir(tenantId: string, id: string) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.entry.findFirst({
+        where: { id, tenantId },
+        select: { id: true, _count: { select: { statementLines: true } } },
+      });
+      if (!atual) return "ausente" as const;
+      if (atual._count.statementLines > 0) return "sincronizado" as const;
+      await tx.appointment.updateMany({ where: { tenantId, entryId: id }, data: { entryId: null } });
+      await tx.entry.deleteMany({ where: { id, tenantId } });
+      await gravarOutbox(tx, tenantId, "excluir-lancamento", id, { id });
+    });
+  }
 }
 
 function mesesDoPedido(pedido: NovoLancamento) {
@@ -462,6 +481,7 @@ type Linha = {
   amounts: { year: number; month: number; cents: number }[];
   adjustments: { year: number; month: number; effect: string }[];
   session: { id: string; name: string; groupId: string; group: { name: string } };
+  statementLines?: { line: number }[];
 };
 
 function atributos(pedido: NovoLancamento) {
@@ -564,6 +584,7 @@ function lancamentoDe(row: Linha): Lancamento {
     commitmentId: row.commitmentId,
     recurrence: row.recurrence as Recorrencia | null,
     recurrenceInterval: row.recurrenceInterval,
+    synced: (row.statementLines?.length ?? 0) > 0,
     adjustments: row.adjustments.map((ajuste) => ({
       year: ajuste.year,
       month: ajuste.month,

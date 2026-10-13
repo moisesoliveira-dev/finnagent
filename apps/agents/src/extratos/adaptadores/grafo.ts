@@ -2,6 +2,7 @@ import { CallbackHandler } from "@langfuse/langchain";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import type { LinhaExtrato } from "@finnagent/contracts";
 import { normalizarLinhas } from "../dominio/linhas.js";
+import { comModelo } from "./openai.js";
 import type { LeitorDeExtrato, ModeloDeExtrato } from "../portas/leitor.js";
 import type { OrganizadorDeExtrato } from "../portas/organizador.js";
 
@@ -38,15 +39,17 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
 
   return {
     async organizar(pedido) {
-      const resultado = await grafo.invoke(
-        {
-          filename: pedido.filename,
-          mediaType: pedido.mediaType,
-          conteudo: pedido.content,
-        },
-        { callbacks: observadores() },
-      );
-      return resultado.linhas;
+      return comModelo({ apiKey: pedido.apiKey, model: pedido.model }, async () => {
+        const resultado = await grafo.invoke(
+          {
+            filename: pedido.filename,
+            mediaType: pedido.mediaType,
+            conteudo: pedido.content,
+          },
+          { callbacks: observadores() },
+        );
+        return resultado.linhas;
+      });
     },
   };
 }
