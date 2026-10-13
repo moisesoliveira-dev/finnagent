@@ -14,6 +14,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
+import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { focusRing } from "../../components/ui/cn";
 import { doisDigitos } from "./reais";
@@ -191,7 +192,68 @@ export function TabelaLancamentos({
           className={`${field} min-w-56 flex-1`}
         />
       </div>
-      <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
+      <div className="min-w-0 tab:hidden">
+        <List>
+          {linhas.length === 0 ? (
+            <li className="min-w-0 border-b border-line px-4 py-6 text-sm text-ink-2">
+              <p className="max-w-prose">Nenhum lançamento com esses filtros.</p>
+            </li>
+          ) : (
+            linhas.map((entry) => {
+              const mesDaLinha = primeiroMes(entry, workflow, anoFiltro, colunas, month);
+              const valor = valorNoFiltro(entry, workflow, anoFiltro, colunas, month);
+              const parcela =
+                entry.installmentNumber ?? indiceDaParcela(entry, workflow, anoFiltro, mesDaLinha, colunas);
+              return (
+                <li key={entry.id} className="grid min-w-0 gap-3 border-b border-line px-4 py-3">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <time className="text-sm text-ink-2">
+                        {doisDigitos(entry.day)}/{doisDigitos(mesDaLinha + 1)}
+                      </time>
+                      <div className="font-medium wrap-break-word">{entry.name || entry.description}</div>
+                    </div>
+                    <div className="shrink-0">{valor === undefined ? "—" : <Money cents={valor} />}</div>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <Chip>{ROTULO_CATEGORIA[entry.category]}</Chip>
+                    <Chip tone={tomDoStatus(entry.status)}>{ROTULO_STATUS[entry.status]}</Chip>
+                    <Chip tone={tomDaPrioridade(entry.priority)}>{ROTULO_PRIORIDADE[entry.priority]}</Chip>
+                  </div>
+                  <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">
+                    {entry.groupName} · {entry.sessionName}
+                  </p>
+                  {entry.description || parcela ? (
+                    <p className="min-w-0 max-w-prose text-sm wrap-break-word">
+                      {entry.description}
+                      {parcela ? ` (${parcela}/${entry.installments})` : ""}
+                    </p>
+                  ) : null}
+                  {entry.justification ? (
+                    <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">{entry.justification}</p>
+                  ) : null}
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                    <ControleExclusao compact synced={entry.synced} onExcluir={() => onExcluir(entry)} />
+                    <Button variant="quiet" aria-label="Editar" onClick={() => onEditar(entry)}>
+                      <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                        <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+                        <path d="m13.5 6.5 3 3" />
+                      </svg>
+                    </Button>
+                  </div>
+                </li>
+              );
+            })
+          )}
+          <li className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 font-semibold">
+            <span className="min-w-0">{rotuloTotal}</span>
+            <span className="shrink-0">
+              <Money cents={total} acumulado />
+            </span>
+          </li>
+        </List>
+      </div>
+      <div className="hidden min-w-0 overflow-x-auto rounded-lg border border-line bg-surface tab:block">
         <table className="w-full min-w-[880px] border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Lançamentos filtrados</caption>
           <thead>
