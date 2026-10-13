@@ -10,3 +10,7 @@ export function PATCH(
     ),
   );
 }
+
+export function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  return context.params.then((params) => callBackend(`lancamentos/${params.id}`, { method: "DELETE" }));
+}

@@ -32,7 +32,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
-import { AcoesTransacao } from "./acoes";
+import { AcoesTransacao, ControleExclusao } from "./acoes";
 import { TabelaLancamentos } from "./tabela";
 import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
@@ -136,6 +136,22 @@ export default function Financas() {
   const vista = draft ? ajustarTransacao(draft) : null;
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
+
+  async function excluir(entry: Lancamento) {
+    if (entry.synced) {
+      toast.erro("Esse lançamento foi sincronizado com o extrato e não pode ser apagado.");
+      throw new Error("sincronizado");
+    }
+    try {
+      await api(`/api/lancamentos/${entry.id}`, { method: "DELETE" });
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível apagar o lançamento.");
+      throw error;
+    }
+    toast.sucesso("Lançamento apagado.");
+    if (draft?.id === entry.id) setDraft(null);
+    await carregar();
+  }
 
   async function abrirEdicao(entry: Lancamento) {
     try {
@@ -372,6 +388,7 @@ export default function Financas() {
                   workflow={workflow}
                   year={ano}
                   onEditar={(entry) => void abrirEdicao(entry)}
+                  onExcluir={excluir}
                 />
               )}
             </Troca>
@@ -708,6 +725,11 @@ export default function Financas() {
             ) : null}
             </div>
             <div className="dialog-acoes">
+              {entrada ? (
+                <div className="mr-auto">
+                  <ControleExclusao synced={entrada.synced} onExcluir={() => excluir(entrada)} />
+                </div>
+              ) : null}
               <Button
                 type="button"
                 variant="quiet"

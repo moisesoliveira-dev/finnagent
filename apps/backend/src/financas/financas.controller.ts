@@ -3,8 +3,10 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Headers,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -121,6 +123,12 @@ export class FinancasController {
   criar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = this.pedido(body);
     return this.executar(() => this.financas.criar(this.tenant(tenant), pedido));
+  }
+
+  @Delete("lancamentos/:id")
+  @HttpCode(204)
+  excluir(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+    return this.executar(() => this.financas.excluir(this.tenant(tenant), this.id(id)));
   }
 
   @Patch("lancamentos/:id")

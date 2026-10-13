@@ -82,6 +82,27 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       const sessoes = await tx.session.findMany({
         where: { tenantId, groupId: id },
       });
+      const sessionIds = sessoes.map((sessao) => sessao.id);
+      const lancamentos = sessionIds.length
+        ? await tx.entry.findMany({
+            where: { tenantId, sessionId: { in: sessionIds } },
+            select: { id: true, _count: { select: { statementLines: true } } },
+          })
+        : [];
+      if (lancamentos.some((item) => item._count.statementLines > 0)) {
+        throw new Conflito("Esse grupo tem um lançamento sincronizado com o extrato.");
+      }
+      const entryIds = lancamentos.map((item) => item.id);
+      if (entryIds.length) {
+        await tx.appointment.updateMany({
+          where: { tenantId, entryId: { in: entryIds } },
+          data: { entryId: null },
+        });
+        await tx.entry.deleteMany({ where: { tenantId, id: { in: entryIds } } });
+        for (const entryId of entryIds) {
+          await gravarOutbox(tx, tenantId, "excluir-lancamento", entryId, { id: entryId });
+        }
+      }
       for (const sessao of sessoes) {
         await gravarOutbox(tx, tenantId, "remover-sessao", sessao.id, {
           id: sessao.id,

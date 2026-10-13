@@ -48,14 +48,15 @@ export type FalhaDeLancamento =
   | "categoria"
   | "encerrada"
   | "concluida"
-  | "compromisso-ausente";
+  | "compromisso-ausente"
+  | "sincronizado";
 
 export type ValorFixo = { id: string; cents: number };
 
 export interface FinancasRepositorio {
   garantirWorkflow(tenantId: string): Promise<Workflow>;
   semearLancamentos(tenantId: string): Promise<void>;
-  listar(tenantId: string): Promise<FinancasResposta>;
+  listar(tenantId: string, incluirEncerradas?: boolean): Promise<FinancasResposta>;
   criar(
     tenantId: string,
     pedido: NovoLancamento,
@@ -95,4 +96,5 @@ export interface FinancasRepositorio {
     tenantId: string,
     valores: ValorFixo[],
   ): Promise<Lancamento[] | FalhaDeLancamento>;
+  excluir(tenantId: string, id: string): Promise<void | FalhaDeLancamento>;
 }
