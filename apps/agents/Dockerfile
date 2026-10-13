@@ -1,9 +1,22 @@
-FROM python:3.12-slim
+FROM node:22-bookworm-slim
 
-WORKDIR /app
+WORKDIR /repo
 
-COPY apps/agents /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/frontend/package.json apps/frontend/package.json
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/agents/package.json apps/agents/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+
+RUN corepack enable && corepack prepare pnpm@11.21.0 --activate \
+  && pnpm install --frozen-lockfile
+
+COPY . .
+
+WORKDIR /repo/apps/agents
+
+RUN pnpm exec tsc -p tsconfig.json
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -m http.server \"$PORT\" --bind 0.0.0.0"]
+CMD ["node", "dist/main.js"]
