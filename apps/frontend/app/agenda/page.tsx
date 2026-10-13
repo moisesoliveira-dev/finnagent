@@ -8,6 +8,7 @@ import {
   FUSOS_AGENDA,
   type AgendaResposta,
   type CategoriaCompromisso,
+  type Preferencias,
   type FusoAgenda,
   type NomeAgenda,
   type StatusCompromisso,
@@ -79,6 +80,7 @@ export default function Agenda() {
   const [visao, setVisao] = useState<Visao>("mes");
   const [deslize, setDeslize] = useState(0);
   const [camadas, setCamadas] = useState<Camadas>({ compromisso: true, lancamento: true });
+  const [calendarios, setCalendarios] = useState<Record<NomeAgenda, boolean>>({ Pessoal: true, Trabalho: true });
   const [data, setData] = useState<AgendaResposta | null>(null);
   const [carregado, setCarregado] = useState<{ year: number; month: number } | null>(null);
   const [falhou, setFalhou] = useState(false);
@@ -121,6 +123,22 @@ export default function Agenda() {
       active = false;
     };
   }, [year, month, toast]);
+
+  useEffect(() => {
+    let ativo = true;
+    fetch("/api/configuracoes")
+      .then(async (resposta) => {
+        if (!resposta.ok || !ativo) return;
+        const dados = (await resposta.json()) as Preferencias;
+        if (!ativo) return;
+        setCamadas((atual) => ({ ...atual, lancamento: dados.showEntries }));
+        setCalendarios({ Pessoal: dados.personalCalendar, Trabalho: dados.workCalendar });
+      })
+      .catch(() => undefined);
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(pointer: coarse)");
@@ -167,7 +185,7 @@ export default function Agenda() {
   useEffect(() => {
     diaArmado.current = null;
   }, [anoVisivel, mesVisivel]);
-  const itens = data ? montarItens(data.appointments, data.entries, camadas) : [];
+  const itens = data ? montarItens(data.appointments, data.entries, camadas, calendarios) : [];
   const doDia = itensNoDia(itens, selecaoGrade);
   const resumo = resumoDoDia(doDia);
   const hojeNoMes = ehHoje(anoVisivel, mesVisivel, hoje.getDate()) ? hoje.getDate() : null;
@@ -308,25 +326,17 @@ export default function Agenda() {
     }
   }
 
-  async function salvarFuso(name: NomeAgenda, timezone: FusoAgenda) {
+  async function salvarFuso(timezone: FusoAgenda) {
     try {
       const response = await fetch("/api/calendarios", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, timezone }),
+        body: JSON.stringify({ name: "Pessoal", timezone }),
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(body.message || "Não foi possível salvar o fuso.");
-      setData((atual) =>
-        atual
-          ? {
-              ...atual,
-              calendars: atual.calendars.map((calendario) =>
-                calendario.name === name ? { ...calendario, timezone } : calendario,
-              ),
-            }
-          : atual,
-      );
+      const resposta = await carregar(year, month);
+      setData(resposta);
       toast.sucesso("Fuso atualizado.");
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o fuso.");
@@ -362,7 +372,7 @@ export default function Agenda() {
               <span className="inline-block size-2 shrink-0 rounded-full bg-ink-2" />
               Google Calendar desconectado
             </span>
-            <span>{textoDosFusos(data)}</span>
+            <span>{rotuloDoFuso(fusoDaAgenda(data, "Pessoal"))}</span>
           </span>
         }
         actions={
@@ -410,27 +420,23 @@ export default function Agenda() {
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
           <ConectarGoogle onConnect={() => void sincronizar()} />
-          <div className="flex flex-wrap gap-4">
-            {AGENDAS.map((nome) => (
-              <div key={nome} className="grid gap-1">
-                <Rotulo htmlFor={`fuso-${nome}`} dica="O fuso horário desta agenda.">
-                  Fuso · {nome}
-                </Rotulo>
-                <select
-                  id={`fuso-${nome}`}
-                  className={field}
-                  disabled={!data}
-                  value={fusoDaAgenda(data, nome)}
-                  onChange={(event) => void salvarFuso(nome, event.target.value as FusoAgenda)}
-                >
-                  {FUSOS_AGENDA.map((fuso) => (
-                    <option key={fuso} value={fuso}>
-                      {rotuloDoFuso(fuso)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+          <div className="grid max-w-prose gap-1">
+            <Rotulo htmlFor="fuso" dica="Pessoal e Trabalho usam este mesmo fuso.">
+              Fuso horário
+            </Rotulo>
+            <select
+              id="fuso"
+              className={field}
+              disabled={!data}
+              value={fusoDaAgenda(data, "Pessoal")}
+              onChange={(event) => void salvarFuso(event.target.value as FusoAgenda)}
+            >
+              {FUSOS_AGENDA.map((fuso) => (
+                <option key={fuso} value={fuso}>
+                  {rotuloDoFuso(fuso)}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1 font-display text-lg font-bold">
@@ -878,10 +884,6 @@ function fimDoRascunho(draft: Rascunho) {
 
 function fusoDaAgenda(data: AgendaResposta | null, nome: NomeAgenda): FusoAgenda {
   return data?.calendars.find((calendario) => calendario.name === nome)?.timezone ?? FUSO_PADRAO;
-}
-
-function textoDosFusos(data: AgendaResposta | null) {
-  return AGENDAS.map((nome) => `${nome}: ${rotuloDoFuso(fusoDaAgenda(data, nome))}`).join(" · ");
 }
 
 function posicaoDoMenu(menu: Menu) {

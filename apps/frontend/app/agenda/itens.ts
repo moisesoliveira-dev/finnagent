@@ -43,10 +43,12 @@ export function montarItens(
   appointments: Compromisso[],
   entries: LancamentoDoMes[],
   camadas: { compromisso: boolean; lancamento: boolean },
+  calendarios: Record<NomeAgenda, boolean> = { Pessoal: true, Trabalho: true },
 ) {
   const itens: ItemDia[] = [];
   if (camadas.compromisso) {
     for (const item of appointments) {
+      if (!calendarios[item.calendar]) continue;
       itens.push({
         id: item.id,
         kind: "compromisso",
