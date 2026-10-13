@@ -83,3 +83,14 @@ Motivo: mudança de estado e outbox na mesma transação.
 Arquivos:
 
 - `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+
+## Lista no celular
+
+O que foi feito: abaixo de 760 px, a visão Geral e a Base mostram os lançamentos em lista, na largura da tela. Na Geral, o grupo abre e fecha, traz o nome, o total e a soma de cada mês; cada lançamento traz a sessão, o resumo da linha, o total e o valor de cada mês. Entradas, saídas e a sobra do mês também aparecem nessa lista. Na Base, cada item traz a data, o nome, o valor, a categoria, o status, a prioridade, o grupo e a sessão, e, quando existem, a descrição, a parcela e a justificativa, com as ações de editar e excluir e o total no fim. A grade de meses e a tabela da Base continuam a partir do tablet.
+
+Motivo: as colunas fixas cobriam a tabela no celular.
+
+Arquivos:
+
+- `apps/frontend/app/financas/visao-geral.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
