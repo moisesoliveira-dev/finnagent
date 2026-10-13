@@ -264,3 +264,24 @@ Motivo: a segunda confirmação não pode falhar depois que a primeira já gravo
 Arquivos:
 
 - `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+
+## Leitura de extrato no agents
+
+O que foi feito: `apps/agents` passou a ser TypeScript, com LangChain e LangGraph, no lugar de Python e FastAPI. O processo não grava no Postgres. O contrato `PedidoOrganizarExtrato` ficou em `packages/contracts`.
+
+Motivo: o agents entra no workspace TypeScript do monorepo e não acessa o banco.
+
+Arquivos:
+
+- `apps/agents`
+- `apps/frontend/Dockerfile`
+- `apps/backend/Dockerfile`
+- `compose.yaml`
+- `pnpm-workspace.yaml`
+- `pnpm-lock.yaml`
+- `packages/contracts/src/index.ts`
+- `.cursor/rules/tecnologias.mdc`
+- `.cursor/rules/arquitetura.mdc`
+- `.cursor/rules/monorepo.mdc`
+- `.cursor/rules/hospedagem.mdc`
+- `.cursor/rules/docker.mdc`
