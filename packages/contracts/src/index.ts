@@ -487,7 +487,7 @@ export type AgendaResposta = {
 
 export const LIMITE_EXTRATO_BYTES = 5 * 1024 * 1024;
 
-export const FORMATOS_EXTRATO = ["ofx", "csv"] as const;
+export const FORMATOS_EXTRATO = ["ofx", "csv", "ocr"] as const;
 
 export type FormatoExtrato = (typeof FORMATOS_EXTRATO)[number];
 
@@ -512,6 +512,13 @@ export type LinhaExtrato = {
   description: string;
   cents: number | null;
   error: string;
+};
+
+export type PedidoOrganizarExtrato = {
+  tenantId: string;
+  filename: string;
+  mediaType: string;
+  content: string;
 };
 
 export type Extrato = {
