@@ -16,7 +16,7 @@ import {
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
-import { PedidoInvalido } from "./dominio/erros.js";
+import { AgenteIndisponivel, PedidoInvalido } from "./dominio/erros.js";
 
 const tenantId = z.uuid();
 const mapeamento = z.object({
@@ -78,7 +78,9 @@ export class ExtratosController {
     this.tenant(tenant);
     const pedido = arquivo.safeParse(body);
     if (!pedido.success) throw new BadRequestException(this.mensagem(pedido.error.issues[0]));
-    return this.executar(() => Promise.resolve(this.extratos.previa(pedido.data.filename, pedido.data.content, pedido.data.mapping)));
+    return this.executar(() =>
+      this.extratos.previa(this.tenant(tenant), pedido.data.filename, pedido.data.content, pedido.data.mapping),
+    );
   }
 
   @Post("extratos")
@@ -116,7 +118,7 @@ export class ExtratosController {
   private mensagem(issue: { path: PropertyKey[]; message: string; code: string } | undefined) {
     const campo = issue?.path[0];
     if (campo === "accountId" || campo === "accountName") return "Escolha a conta.";
-    if (campo === "filename") return "Envie um arquivo OFX ou CSV.";
+    if (campo === "filename") return "Envie um OFX, um CSV ou uma imagem do extrato.";
     if (campo === "mapping") return "Indique as colunas do CSV.";
     if (issue?.code === "custom" && issue.message) return issue.message;
     return "Não foi possível importar o extrato.";
@@ -132,7 +134,9 @@ export class ExtratosController {
     try {
       return await run();
     } catch (error) {
-      if (error instanceof BancoIndisponivel) throw new ServiceUnavailableException(error.message);
+      if (error instanceof BancoIndisponivel || error instanceof AgenteIndisponivel) {
+        throw new ServiceUnavailableException(error.message);
+      }
       if (error instanceof PedidoInvalido) throw new BadRequestException(error.message);
       if (error instanceof Conflito) throw new ConflictException(error.message);
       if (error instanceof NaoEncontrado) throw new NotFoundException(error.message);

@@ -35,3 +35,14 @@ Arquivos:
 - `apps/backend/prisma/schema.prisma`
 - `apps/backend/prisma/migrations/20261007223000_cruzamento_da_linha/`
 - `packages/contracts/src/index.ts`
+
+## Foto e PDF
+
+O que foi feito: a importação aceita foto e PDF. O Nest chama o agents, grava as linhas e a prévia aparece na tela. OFX e CSV continuam no backend.
+
+Motivo: a pessoa precisa enviar foto ou PDF do extrato e ver as linhas na tela, com OFX e CSV ainda lidos no backend.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/page.tsx`
+- `apps/backend/src/extratos`

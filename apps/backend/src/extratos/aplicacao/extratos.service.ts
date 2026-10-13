@@ -14,12 +14,18 @@ import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { sugerirCruzamento } from "../dominio/cruzar.js";
 import { PedidoInvalido } from "../dominio/erros.js";
+import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
+import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import {
   EXTRATOS_REPOSITORIO,
   type ExtratosRepositorio,
   type GravacaoExtrato,
 } from "../portas/extratos-repositorio.js";
+import {
+  ORGANIZADOR_DE_EXTRATO,
+  type OrganizadorDeExtrato,
+} from "../portas/organizador-de-extrato.js";
 
 type Pedido = {
   id: string;
@@ -34,6 +40,7 @@ type Pedido = {
 export class ExtratosService {
   constructor(
     @Inject(EXTRATOS_REPOSITORIO) private readonly extratos: ExtratosRepositorio,
+    @Inject(ORGANIZADOR_DE_EXTRATO) private readonly organizador: OrganizadorDeExtrato,
     private readonly financas: FinancasService,
   ) {}
 
@@ -41,7 +48,16 @@ export class ExtratosService {
     return this.extratos.listar(tenantId);
   }
 
-  previa(filename: string, content: string, mapping: MapeamentoExtrato | null): PreviaExtrato {
+  async previa(
+    tenantId: string,
+    filename: string,
+    content: string,
+    mapping: MapeamentoExtrato | null,
+  ): Promise<PreviaExtrato> {
+    if (ehOcr(filename)) {
+      const leitura = await this.leituraOcr(tenantId, filename, content);
+      return { format: "ocr", columns: [], mapping: null, lines: leitura.lines.slice(0, 3) };
+    }
     const lido = this.ler(filename, content, mapping);
     return {
       format: lido.format,
@@ -52,7 +68,13 @@ export class ExtratosService {
   }
 
   async criar(tenantId: string, pedido: Pedido) {
-    const lido = this.ler(pedido.filename, pedido.content, pedido.mapping);
+    const lido = ehOcr(pedido.filename)
+      ? {
+          format: "ocr" as const,
+          mapping: null,
+          leitura: await this.leituraOcr(tenantId, pedido.filename, pedido.content),
+        }
+      : this.ler(pedido.filename, pedido.content, pedido.mapping);
     const bytes = this.bytes(pedido.content);
     const gravacao: GravacaoExtrato = {
       id: pedido.id,
@@ -81,6 +103,13 @@ export class ExtratosService {
   async reprocessar(tenantId: string, id: string) {
     const atual = await this.extratos.carregar(tenantId, id);
     if (atual === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
+    if (ehOcr(atual.filename)) {
+      const leitura = await this.leituraOcr(tenantId, atual.filename, atual.bytes.toString("base64"));
+      const resultado = await this.extratos.substituir(tenantId, id, leitura, null);
+      if (resultado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
+      if (resultado === "duplicado") throw new Conflito("Já existe um extrato desta conta neste período.");
+      return resultado;
+    }
     const lido = lerArquivo(atual.bytes, atual.filename, atual.mapping);
     if (!("leitura" in lido)) throw new PedidoInvalido(lido.message);
     const resultado = await this.extratos.substituir(tenantId, id, lido.leitura, lido.mapping);
@@ -125,6 +154,19 @@ export class ExtratosService {
   async excluir(tenantId: string, id: string) {
     const resultado = await this.extratos.excluir(tenantId, id);
     if (resultado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
+  }
+
+  private async leituraOcr(tenantId: string, filename: string, content: string) {
+    this.bytes(content);
+    const mediaType = tipoDaMidia(filename);
+    if (!mediaType) throw new PedidoInvalido("Envie uma imagem ou um PDF do extrato.");
+    const lines = await this.organizador.organizar({
+      tenantId,
+      filename: nomeDoArquivo(filename),
+      mediaType,
+      content,
+    });
+    return leituraDasLinhas(lines);
   }
 
   private ler(filename: string, content: string, mapping: MapeamentoExtrato | null) {

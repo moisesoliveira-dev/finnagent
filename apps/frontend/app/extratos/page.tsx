@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   LIMITE_EXTRATO_BYTES,
   STATUS_EXTRATO,
+  type FormatoExtrato,
   type Extrato,
   type ExtratosResposta,
   type LinhaExtrato,
@@ -96,7 +97,7 @@ export default function Extratos() {
   const [colunas, setColunas] = useState<string[]>([]);
   const [mapeamento, setMapeamento] = useState<MapeamentoExtrato>({ date: 0, description: 1, amount: 2 });
   const [previa, setPrevia] = useState<LinhaExtrato[]>([]);
-  const [formato, setFormato] = useState<"ofx" | "csv" | null>(null);
+  const [formato, setFormato] = useState<FormatoExtrato | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [aberto, setAberto] = useState<Extrato | null>(null);
   const [soErros, setSoErros] = useState(false);
@@ -162,9 +163,10 @@ export default function Extratos() {
       return;
     }
     const nome = file.name.toLowerCase();
-    if (!nome.endsWith(".ofx") && !nome.endsWith(".csv")) {
+    const ocr = [".png", ".jpg", ".jpeg", ".webp", ".pdf"].some((extensao) => nome.endsWith(extensao));
+    if (!nome.endsWith(".ofx") && !nome.endsWith(".csv") && !ocr) {
       setArquivo(null);
-      toast.erro("Envie um arquivo OFX ou CSV.");
+      toast.erro("Envie um OFX, um CSV ou uma imagem do extrato.");
       return;
     }
     setArquivo(file);
@@ -310,7 +312,7 @@ export default function Extratos() {
         }}
       >
         <span className="font-bold">Arraste o extrato aqui</span>
-        <span className="text-sm text-ink-2">ou clique para escolher · OFX ou CSV, até 5 MB</span>
+        <span className="text-sm text-ink-2">ou clique para escolher · OFX, CSV, foto ou PDF, até 5 MB</span>
       </button>
 
       {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando extratos.</p> : null}
@@ -399,7 +401,7 @@ export default function Extratos() {
               ))
             ) : (
               <li className="px-6 py-6 text-center text-ink-2">
-                {extratos.length ? "Nenhum extrato com esses filtros." : "Nenhum extrato ainda. Importe o primeiro arquivo OFX ou CSV."}
+                {extratos.length ? "Nenhum extrato com esses filtros." : "Nenhum extrato ainda. Importe um OFX, um CSV ou uma foto do extrato."}
               </li>
             )}
           </ul>
@@ -413,7 +415,7 @@ export default function Extratos() {
         <form onSubmit={(event) => void importar(event)}>
           <div className="dialog-corpo grid gap-4">
           <div className="grid gap-1">
-            <Rotulo htmlFor="extrato-arquivo" dica="O extrato em OFX ou CSV, até 5 MB.">
+            <Rotulo htmlFor="extrato-arquivo" dica="OFX, CSV ou uma foto ou PDF do extrato, até 5 MB. A foto é lida e organizada para você conferir.">
               Arquivo
             </Rotulo>
             <input
@@ -421,14 +423,14 @@ export default function Extratos() {
               id="extrato-arquivo"
               className={`${field} h-auto py-2`}
               type="file"
-              accept=".ofx,.csv"
+              accept=".ofx,.csv,.png,.jpg,.jpeg,.webp,.pdf"
               required
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) void aplicarArquivo(file);
               }}
             />
-            <span className="text-xs text-ink-2">OFX ou CSV, até 5 MB.</span>
+            <span className="text-xs text-ink-2">OFX, CSV, foto ou PDF, até 5 MB.</span>
           </div>
           <div className="grid gap-1">
             <Rotulo htmlFor="extrato-conta" dica="A conta deste extrato. Você pode criar uma nova.">

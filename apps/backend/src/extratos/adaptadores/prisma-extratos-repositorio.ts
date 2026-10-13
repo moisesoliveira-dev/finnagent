@@ -325,7 +325,7 @@ function extratoDe(row: {
   return {
     id: row.id,
     filename: row.filename,
-    format: row.format === "csv" ? "csv" : "ofx",
+    format: row.format === "csv" || row.format === "ocr" ? row.format : "ofx",
     accountId: row.account.id,
     accountName: row.account.name,
     startDate: isoDe(row.startDate),
