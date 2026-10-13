@@ -1,6 +1,7 @@
 packages:
   - apps/frontend
   - apps/backend
+  - apps/agents
   - packages/*
 
 allowBuilds:
