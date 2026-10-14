@@ -49,7 +49,8 @@ export type FalhaDeLancamento =
   | "encerrada"
   | "concluida"
   | "compromisso-ausente"
-  | "sincronizado";
+  | "sincronizado"
+  | "base";
 
 export type ValorFixo = { id: string; cents: number };
 

@@ -104,6 +104,35 @@ export function ajustarTransacao<
   return { ...pedido, mode, priority, transactionType };
 }
 
+export type BaseLancamento = {
+  category: CategoriaTransacao;
+  mode: ModoTransacao;
+  transactionType: TipoTransacao;
+  installments: number | null;
+  dueDate: string | null;
+  interestRate: number | null;
+  recurrence: Recorrencia | null;
+  recurrenceInterval: number | null;
+};
+
+export function alterouBase(atual: BaseLancamento, pedido: BaseLancamento) {
+  return (
+    atual.category !== pedido.category ||
+    atual.mode !== pedido.mode ||
+    atual.transactionType !== pedido.transactionType ||
+    atual.installments !== pedido.installments ||
+    atual.dueDate !== pedido.dueDate ||
+    !mesmoPercentual(atual.interestRate, pedido.interestRate) ||
+    atual.recurrence !== pedido.recurrence ||
+    atual.recurrenceInterval !== pedido.recurrenceInterval
+  );
+}
+
+function mesmoPercentual(atual: number | null, pedido: number | null) {
+  if (atual == null || pedido == null) return atual == null && pedido == null;
+  return Math.round(atual * 100) === Math.round(pedido * 100);
+}
+
 export const EFEITOS_TRANSACAO = ["cancelled", "suspended"] as const;
 export type EfeitoTransacao = (typeof EFEITOS_TRANSACAO)[number];
 
