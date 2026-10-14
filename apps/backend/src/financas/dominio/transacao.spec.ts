@@ -1,4 +1,4 @@
-import { ajustarTransacao, vezesDaRecorrencia } from "@finnagent/contracts";
+import { ajustarTransacao, alterouBase, vezesDaRecorrencia, type BaseLancamento } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import { adiantarParcela, dataDaTransacao, percentualDeJuros } from "./transacao.js";
 
@@ -81,5 +81,34 @@ describe("transação", () => {
         transactionType: "unusual",
       }),
     ).toMatchObject({ priority: "low", transactionType: "unusual" });
+  });
+
+  it("trata movimento, categoria e o contrato da criação como base", () => {
+    const atual: BaseLancamento = {
+      category: "fixed",
+      mode: "outflows",
+      transactionType: "appointment",
+      installments: null,
+      dueDate: null,
+      interestRate: null,
+      recurrence: "monthly",
+      recurrenceInterval: 1,
+    };
+    expect(alterouBase(atual, atual)).toBe(false);
+    expect(alterouBase(atual, { ...atual, mode: "inflows" })).toBe(true);
+    expect(alterouBase(atual, { ...atual, category: "unique", transactionType: "unusual" })).toBe(true);
+    expect(alterouBase(atual, { ...atual, recurrence: "weekly" })).toBe(true);
+    expect(alterouBase(atual, { ...atual, recurrenceInterval: 2 })).toBe(true);
+    expect(alterouBase({ ...atual, interestRate: 2.5 }, { ...atual, interestRate: 2.5 })).toBe(false);
+    expect(alterouBase({ ...atual, interestRate: 2.5 }, { ...atual, interestRate: 2.51 })).toBe(true);
+    const parcela: BaseLancamento = {
+      ...atual,
+      category: "installment",
+      installments: 12,
+      recurrence: null,
+      recurrenceInterval: null,
+    };
+    expect(alterouBase(parcela, { ...parcela, installments: 10 })).toBe(true);
+    expect(alterouBase(parcela, { ...parcela, dueDate: "2026-12-01" })).toBe(true);
   });
 });
