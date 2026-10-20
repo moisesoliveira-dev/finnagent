@@ -1,11 +1,21 @@
 import { Injectable } from "@nestjs/common";
 import {
-  alterouBase,
+  alterouIdentidade,
+  alterouTermos,
+  aplicarStatusNoConjunto,
   categoriaDeCompromisso,
+  centavosComSinal,
+  gradeDoLancamento,
+  parcelaAtual,
+  proximoVencimento,
+  statusAgregado,
+  termosTravados,
+  transicaoDaOcorrencia,
   type CategoriaTransacao,
   type EfeitoTransacao,
   type Lancamento,
   type ModoTransacao,
+  type Ocorrencia,
   type PrioridadeTransacao,
   type StatusTransacao,
   type Recorrencia,
@@ -17,7 +27,7 @@ import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
 import type { Prisma } from "@prisma/client";
-import { adiantarParcela, jurosEmPontos, percentualDeJuros } from "../dominio/transacao.js";
+import { jurosEmPontos, percentualDeJuros } from "../dominio/transacao.js";
 import type {
   FinancasRepositorio,
   NovoLancamento,
@@ -85,6 +95,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           orderBy: [{ year: "asc" }, { month: "asc" }],
         },
         adjustments: { where: { tenantId } },
+        occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
         session: { include: { group: true } },
         statementLines: { where: { tenantId }, select: { line: true }, take: 1 },
       },
@@ -105,6 +116,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         include: {
           amounts: { where: { tenantId } },
           adjustments: { where: { tenantId } },
+          occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
           session: { include: { group: true } },
         },
       });
@@ -139,10 +151,12 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           position: (ultimo._max.position ?? -1) + 1,
           ...gravacao(pedido),
           amounts: { create: meses },
+          occurrences: { create: gradeDoPedido(pedido).map(dadosAninhados) },
         },
         include: {
           amounts: { where: { tenantId } },
           adjustments: { where: { tenantId } },
+          occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
           session: { include: { group: true } },
         },
       });
@@ -164,7 +178,14 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       const atual = await this.buscar(tx, tenantId, pedido.id);
       if (!atual) return "ausente" as const;
       if (igual(atual, pedido)) return lancamentoDe(atual);
-      if (alterouBase(baseDaLinha(atual), pedido)) return "base" as const;
+      if (alterouIdentidade(baseDaLinha(atual), pedido)) return "base" as const;
+      const regenerar = alterouTermos(termosDaLinha(atual), termosDoPedido(pedido));
+      if (
+        regenerar &&
+        termosTravados(efetivasDaLinha(atual), (atual.statementLines?.length ?? 0) > 0)
+      ) {
+        return "ocorrencia" as const;
+      }
       if (atual.sessionId !== pedido.sessionId) {
         const sessao = await tx.session.findFirst({
           where: { id: pedido.sessionId, tenantId },
@@ -187,7 +208,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           startMonth: pedido.startMonth,
           installments: pedido.installments,
           ...atributos(pedido),
-          ...(pedido.category === "fixed" ? {} : { suspendedCents: 0 }),
+          ...(pedido.category === "fixed" && !regenerar ? {} : { suspendedCents: 0 }),
+          ...(regenerar ? resumoGravado(pedido, gradeDoPedido(pedido)) : {}),
         },
       });
       await tx.entryAmount.deleteMany({ where: { entryId: pedido.id, tenantId } });
@@ -196,8 +218,11 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           data: meses.map((mes) => ({ ...mes, entryId: pedido.id, tenantId })),
         });
       }
-      if (pedido.category !== "fixed") {
+      if (pedido.category !== "fixed" || regenerar) {
         await tx.entryAdjustment.deleteMany({ where: { entryId: pedido.id, tenantId } });
+      }
+      if (regenerar) {
+        await this.substituir(tx, tenantId, pedido.id, gradeDoPedido(pedido));
       }
       const salvo = await this.buscar(tx, tenantId, pedido.id);
       if (!salvo) throw new Error("Lançamento ausente depois de gravar a atualização.");
@@ -215,9 +240,53 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
 
   async atualizarStatus(tenantId: string, id: string, status: StatusTransacao) {
     return this.alterar(tenantId, id, "atualizar-status-lancamento", async (tx, atual) => {
-      if (atual.status === status) return { status };
-      await tx.entry.updateMany({ where: { id, tenantId }, data: { status } });
-      return { status };
+      const lista = await this.materializar(tx, tenantId, atual);
+      const proxima = aplicarStatusNoConjunto(lista, status);
+      if (igualLista(lista, proxima)) return { status: atual.status };
+      await this.substituir(tx, tenantId, id, proxima);
+      await this.resumir(tx, tenantId, atual, proxima);
+      await this.alinharAjustes(tx, tenantId, atual, proxima);
+      return { status: statusAgregado(proxima) };
+    });
+  }
+
+  async atualizarOcorrencia(
+    tenantId: string,
+    id: string,
+    number: number,
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
+  ) {
+    return this.alterar(tenantId, id, "atualizar-ocorrencia", async (tx, atual) => {
+      const lista = await this.materializar(tx, tenantId, atual);
+      const indice = lista.findIndex((item) => item.number === number);
+      const alvo = lista[indice];
+      if (!alvo) return "ausente" as const;
+      const mexeValor = pedido.dueDate != null || pedido.plannedCents != null;
+      if (mexeValor && ((atual.statementLines?.length ?? 0) > 0 || alvo.status !== "pending")) {
+        return "bloqueada" as const;
+      }
+      let proxima = alvo;
+      if (pedido.plannedCents != null) {
+        if (pedido.plannedCents === 0) return "bloqueada" as const;
+        proxima = {
+          ...proxima,
+          plannedCents: centavosComSinal(pedido.plannedCents, atual.mode as ModoTransacao),
+        };
+      }
+      if (pedido.dueDate) proxima = { ...proxima, dueDate: pedido.dueDate };
+      if (pedido.status) {
+        const transicao = transicaoDaOcorrencia(proxima, pedido.status);
+        if (transicao === "bloqueada") return "bloqueada" as const;
+        proxima = transicao;
+      }
+      if (proxima.status === "completed") {
+        proxima = { ...proxima, paidCents: proxima.plannedCents, paidOn: proxima.paidOn ?? proxima.dueDate };
+      }
+      lista[indice] = proxima;
+      await this.substituir(tx, tenantId, id, lista);
+      await this.resumir(tx, tenantId, atual, lista);
+      await this.alinharAjustes(tx, tenantId, atual, lista);
+      return { number, status: proxima.status, dueDate: proxima.dueDate, plannedCents: proxima.plannedCents };
     });
   }
 
@@ -275,18 +344,20 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     const operacao = category === "installment" ? "adiantar-parcelas" : "adiantar-emprestimo";
     return this.alterar(tenantId, id, operacao, async (tx, atual) => {
       if (atual.category !== category) return "categoria" as const;
-      const passo = adiantarParcela(
-        atual.installmentNumber ?? 1,
-        atual.installments ?? 0,
-        atual.status as StatusTransacao,
-      );
-      if (passo === "encerrada") return "encerrada" as const;
-      if (passo === "concluida") return "concluida" as const;
-      await tx.entry.updateMany({
-        where: { id, tenantId },
-        data: { installmentNumber: passo.installmentNumber, status: passo.status },
-      });
-      return passo;
+      const lista = await this.materializar(tx, tenantId, atual);
+      const indice = lista.findIndex((item) => item.status === "pending");
+      const alvo = lista[indice];
+      if (!alvo) {
+        return lista.some((item) => item.status === "completed")
+          ? ("concluida" as const)
+          : ("encerrada" as const);
+      }
+      const transicao = transicaoDaOcorrencia(alvo, "completed");
+      if (transicao === "bloqueada") return "encerrada" as const;
+      lista[indice] = transicao;
+      await this.substituir(tx, tenantId, id, lista);
+      await this.resumir(tx, tenantId, atual, lista);
+      return { installmentNumber: transicao.number, status: transicao.status };
     });
   }
 
@@ -294,9 +365,12 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     const operacao = category === "installment" ? "cancelar-parcelas" : "cancelar-emprestimo";
     return this.alterar(tenantId, id, operacao, async (tx, atual) => {
       if (atual.category !== category) return "categoria" as const;
-      if (atual.status === "cancelled") return {};
-      await tx.entry.updateMany({ where: { id, tenantId }, data: { status: "cancelled" } });
-      return { status: "cancelled" };
+      const lista = await this.materializar(tx, tenantId, atual);
+      const proxima = aplicarStatusNoConjunto(lista, "cancelled");
+      if (igualLista(lista, proxima)) return {};
+      await this.substituir(tx, tenantId, id, proxima);
+      await this.resumir(tx, tenantId, atual, proxima);
+      return { status: statusAgregado(proxima) };
     });
   }
 
@@ -312,6 +386,16 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       if (atual.category !== "fixed") return "categoria" as const;
       const ja = atual.adjustments.find((ajuste) => ajuste.year === year && ajuste.month === month);
       if (ja?.effect === effect) return { year, month, effect };
+      const lista = await this.materializar(tx, tenantId, atual);
+      const proxima = lista.map((item) => {
+        const [ano, mes] = item.dueDate.split("-").map(Number);
+        if (ano !== year || mes !== month || item.status === "cancelled") return item;
+        return { ...item, status: "cancelled" as const, paidCents: null, paidOn: null };
+      });
+      if (!igualLista(lista, proxima)) {
+        await this.substituir(tx, tenantId, id, proxima);
+        await this.resumir(tx, tenantId, atual, proxima);
+      }
       await tx.entryAdjustment.upsert({
         where: { entryId_year_month: { entryId: id, year, month } },
         create: { entryId: id, tenantId, year, month, effect },
@@ -337,11 +421,18 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       }
       const salvos = [];
       for (const valor of valores) {
-        const mode = valor.cents > 0 ? "inflows" : "outflows";
+        const atual = await this.buscar(tx, tenantId, valor.id);
+        if (!atual) return "ausente" as const;
+        const cents = centavosComSinal(Math.abs(valor.cents), atual.mode as ModoTransacao);
         await tx.entry.updateMany({
           where: { id: valor.id, tenantId },
-          data: { cents: valor.cents, mode },
+          data: { cents },
         });
+        const lista = await this.materializar(tx, tenantId, atual);
+        const proxima = lista.map((item) =>
+          item.status === "pending" ? { ...item, plannedCents: cents } : item,
+        );
+        await this.substituir(tx, tenantId, valor.id, proxima);
         const salvo = await this.buscar(tx, tenantId, valor.id);
         if (!salvo) throw new Error("Lançamento ausente depois de gravar o valor fixo.");
         salvos.push(lancamentoDe(salvo));
@@ -384,7 +475,76 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       include: {
         amounts: { where: { tenantId } },
         adjustments: { where: { tenantId } },
+        occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
         session: { include: { group: true } },
+        statementLines: { where: { tenantId }, select: { line: true }, take: 1 },
+      },
+    });
+  }
+
+  private async materializar(tx: Prisma.TransactionClient, tenantId: string, atual: Linha) {
+    const gravadas = atual.occurrences ?? [];
+    if (gravadas.length > 0) return gravadas.map(ocorrenciaDe);
+    const grade = gradeDoLancamento(contratoDaLinha(atual));
+    if (grade.length > 0) {
+      await tx.entryOccurrence.createMany({
+        data: grade.map((item) => dadosOcorrencia(tenantId, atual.id, item)),
+      });
+    }
+    return grade;
+  }
+
+  private async substituir(tx: Prisma.TransactionClient, tenantId: string, entryId: string, lista: Ocorrencia[]) {
+    await tx.entryOccurrence.deleteMany({ where: { tenantId, entryId } });
+    if (lista.length === 0) return;
+    await tx.entryOccurrence.createMany({
+      data: lista.map((item) => dadosOcorrencia(tenantId, entryId, item)),
+    });
+  }
+
+  private async alinharAjustes(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    atual: Linha,
+    lista: Ocorrencia[],
+  ) {
+    if (atual.category !== "fixed") return;
+    const porMes = new Map<string, Ocorrencia[]>();
+    for (const item of lista) {
+      const [year, month] = item.dueDate.split("-").map(Number);
+      const chave = `${year}-${month}`;
+      const grupo = porMes.get(chave) ?? [];
+      grupo.push(item);
+      porMes.set(chave, grupo);
+    }
+    for (const ajuste of atual.adjustments) {
+      const grupo = porMes.get(`${ajuste.year}-${ajuste.month}`) ?? [];
+      const segueCancelado = grupo.length > 0 && grupo.every((item) => item.status === "cancelled");
+      if (segueCancelado) continue;
+      await tx.entryAdjustment.deleteMany({
+        where: { tenantId, entryId: atual.id, year: ajuste.year, month: ajuste.month },
+      });
+    }
+    const restantes = await tx.entryAdjustment.findMany({ where: { tenantId, entryId: atual.id } });
+    const suspenso =
+      restantes.filter((ajuste) => ajuste.effect === "suspended").length * Math.abs(atual.cents);
+    if (suspenso !== atual.suspendedCents) {
+      await tx.entry.updateMany({
+        where: { id: atual.id, tenantId },
+        data: { suspendedCents: suspenso },
+      });
+    }
+  }
+
+  private async resumir(tx: Prisma.TransactionClient, tenantId: string, atual: Linha, lista: Ocorrencia[]) {
+    const parcelado = atual.category === "installment" || atual.category === "loan";
+    const proximo = proximoVencimento(lista);
+    await tx.entry.updateMany({
+      where: { id: atual.id, tenantId },
+      data: {
+        status: statusAgregado(lista),
+        ...(parcelado ? { installmentNumber: parcelaAtual(lista) } : {}),
+        ...(atual.category === "fixed" ? { nextDueOn: proximo ? dataPrisma(proximo) : null } : {}),
       },
     });
   }
@@ -452,7 +612,7 @@ function mesmoLancamento(
   );
 }
 
-type FalhaCurta = "categoria" | "encerrada" | "concluida";
+type FalhaCurta = "categoria" | "encerrada" | "concluida" | "bloqueada" | "ausente";
 
 type Linha = {
   id: string;
@@ -482,8 +642,18 @@ type Linha = {
   recurrenceInterval: number | null;
   amounts: { year: number; month: number; cents: number }[];
   adjustments: { year: number; month: number; effect: string }[];
+  occurrences?: OcorrenciaGravada[];
   session: { id: string; name: string; groupId: string; group: { name: string } };
   statementLines?: { line: number }[];
+};
+
+type OcorrenciaGravada = {
+  number: number;
+  dueOn: Date;
+  plannedCents: number;
+  paidCents: number | null;
+  paidOn: Date | null;
+  status: string;
 };
 
 function baseDaLinha(atual: Linha) {
@@ -605,6 +775,129 @@ function lancamentoDe(row: Linha): Lancamento {
       month: ajuste.month,
       effect: ajuste.effect as EfeitoTransacao,
     })),
+    occurrences: (row.occurrences ?? []).length
+      ? (row.occurrences ?? []).map(ocorrenciaDe)
+      : gradeDoLancamento(contratoDaLinha(row)),
   };
+}
+
+function contratoDaLinha(row: Linha) {
+  return {
+    type: row.type as TipoLancamento,
+    day: row.day,
+    cents: row.cents,
+    startYear: row.startYear,
+    startMonth: row.startMonth,
+    installments: row.installments,
+    status: row.status as StatusTransacao,
+    months: row.amounts.map((mes) => ({ year: mes.year, month: mes.month, cents: mes.cents })),
+    recurrence: row.recurrence as Recorrencia | null,
+    recurrenceInterval: row.recurrenceInterval,
+    adjustments: row.adjustments.map((ajuste) => ({
+      year: ajuste.year,
+      month: ajuste.month,
+      effect: ajuste.effect as EfeitoTransacao,
+    })),
+  };
+}
+
+function efetivasDaLinha(atual: Linha) {
+  const gravadas = (atual.occurrences ?? []).map(ocorrenciaDe);
+  if (gravadas.length > 0) return gravadas;
+  return gradeDoLancamento(contratoDaLinha(atual));
+}
+
+function termosDaLinha(atual: Linha) {
+  return {
+    installments: atual.installments,
+    dueDate: atual.dueOn ? dataIso(atual.dueOn) : null,
+    interestRate: atual.interestBps == null ? null : percentualDeJuros(atual.interestBps),
+    recurrence: atual.recurrence as Recorrencia | null,
+    recurrenceInterval: atual.recurrenceInterval,
+    cents: atual.cents,
+    date: dataIso(atual.occurredOn),
+  };
+}
+
+function termosDoPedido(pedido: NovoLancamento) {
+  return {
+    installments: pedido.installments,
+    dueDate: pedido.dueDate,
+    interestRate: pedido.interestRate,
+    recurrence: pedido.recurrence,
+    recurrenceInterval: pedido.recurrenceInterval,
+    cents: pedido.cents,
+    date: pedido.date,
+  };
+}
+
+function gradeDoPedido(pedido: NovoLancamento) {
+  return gradeDoLancamento({
+    type: pedido.type,
+    day: pedido.day,
+    cents: pedido.cents,
+    startYear: pedido.startYear,
+    startMonth: pedido.startMonth,
+    installments: pedido.installments,
+    status: pedido.status,
+    months: mesesDoPedido(pedido),
+    recurrence: pedido.recurrence,
+    recurrenceInterval: pedido.recurrenceInterval,
+    adjustments: [],
+  });
+}
+
+function resumoGravado(pedido: NovoLancamento, lista: Ocorrencia[]) {
+  const parcelado = pedido.category === "installment" || pedido.category === "loan";
+  const proximo = proximoVencimento(lista);
+  return {
+    status: statusAgregado(lista),
+    installmentNumber: parcelado ? parcelaAtual(lista) : null,
+    nextDueOn:
+      pedido.category === "fixed" ? (proximo ? dataPrisma(proximo) : null) : pedido.nextDueDate ? dataPrisma(pedido.nextDueDate) : null,
+  };
+}
+
+function dadosAninhados(item: Ocorrencia) {
+  return {
+    number: item.number,
+    dueOn: dataPrisma(item.dueDate),
+    plannedCents: item.plannedCents,
+    paidCents: item.paidCents,
+    paidOn: item.paidOn ? dataPrisma(item.paidOn) : null,
+    status: item.status,
+  };
+}
+
+function dadosOcorrencia(tenantId: string, entryId: string, item: Ocorrencia) {
+  return { tenantId, entryId, ...dadosAninhados(item) };
+}
+
+function ocorrenciaDe(row: OcorrenciaGravada): Ocorrencia {
+  return {
+    number: row.number,
+    dueDate: dataIso(row.dueOn),
+    plannedCents: row.plannedCents,
+    paidCents: row.paidCents,
+    paidOn: row.paidOn ? dataIso(row.paidOn) : null,
+    status: row.status as StatusTransacao,
+  };
+}
+
+function igualLista(atual: Ocorrencia[], proxima: Ocorrencia[]) {
+  return (
+    atual.length === proxima.length &&
+    atual.every((item, index) => {
+      const outro = proxima[index];
+      return (
+        outro != null &&
+        item.number === outro.number &&
+        item.status === outro.status &&
+        item.plannedCents === outro.plannedCents &&
+        item.dueDate === outro.dueDate &&
+        item.paidCents === outro.paidCents
+      );
+    })
+  );
 }
 

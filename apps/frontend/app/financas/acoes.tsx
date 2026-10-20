@@ -5,6 +5,8 @@ import {
   NOME_MES,
   STATUS_TRANSACAO,
   centavosComSinal,
+  ocorrenciasDoLancamento,
+  proximoVencimento,
   type AgendaResposta,
   type Lancamento,
   type StatusTransacao,
@@ -324,7 +326,9 @@ function Formulario({
         </>
   );
 
-  if (embutido) return <div className="grid gap-4">{corpo}</div>;
+  if (embutido) {
+    return <div className="grid gap-4 border-t border-line pt-4">{corpo}</div>;
+  }
 
   return (
     <>
@@ -354,6 +358,15 @@ function Formulario({
   );
 }
 
+function mesesSuspensos(entry: Lancamento) {
+  return entry.adjustments.filter((ajuste) => ajuste.effect === "suspended").length;
+}
+
+function valorSuspenso(entry: Lancamento) {
+  const sinal = entry.mode === "outflows" ? -1 : 1;
+  return sinal * Math.abs(entry.cents) * mesesSuspensos(entry);
+}
+
 function Detalhe({ entry }: { entry: Lancamento }) {
   if (entry.category === "installment" || entry.category === "loan") {
     return (
@@ -368,14 +381,14 @@ function Detalhe({ entry }: { entry: Lancamento }) {
   if (entry.category === "fixed") {
     return (
       <p className="text-sm text-ink-2">
-        Próximo vencimento {entry.nextDueDate?.split("-").reverse().join("/") ?? "—"}
+        Próximo vencimento {proximoVencimento(ocorrenciasDoLancamento(entry))?.split("-").reverse().join("/") ?? "—"}
         {entry.recurrence
           ? ` · ${ROTULO_RECORRENCIA[entry.recurrence].toLowerCase()}, a cada ${entry.recurrenceInterval ?? 1} ${unidadeDaRecorrencia(entry.recurrence)}`
           : ""}
-        {entry.suspendedCents ? (
+        {mesesSuspensos(entry) > 0 ? (
           <>
             {" "}
-            · suspenso <Money cents={entry.suspendedCents} />
+            · suspenso <Money cents={valorSuspenso(entry)} />
           </>
         ) : null}
       </p>

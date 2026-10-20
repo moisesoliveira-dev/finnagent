@@ -50,7 +50,9 @@ export type FalhaDeLancamento =
   | "concluida"
   | "compromisso-ausente"
   | "sincronizado"
-  | "base";
+  | "base"
+  | "ocorrencia"
+  | "bloqueada";
 
 export type ValorFixo = { id: string; cents: number };
 
@@ -70,6 +72,12 @@ export interface FinancasRepositorio {
     tenantId: string,
     id: string,
     status: StatusTransacao,
+  ): Promise<Lancamento | FalhaDeLancamento>;
+  atualizarOcorrencia(
+    tenantId: string,
+    id: string,
+    number: number,
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
   ): Promise<Lancamento | FalhaDeLancamento>;
   associarCompromisso(
     tenantId: string,

@@ -5,8 +5,10 @@ import {
   CATEGORIAS_TRANSACAO,
   centavosNoMes,
   colunasDoAno,
+  diaLocal,
   indiceDaParcela,
   ocorreNoMes,
+  situacaoDoLancamento,
   somaDosCentavos,
   type Lancamento,
   type Workflow,
@@ -18,7 +20,7 @@ import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { focusRing } from "../../components/ui/cn";
 import { doisDigitos } from "./reais";
-import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, ROTULO_STATUS, tomDaPrioridade, tomDoStatus } from "./rotulos";
+import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, rotuloDaSituacao, tomDaPrioridade, tomDaSituacao } from "./rotulos";
 
 const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink disabled:cursor-default disabled:opacity-50 ${focusRing}`;
 
@@ -217,7 +219,9 @@ export function TabelaLancamentos({
                   </div>
                   <div className="flex min-w-0 flex-wrap gap-2">
                     <Chip>{ROTULO_CATEGORIA[entry.category]}</Chip>
-                    <Chip tone={tomDoStatus(entry.status)}>{ROTULO_STATUS[entry.status]}</Chip>
+                    <Chip tone={tomDaSituacao(situacaoDoLancamento(entry, diaLocal()))}>
+                      {rotuloDaSituacao(situacaoDoLancamento(entry, diaLocal()))}
+                    </Chip>
                     <Chip tone={tomDaPrioridade(entry.priority)}>{ROTULO_PRIORIDADE[entry.priority]}</Chip>
                   </div>
                   <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">
@@ -304,7 +308,9 @@ export function TabelaLancamentos({
                       <Chip>{ROTULO_CATEGORIA[entry.category]}</Chip>
                     </td>
                     <td className="border-b border-line px-3 py-3">
-                      <Chip tone={tomDoStatus(entry.status)}>{ROTULO_STATUS[entry.status]}</Chip>
+                      <Chip tone={tomDaSituacao(situacaoDoLancamento(entry, diaLocal()))}>
+                      {rotuloDaSituacao(situacaoDoLancamento(entry, diaLocal()))}
+                    </Chip>
                     </td>
                     <td className="border-b border-line px-3 py-3">
                       <Chip tone={tomDaPrioridade(entry.priority)}>{ROTULO_PRIORIDADE[entry.priority]}</Chip>

@@ -3,6 +3,7 @@ import type {
   ModoTransacao,
   PrioridadeTransacao,
   Recorrencia,
+  SituacaoOcorrencia,
   StatusTransacao,
   TipoTransacao,
 } from "@finnagent/contracts";
@@ -53,6 +54,16 @@ export function tomDoStatus(status: StatusTransacao) {
   if (status === "pending") return "ai" as const;
   if (status === "cancelled") return "neg" as const;
   return "default" as const;
+}
+
+export function rotuloDaSituacao(situacao: SituacaoOcorrencia) {
+  if (situacao === "late") return "Atrasada";
+  return ROTULO_STATUS[situacao];
+}
+
+export function tomDaSituacao(situacao: SituacaoOcorrencia) {
+  if (situacao === "late") return "neg" as const;
+  return tomDoStatus(situacao);
 }
 
 export function tomDaPrioridade(priority: PrioridadeTransacao) {

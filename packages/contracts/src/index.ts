@@ -48,6 +48,17 @@ export type ModoTransacao = (typeof MODOS_TRANSACAO)[number];
 export const STATUS_TRANSACAO = ["pending", "completed", "cancelled", "refunded"] as const;
 export type StatusTransacao = (typeof STATUS_TRANSACAO)[number];
 
+export type Ocorrencia = {
+  number: number;
+  dueDate: string;
+  plannedCents: number;
+  paidCents: number | null;
+  paidOn: string | null;
+  status: StatusTransacao;
+};
+
+export type SituacaoOcorrencia = StatusTransacao | "late";
+
 export const TIPOS_TRANSACAO = ["appointment", "unusual"] as const;
 export type TipoTransacao = (typeof TIPOS_TRANSACAO)[number];
 
@@ -131,6 +142,36 @@ export function alterouBase(atual: BaseLancamento, pedido: BaseLancamento) {
 function mesmoPercentual(atual: number | null, pedido: number | null) {
   if (atual == null || pedido == null) return atual == null && pedido == null;
   return Math.round(atual * 100) === Math.round(pedido * 100);
+}
+
+export function alterouIdentidade(atual: BaseLancamento, pedido: BaseLancamento) {
+  return (
+    atual.category !== pedido.category ||
+    atual.mode !== pedido.mode ||
+    atual.transactionType !== pedido.transactionType
+  );
+}
+
+export type TermosLancamento = {
+  installments: number | null;
+  dueDate: string | null;
+  interestRate: number | null;
+  recurrence: Recorrencia | null;
+  recurrenceInterval: number | null;
+  cents: number;
+  date: string;
+};
+
+export function alterouTermos(atual: TermosLancamento, pedido: TermosLancamento) {
+  return (
+    atual.installments !== pedido.installments ||
+    atual.dueDate !== pedido.dueDate ||
+    !mesmoPercentual(atual.interestRate, pedido.interestRate) ||
+    atual.recurrence !== pedido.recurrence ||
+    atual.recurrenceInterval !== pedido.recurrenceInterval ||
+    atual.cents !== pedido.cents ||
+    atual.date !== pedido.date
+  );
 }
 
 export const EFEITOS_TRANSACAO = ["cancelled", "suspended"] as const;
@@ -270,6 +311,7 @@ export type Lancamento = {
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
   synced: boolean;
+  occurrences?: Ocorrencia[];
 };
 
 export type FinancasResposta = {
@@ -372,12 +414,22 @@ export function ocorreNoMes(
 }
 
 function centavosAgendados(entry: Lancamento, year: number, monthIndex: number) {
-  if (entry.status === "cancelled" || entry.status === "refunded") return undefined;
-  const efeito = entry.adjustments.find(
-    (ajuste) => ajuste.year === year && ajuste.month === monthIndex + 1,
-  )?.effect;
-  if (efeito === "cancelled" || efeito === "suspended") return undefined;
-  return valorDoCalendario(entry, year, monthIndex);
+  const contaveis = ocorrenciasDoLancamento(entry).filter(
+    (item) =>
+      noMes(item.dueDate, year, monthIndex) &&
+      (item.status === "pending" || item.status === "completed"),
+  );
+  if (contaveis.length === 0) return undefined;
+  return contaveis.reduce(
+    (total, item) =>
+      total + (item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents),
+    0,
+  );
+}
+
+function noMes(iso: string, year: number, monthIndex: number) {
+  const [ano, mes] = iso.split("-").map(Number);
+  return ano === year && mes === monthIndex + 1;
 }
 
 function valorDoCalendario(entry: Lancamento, year: number, monthIndex: number) {
@@ -418,24 +470,227 @@ function diasNoMes(
   monthIndex: number,
   stepDays: number,
 ) {
+  return datasNoMes(startYear, startMonth, day, year, monthIndex, stepDays).length;
+}
+
+function datasNoMes(
+  startYear: number,
+  startMonth: number,
+  day: number,
+  year: number,
+  monthIndex: number,
+  stepDays: number,
+) {
   const inicio = instante(startYear, startMonth, day);
   const inicioMes = Date.UTC(year, monthIndex, 1);
   const fimMes = Date.UTC(year, monthIndex + 1, 0);
-  if (fimMes < inicio) return 0;
+  if (fimMes < inicio) return [];
   const passo = stepDays * 86_400_000;
   const aPartir = Math.max(inicio, inicioMes);
   const saltos = Math.ceil((aPartir - inicio) / passo);
-  let total = 0;
+  const datas: string[] = [];
   for (let quando = inicio + saltos * passo; quando <= fimMes; quando += passo) {
-    total += 1;
-    if (total > 31) break;
+    datas.push(new Date(quando).toISOString().slice(0, 10));
+    if (datas.length > 31) break;
   }
-  return total;
+  return datas;
 }
 
 function instante(year: number, month: number, day: number) {
   const ultimo = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return Date.UTC(year, month - 1, Math.min(Math.max(day, 1), ultimo));
+}
+
+type ContratoLancamento = Pick<
+  Lancamento,
+  | "type"
+  | "day"
+  | "cents"
+  | "startYear"
+  | "startMonth"
+  | "installments"
+  | "status"
+  | "months"
+  | "recurrence"
+  | "recurrenceInterval"
+  | "adjustments"
+>;
+
+export function ocorrenciasDoLancamento(entry: Lancamento) {
+  if (entry.occurrences && entry.occurrences.length > 0) return entry.occurrences;
+  return gradeDoLancamento(entry);
+}
+
+export function gradeDoLancamento(entry: ContratoLancamento): Ocorrencia[] {
+  if (entry.type === "adicional" || entry.type === "variável") {
+    return [...entry.months]
+      .sort((a, b) => a.year - b.year || a.month - b.month)
+      .map((mes, index) =>
+        montarOcorrencia(
+          index + 1,
+          isoDaData(mes.year, mes.month, entry.day),
+          mes.cents,
+          entry,
+          entry.status,
+        ),
+      );
+  }
+  if (entry.type === "fixo") {
+    return datasFixas(entry).map((dueDate, index) =>
+      montarOcorrencia(index + 1, dueDate, entry.cents, entry, entry.status),
+    );
+  }
+  const total = entry.installments ?? 0;
+  const lista: Ocorrencia[] = [];
+  for (let parcela = 0; parcela < total; parcela += 1) {
+    const absoluto = indice(entry.startYear, entry.startMonth - 1) + parcela;
+    const year = Math.floor(absoluto / 12);
+    const month = (absoluto % 12) + 1;
+    lista.push(
+      montarOcorrencia(parcela + 1, isoDaData(year, month, entry.day), entry.cents, entry, entry.status),
+    );
+  }
+  return lista;
+}
+
+export function transicaoDaOcorrencia(atual: Ocorrencia, status: StatusTransacao): Ocorrencia | "bloqueada" {
+  if (atual.status === status) return atual;
+  if (atual.status === "pending" && status === "completed") return quitada(atual);
+  if (atual.status === "pending" && status === "cancelled") {
+    return { ...atual, status, paidCents: null, paidOn: null };
+  }
+  if (atual.status === "completed" && status === "refunded") return { ...atual, status };
+  if (atual.status === "cancelled" && status === "pending") {
+    return { ...atual, status, paidCents: null, paidOn: null };
+  }
+  return "bloqueada";
+}
+
+export function aplicarStatusNoConjunto(lista: Ocorrencia[], status: StatusTransacao) {
+  return lista.map((item) => {
+    if (status === "completed" && item.status === "pending") return quitada(item);
+    if (status === "cancelled" && item.status === "pending") {
+      return { ...item, status: "cancelled" as const, paidCents: null, paidOn: null };
+    }
+    if (status === "refunded" && item.status === "completed") return { ...item, status: "refunded" as const };
+    if (status === "pending" && item.status === "cancelled") {
+      return { ...item, status: "pending" as const, paidCents: null, paidOn: null };
+    }
+    return item;
+  });
+}
+
+export function statusAgregado(lista: Ocorrencia[]): StatusTransacao {
+  if (lista.some((item) => item.status === "pending")) return "pending";
+  if (lista.some((item) => item.status === "completed")) return "completed";
+  if (lista.length > 0 && lista.every((item) => item.status === "cancelled")) return "cancelled";
+  if (lista.some((item) => item.status === "refunded")) return "refunded";
+  return "pending";
+}
+
+export function parcelaAtual(lista: Ocorrencia[]) {
+  const aberta = lista.find((item) => item.status === "pending");
+  if (aberta) return aberta.number;
+  const ultima = lista[lista.length - 1];
+  return ultima ? ultima.number : null;
+}
+
+export function proximoVencimento(lista: Ocorrencia[]) {
+  return lista.find((item) => item.status === "pending")?.dueDate ?? null;
+}
+
+export function termosTravados(lista: Ocorrencia[], synced: boolean) {
+  return synced || lista.some((item) => item.status !== "pending");
+}
+
+export function situacaoDaOcorrencia(item: Ocorrencia, hoje: string): SituacaoOcorrencia {
+  if (item.status === "pending" && item.dueDate < hoje) return "late";
+  return item.status;
+}
+
+export function situacaoDoLancamento(entry: Lancamento, hoje: string): SituacaoOcorrencia {
+  const lista = ocorrenciasDoLancamento(entry);
+  if (lista.some((item) => situacaoDaOcorrencia(item, hoje) === "late")) return "late";
+  return statusAgregado(lista);
+}
+
+export function diaLocal(agora = new Date()) {
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+}
+
+function quitada(atual: Ocorrencia) {
+  return {
+    ...atual,
+    status: "completed" as const,
+    paidCents: atual.plannedCents,
+    paidOn: atual.dueDate,
+  };
+}
+
+function montarOcorrencia(
+  number: number,
+  dueDate: string,
+  plannedCents: number,
+  entry: Pick<ContratoLancamento, "adjustments">,
+  statusPedido: StatusTransacao,
+): Ocorrencia {
+  const status = statusDaGrade(entry, dueDate, statusPedido);
+  const paga = status === "completed";
+  return {
+    number,
+    dueDate,
+    plannedCents,
+    paidCents: paga ? plannedCents : null,
+    paidOn: paga ? dueDate : null,
+    status,
+  };
+}
+
+function statusDaGrade(
+  entry: Pick<ContratoLancamento, "adjustments">,
+  dueDate: string,
+  statusPedido: StatusTransacao,
+) {
+  if (statusPedido === "cancelled" || statusPedido === "refunded") return statusPedido;
+  const [year, month] = dueDate.split("-").map(Number);
+  const ajuste = entry.adjustments.find((item) => item.year === year && item.month === month);
+  if (ajuste?.effect === "cancelled" || ajuste?.effect === "suspended") return "cancelled" as const;
+  return statusPedido;
+}
+
+function datasFixas(entry: ContratoLancamento) {
+  const recurrence = entry.recurrence ?? "monthly";
+  const passo = Math.max(entry.recurrenceInterval ?? 1, 1);
+  if (recurrence === "weekly" || recurrence === "customize") {
+    const stepDays = recurrence === "weekly" ? 7 * passo : passo;
+    const datas: string[] = [];
+    for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+      datas.push(
+        ...datasNoMes(entry.startYear, entry.startMonth, entry.day, entry.startYear, monthIndex, stepDays),
+      );
+    }
+    return datas;
+  }
+  const datas: string[] = [];
+  for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+    const vezes = vezesDaRecorrencia(
+      recurrence,
+      passo,
+      entry.startYear,
+      entry.startMonth,
+      entry.day,
+      entry.startYear,
+      monthIndex,
+    );
+    if (vezes === 1) datas.push(isoDaData(entry.startYear, monthIndex + 1, entry.day));
+  }
+  return datas;
+}
+
+function isoDaData(year: number, month: number, day: number) {
+  const ultimo = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dia = Math.min(Math.max(day, 1), ultimo);
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
 }
 
 export const AGENDAS = ["Pessoal", "Trabalho"] as const;
@@ -1078,6 +1333,7 @@ const FINANCEIRO = new Set([
   "cancelar-fixo",
   "suspender-fixo",
   "atualizar-valor-fixo",
+  "atualizar-ocorrencia",
   "criar-grupo",
   "atualizar-grupo",
   "remover-grupo",
@@ -1112,6 +1368,7 @@ const NOME_AGREGADO: Record<string, string> = {
   "cancelar-fixo": "Lançamento",
   "suspender-fixo": "Lançamento",
   "atualizar-valor-fixo": "Lançamento",
+  "atualizar-ocorrencia": "Lançamento",
   "criar-grupo": "Grupo",
   "atualizar-grupo": "Grupo",
   "remover-grupo": "Grupo",
