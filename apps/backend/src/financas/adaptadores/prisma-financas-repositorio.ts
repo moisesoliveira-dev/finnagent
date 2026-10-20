@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import {
+  alterouBase,
   categoriaDeCompromisso,
   type CategoriaTransacao,
   type EfeitoTransacao,
@@ -163,6 +164,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       const atual = await this.buscar(tx, tenantId, pedido.id);
       if (!atual) return "ausente" as const;
       if (igual(atual, pedido)) return lancamentoDe(atual);
+      if (alterouBase(baseDaLinha(atual), pedido)) return "base" as const;
       if (atual.sessionId !== pedido.sessionId) {
         const sessao = await tx.session.findFirst({
           where: { id: pedido.sessionId, tenantId },
@@ -483,6 +485,19 @@ type Linha = {
   session: { id: string; name: string; groupId: string; group: { name: string } };
   statementLines?: { line: number }[];
 };
+
+function baseDaLinha(atual: Linha) {
+  return {
+    category: atual.category as CategoriaTransacao,
+    mode: atual.mode as ModoTransacao,
+    transactionType: atual.transactionType as TipoTransacao,
+    installments: atual.installments,
+    dueDate: atual.dueOn ? dataIso(atual.dueOn) : null,
+    interestRate: atual.interestBps == null ? null : percentualDeJuros(atual.interestBps),
+    recurrence: atual.recurrence as Recorrencia | null,
+    recurrenceInterval: atual.recurrenceInterval,
+  };
+}
 
 function atributos(pedido: NovoLancamento) {
   return {

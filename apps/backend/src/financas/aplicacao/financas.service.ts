@@ -44,6 +44,9 @@ export class FinancasService {
     if (resultado === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
     if (resultado === "sessao-ausente") throw new NaoEncontrado("Sessão não encontrada.");
     if (resultado === "sessao-encerrada") throw new Conflito("Essa sessão já foi encerrada.");
+    if (resultado === "base") {
+      throw new Conflito("Movimento, categoria e os dados definidos na criação não podem ser alterados.");
+    }
     if (typeof resultado === "string") throw new Conflito("Não foi possível salvar o lançamento.");
     return resultado;
   }
