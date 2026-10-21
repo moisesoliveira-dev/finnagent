@@ -305,3 +305,101 @@ Arquivos:
 - `apps/frontend/app/agenda/page.tsx`
 - `apps/frontend/app/agenda/grade.tsx`
 - `apps/frontend/app/agenda/lista.tsx`
+
+## Animações com Motion
+
+O que foi feito: os modais passaram a usar o componente `Dialogo`, que entra subindo com fade e sai encolhendo. O fundo escurece e clareia junto. Escape, Cancelar, clique fora e `close()` passam pela saída. Quando o modal segue um estado (`aberto`), o conteúdo e a largura ficam congelados até ele sumir, para o título não trocar no meio. Os toasts entram pela direita, saem pelo mesmo lado e os outros escorregam para o lugar. A dica aparece com fade. O acordeão do grupo e o da visão geral no celular abrem e fecham pela altura. A lista de metas e a de extratos entram em cascata, e a barra da meta cresce até o progresso. A chave das configurações desliza com mola. Quem pede menos movimento no sistema fica só com a opacidade. O `Presenca` saiu; o modal do dia da agenda usa o `Dialogo`.
+
+Motivo: a pessoa pediu para usar o Motion no app todo.
+
+Arquivos:
+
+- `apps/frontend/components/ui/dialogo.tsx`
+- `apps/frontend/components/ui/movimento.tsx`
+- `apps/frontend/components/ui/toast.tsx`
+- `apps/frontend/components/ui/rotulo.tsx`
+- `apps/frontend/app/layout.tsx`
+- `apps/frontend/app/globals.css`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/configuracoes/painel.tsx`
+- `apps/frontend/app/eventos/page.tsx`
+- `apps/frontend/app/extratos/page.tsx`
+- `apps/frontend/app/financas/acoes.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/virada.tsx`
+- `apps/frontend/app/financas/visao-geral.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/metas/page.tsx`
+
+## Visual no estilo do Motion
+
+O que foi feito: o visual passou a seguir o site do Motion. A fonte é TASA Orbiter, com títulos em negrito e letras juntas. Navegação, botões, chips, rótulos de número e dias da semana usam Geist Mono em maiúsculas espaçadas. Os cantos ficaram retos. O claro é off-white e o escuro é quase preto, com camadas e bordas no tom do Motion. A cor da marca virou azul, usada no item ativo, no selecionado e no que está ok. O botão principal ficou amarelo com texto escuro. A navegação tem fundo de pontos, ocupa a altura da tela e marca a aba ativa com uma barra que desliza. Os tons suaves (marca, evento e pendente) são opacos, para não deixar a borda da grade aparecer por baixo. A regra `font: inherit` do botão foi para a camada base, para a fonte mono do botão valer.
+
+Motivo: a pessoa pediu que o visual parecesse com o do Motion.
+
+Arquivos:
+
+- `apps/frontend/app/globals.css`
+- `apps/frontend/app/layout.tsx`
+- `apps/frontend/components/ui/app-shell.tsx`
+- `apps/frontend/components/ui/button.tsx`
+- `apps/frontend/components/ui/chip.tsx`
+- `apps/frontend/components/ui/stat.tsx`
+- `apps/frontend/components/ui/page-header.tsx`
+- `apps/frontend/components/ui/toast.tsx`
+- `apps/frontend/components/ui/dialogo.tsx`
+- `apps/frontend/app/agenda/grade.tsx`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/agenda/lista.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/page.tsx`
+
+## Sincronia da interface com o sistema
+
+O que foi feito: a edição de lançamento fora da trava passou a enviar parcelas, vencimento, juros, recorrência e intervalo do formulário; antes enviava os valores gravados e o "Lançamento atualizado." não mudava nada. A agenda lê o estado do Google das configurações: o subtítulo mostra o estado real, o aviso de conexão só aparece desconectado e o botão abre a conexão do Google (ou leva a Configurações quando falta o ID e o segredo), em vez de chamar a sincronização. O rótulo do estado do Google foi para `contracts`, usado pela agenda e pelas configurações. A mensagem de linhas cortadas do extrato mostra "as primeiras N de M". Os modais de excluir meta e extrato limpam o estado no `onClose`, e o de detalhes do evento segue `aberto`, sem efeito com `showModal`. A regra de botão do CSS foi para a camada base, então a cor de utilitário vale em todo botão. Os seletores de Dashboard, Agenda, Finanças, Eventos e Aparência usam o `Segmentado`, com o fundo da opção deslizando. As setas dos acordeões usam a `Seta` com Motion. O `Button` ganhou a variante `link`, para o tipo de evento e o dia ou mês do painel não virarem maiúsculas. Cabeçalhos de tabela usam `etiqueta`. Conferência e a ação de valor do lançamento deixam de ter vários botões amarelos. Os botões de editar e excluir da agenda têm 40 px e foco visível. A árvore de Configurações usa etiqueta e a barra azul da navegação. `Money` acumulado usa `pos-soft` e `neg-soft` opacos. A casca não estica a linha da navegação em página curta no celular.
+
+Motivo: a pessoa pediu para encontrar os erros e a falta de sincronia da interface com o sistema.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/frontend/app/globals.css`
+- `apps/frontend/components/ui/app-shell.tsx`
+- `apps/frontend/components/ui/button.tsx`
+- `apps/frontend/components/ui/chip.tsx`
+- `apps/frontend/components/ui/money.tsx`
+- `apps/frontend/components/ui/movimento.tsx`
+- `apps/frontend/components/ui/segmentado.tsx`
+- `apps/frontend/components/ui/stat.tsx`
+- `apps/frontend/app/page.tsx`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/agenda/grade.tsx`
+- `apps/frontend/app/agenda/lista.tsx`
+- `apps/frontend/app/configuracoes/painel.tsx`
+- `apps/frontend/app/eventos/page.tsx`
+- `apps/frontend/app/extratos/page.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/frontend/app/financas/acoes.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/financas/visao-geral.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/metas/page.tsx`
+- `apps/frontend/app/relatorios/page.tsx`
+
+## Vínculo, avisos e visual
+
+O que foi feito: o painel passa a preencher o vínculo do compromisso com o lançamento, para o dashboard mostrar o valor em vez do texto "Compromisso". Vincular um compromisso na agenda grava os dois lados: o compromisso aponta o lançamento e o lançamento aponta o compromisso. O vínculo anterior é desfeito. A agenda devolve o estado real do Google (desconectado, sincronizando, sincronizado ou erro), lido das configurações. Eventos de configuração (salvar, iniciar, conectar e desconectar o Google) caem na categoria configuracoes, que fica ativa. Com categorização em "aplicar", a conferência do extrato confirma a proposta sozinha. A validade das ações pendentes (pendingHours) expira a proposta a partir da importação do extrato. Lembretes de compromisso e vencimentos de lançamento passam a aparecer como avisos no dashboard quando o aviso no aplicativo está ligado. A antecedência do lembrete é a das configurações. O aviso por e-mail continua sem destino, porque a conta ainda não tem e-mail. Na lista de ocorrências, uma ocorrência pendente e não sincronizada pode mudar a data e o valor. O tom âmbar fica só na sugestão da IA. Status pendente, prioridade baixa, descumprido e pagamento pendente usam o tom padrão. Saíram larguras mínimas arbitrárias de tabela e de coluna. A altura da célula da agenda foi devolvida de propósito para 68 px no celular e 108 px a partir do tablet, porque a pessoa rejeitou a grade menor. A caixa de lista vazia virou o componente Vazio, a classe dos inputs virou campo, e os ícones de adicionar, editar e excluir viraram o componente Icone.
+
+Motivo: a pessoa apontou esses furos no dashboard, no vínculo, no Google, nos eventos, nas configurações, na ocorrência e no visual.
+
+Arquivos:
+
+- `apps/backend/src/painel`
+- `apps/backend/src/agenda`
+- `apps/backend/src/extratos`
+- `apps/backend/src/configuracoes`
+- `apps/frontend/app`
+- `apps/frontend/components/ui`
+- `packages/contracts`
