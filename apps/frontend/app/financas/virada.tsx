@@ -3,12 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ViradaResposta } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dialogo } from "../../components/ui/dialogo";
 import { focusRing } from "../../components/ui/cn";
 import { useToast } from "../../components/ui/toast";
 import { api } from "./api";
 
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 const caixa = `size-4 accent-brand ${focusRing}`;
 
 type Pendente = Extract<ViradaResposta, { pendente: true }>;
@@ -76,9 +75,8 @@ export function ViradaDoAno() {
   if (!virada) return null;
 
   return (
-    <dialog
+    <Dialogo
       ref={dialog}
-      className={dialogClass}
       aria-labelledby="titulo-virada"
       onClose={() => setVirada(null)}
     >
@@ -146,6 +144,6 @@ export function ViradaDoAno() {
           </Button>
         </div>
       </form>
-    </dialog>
+    </Dialogo>
   );
 }

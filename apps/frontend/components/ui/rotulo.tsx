@@ -1,7 +1,9 @@
 "use client";
 
+import { animate } from "motion/react";
 import { useEffect, useId, useRef } from "react";
 import { focusRing } from "./cn";
+import { useCurva } from "./movimento";
 
 export function Rotulo({
   htmlFor,
@@ -28,6 +30,7 @@ export function Dica({ texto }: { texto: string }) {
   const painel = useRef<HTMLDivElement>(null);
   const espera = useRef<number | null>(null);
   const toque = useRef(false);
+  const curva = useCurva();
 
   useEffect(() => {
     const botao = ancora.current;
@@ -51,7 +54,8 @@ export function Dica({ texto }: { texto: string }) {
     const box = botao.getBoundingClientRect();
     el.style.left = `${box.left}px`;
     el.style.top = `${box.bottom + 4}px`;
-    if (!el.matches(":popover-open")) el.showPopover();
+    const abriu = !el.matches(":popover-open");
+    if (abriu) el.showPopover();
     const margem = 8;
     let left = box.left;
     let top = box.bottom + 4;
@@ -62,6 +66,7 @@ export function Dica({ texto }: { texto: string }) {
     if (top + el.offsetHeight > window.innerHeight - margem) top = box.top - el.offsetHeight - 4;
     el.style.left = `${Math.round(left)}px`;
     el.style.top = `${Math.round(top)}px`;
+    if (abriu) animate(el, { opacity: [0, 1], y: [4, 0] }, curva);
   }
 
   function fechar() {
@@ -95,7 +100,7 @@ export function Dica({ texto }: { texto: string }) {
           else posicionar();
         }}
       >
-        <svg viewBox="0 0 16 16" className="size-4 text-pending" aria-hidden="true">
+        <svg viewBox="0 0 16 16" className="size-4 text-ink-2" aria-hidden="true">
           <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
           <path d="M8 4.25v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           <circle cx="8" cy="11.35" r="0.8" fill="currentColor" />

@@ -12,6 +12,7 @@ import {
   type Vinculo,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
+import { ConfiguracoesService } from "../../configuracoes/aplicacao/configuracoes.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { montarIntervalo } from "../dominio/fuso.js";
@@ -30,6 +31,7 @@ export class AgendaService {
     @Inject(AGENDA_REPOSITORIO) private readonly agenda: AgendaRepositorio,
     @Inject(GOOGLE_AGENDA) private readonly google: GoogleAgenda,
     private readonly financas: FinancasService,
+    private readonly configuracoes: ConfiguracoesService,
   ) {}
 
   async ocorrencias(tenantId: string, year: number, month: number) {
@@ -46,8 +48,9 @@ export class AgendaService {
       .flatMap((item) => ocorrenciasNoMes(item, year, month))
       .map((item) => comVinculo(item, entries))
       .sort((a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title));
+    const config = await this.configuracoes.obter(tenantId);
     return {
-      google: "desconectado",
+      google: config.google,
       calendars,
       appointments,
       entries,
@@ -80,7 +83,42 @@ export class AgendaService {
     if (resultado === "lancamento-ausente") {
       throw new NaoEncontrado("Lançamento não encontrado nesse mês.");
     }
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     return comVinculo(resultado, entries);
+  }
+
+  async atualizar(tenantId: string, id: string, pedido: Omit<NovoCompromisso, "id" | "startAt" | "endAt" | "hour" | "minute" | "status"> & {
+    time: string | null;
+    endTime: string | null;
+  }): Promise<Compromisso> {
+    if (pedido.entryId) {
+      const base = await this.financas.listar(tenantId);
+      if (!base.entries.some((item) => item.id === pedido.entryId)) {
+        throw new NaoEncontrado("Lançamento não encontrado.");
+      }
+    }
+    const mensagem = mensagemDaCategoria(pedido);
+    if (mensagem) throw new PedidoInvalido(mensagem);
+    const intervalo = montarIntervalo(pedido);
+    if (intervalo === "hora") throw new PedidoInvalido("Informe a hora inicial e a final.");
+    if (intervalo === "ordem") throw new PedidoInvalido("A hora final vem depois da inicial.");
+    const resultado = await this.agenda.atualizar(tenantId, {
+      ...pedido,
+      id,
+      ...intervalo,
+      status: "undone",
+      time: pedido.allDay ? null : pedido.time,
+    });
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
+    if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (resultado === "identificador") throw new Conflito("Não foi possível salvar o compromisso.");
+    const base = await this.financas.listar(tenantId);
+    return comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month));
+  }
+
+  async excluir(tenantId: string, id: string) {
+    const resultado = await this.agenda.excluir(tenantId, id);
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
   }
 
   async atualizarFuso(tenantId: string, name: NomeAgenda, timezone: FusoAgenda): Promise<Calendario> {

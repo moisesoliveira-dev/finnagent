@@ -159,7 +159,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
-        statement: { select: { filename: true, account: { select: { name: true } } } },
+        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
     return rows.flatMap((row) => {
@@ -173,6 +173,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         accountName: row.statement.account.name,
         filename: row.statement.filename,
         entryId: row.entryId,
+        importedAt: row.statement.importedAt.toISOString(),
       };
       return [linha];
     });
@@ -189,7 +190,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
-        statement: { select: { filename: true, account: { select: { name: true } } } },
+        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
     if (!row?.postedOn || row.cents === null) return "ausente" as const;
@@ -202,6 +203,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       accountName: row.statement.account.name,
       filename: row.statement.filename,
       entryId: row.entryId,
+      importedAt: row.statement.importedAt.toISOString(),
     };
   }
 
@@ -263,7 +265,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
-        statement: { select: { filename: true, account: { select: { name: true } } } },
+        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
     return rows.flatMap((row) => {
@@ -277,6 +279,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         accountName: row.statement.account.name,
         filename: row.statement.filename,
         entryId: row.entryId,
+        importedAt: row.statement.importedAt.toISOString(),
       };
       return linha.date ? [linha] : [];
     });

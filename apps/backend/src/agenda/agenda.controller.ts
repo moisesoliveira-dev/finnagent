@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Headers,
   NotFoundException,
@@ -29,33 +30,39 @@ const periodo = z.object({
   year: z.coerce.number().int().min(2000).max(2100),
   month: z.coerce.number().int().min(1).max(12),
 });
-const criarCompromisso = z
-  .object({
-    id: z.uuid(),
-    title: z.string().trim().min(1).max(80),
-    description: z.string().trim().max(160).default(""),
-    location: z.string().trim().max(160).default(""),
-    allDay: z.boolean().default(false),
-    year: z.number().int().min(2000).max(2100),
-    month: z.number().int().min(1).max(12),
-    day: z.number().int().min(1).max(31),
-    time: hora.nullable(),
-    endTime: hora.nullable(),
-    calendar: z.enum(AGENDAS),
-    timezone: z.enum(FUSOS_AGENDA),
-    category: z.enum(CATEGORIAS_COMPROMISSO),
-    endYear: z.number().int().min(2000).max(2100).nullable(),
-    endMonth: z.number().int().min(1).max(12).nullable(),
-    endDay: z.number().int().min(1).max(31).nullable(),
-    entryId: z.uuid().nullable(),
-  })
-  .superRefine((pedido, contexto) => {
-    const ultimo = new Date(pedido.year, pedido.month, 0).getDate();
-    if (pedido.day > ultimo) contexto.addIssue({ code: "custom", message: "Esse dia não existe nesse mês.", path: ["day"] });
-    if (!pedido.allDay && (!pedido.time || !pedido.endTime)) {
-      contexto.addIssue({ code: "custom", message: "Informe a hora inicial e a final.", path: ["time"] });
-    }
-  });
+const camposCompromisso = z.object({
+  id: z.uuid(),
+  title: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(160).default(""),
+  location: z.string().trim().max(160).default(""),
+  allDay: z.boolean().default(false),
+  year: z.number().int().min(2000).max(2100),
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+  time: hora.nullable(),
+  endTime: hora.nullable(),
+  calendar: z.enum(AGENDAS),
+  timezone: z.enum(FUSOS_AGENDA),
+  category: z.enum(CATEGORIAS_COMPROMISSO),
+  endYear: z.number().int().min(2000).max(2100).nullable(),
+  endMonth: z.number().int().min(1).max(12).nullable(),
+  endDay: z.number().int().min(1).max(31).nullable(),
+  entryId: z.uuid().nullable(),
+});
+
+function validarCompromisso(
+  pedido: { year: number; month: number; day: number; allDay: boolean; time: string | null; endTime: string | null },
+  contexto: z.RefinementCtx,
+) {
+  const ultimo = new Date(pedido.year, pedido.month, 0).getDate();
+  if (pedido.day > ultimo) contexto.addIssue({ code: "custom", message: "Esse dia não existe nesse mês.", path: ["day"] });
+  if (!pedido.allDay && (!pedido.time || !pedido.endTime)) {
+    contexto.addIssue({ code: "custom", message: "Informe a hora inicial e a final.", path: ["time"] });
+  }
+}
+
+const criarCompromisso = camposCompromisso.superRefine(validarCompromisso);
+const atualizarCompromisso = camposCompromisso.omit({ id: true }).superRefine(validarCompromisso);
 const fuso = z.object({
   name: z.enum(AGENDAS),
   timezone: z.enum(FUSOS_AGENDA),
@@ -109,6 +116,35 @@ export class AgendaController {
       throw new BadRequestException("Não foi possível salvar o compromisso.");
     }
     return this.executar(() => this.agenda.criar(this.tenant(tenant), pedido.data));
+  }
+
+  @Patch("compromissos/:id")
+  atualizar(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const identificador = z.uuid().safeParse(id);
+    const pedido = atualizarCompromisso.safeParse(body);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    if (!pedido.success) {
+      const issue = pedido.error.issues[0];
+      const campo = issue?.path[0];
+      if (issue?.code === "custom" && issue.message) throw new BadRequestException(issue.message);
+      if (campo === "title") throw new BadRequestException("Dê um título ao compromisso.");
+      if (campo === "day") throw new BadRequestException("Esse dia não existe nesse mês.");
+      if (campo === "time" || campo === "endTime") throw new BadRequestException("Informe a hora.");
+      if (campo === "entryId") throw new BadRequestException("Escolha um lançamento.");
+      throw new BadRequestException("Não foi possível salvar o compromisso.");
+    }
+    return this.executar(() => this.agenda.atualizar(this.tenant(tenant), identificador.data, pedido.data));
+  }
+
+  @Delete("compromissos/:id")
+  excluir(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+    const identificador = z.uuid().safeParse(id);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    return this.executar(() => this.agenda.excluir(this.tenant(tenant), identificador.data));
   }
 
   @Patch("compromissos/:id/status")

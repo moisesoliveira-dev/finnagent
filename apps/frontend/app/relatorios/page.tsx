@@ -11,6 +11,7 @@ import { Money } from "../../components/ui/money";
 import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
+import { Vazio } from "../../components/ui/vazio";
 import { useToast } from "../../components/ui/toast";
 
 const celula = "border-b border-line px-3 py-3";
@@ -162,16 +163,16 @@ export default function RelatoriosPage() {
                 <caption className="sr-only">Meses do relatório</caption>
                 <thead>
                   <tr>
-                    <th scope="col" className={`${celula} text-left font-semibold text-ink-2`}>
+                    <th scope="col" className={`${celula} text-left etiqueta text-ink-2`}>
                       Mês
                     </th>
-                    <th scope="col" className={`${celula} text-right font-semibold text-ink-2`}>
+                    <th scope="col" className={`${celula} text-right etiqueta text-ink-2`}>
                       Entradas
                     </th>
-                    <th scope="col" className={`${celula} text-right font-semibold text-ink-2`}>
+                    <th scope="col" className={`${celula} text-right etiqueta text-ink-2`}>
                       Saídas
                     </th>
-                    <th scope="col" className={`${celula} text-right font-semibold text-ink-2`}>
+                    <th scope="col" className={`${celula} text-right etiqueta text-ink-2`}>
                       Sobra
                     </th>
                   </tr>
@@ -201,9 +202,7 @@ export default function RelatoriosPage() {
           <section className="grid min-w-0 gap-3">
             <h2 className="font-display text-lg">Por grupo</h2>
             {dados.groups.length === 0 ? (
-              <p className="min-w-0 rounded-lg border border-line bg-surface p-6 text-sm text-ink-2">
-                Nenhum lançamento neste ano.
-              </p>
+              <Vazio>Nenhum lançamento neste ano.</Vazio>
             ) : (
               <ul className="grid gap-4">
                 {dados.groups.map((grupo) => {

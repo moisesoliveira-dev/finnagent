@@ -1,26 +1,31 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
   FUSO_PADRAO,
   FUSOS_AGENDA,
+  rotuloDoGoogle,
   type AgendaResposta,
   type CategoriaCompromisso,
-  type Preferencias,
+  type Configuracoes,
+  type EstadoGoogle,
   type FusoAgenda,
   type NomeAgenda,
   type StatusCompromisso,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Segmentado } from "../../components/ui/segmentado";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { cn, focusRing } from "../../components/ui/cn";
-import { Presenca, Troca } from "../../components/ui/movimento";
+import { campo, cn, focusRing } from "../../components/ui/cn";
+import { Dialogo } from "../../components/ui/dialogo";
+import { Troca } from "../../components/ui/movimento";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
 import { ListaMes, PainelDoDia, resumoDoDia } from "./lista";
@@ -41,6 +46,7 @@ type Rascunho = {
   calendar: NomeAgenda;
   category: CategoriaCompromisso;
   entryId: string;
+  existente: boolean;
 };
 
 const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
@@ -49,11 +55,7 @@ const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
   time: "Repete neste dia, todo mês, até a validade.",
 };
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogDia =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
-const dialogForm =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 const meses = [
   "Janeiro",
@@ -72,6 +74,8 @@ const meses = [
 
 export default function Agenda() {
   const toast = useToast();
+  const router = useRouter();
+  const [google, setGoogle] = useState<{ estado: EstadoGoogle; conectado: boolean; pronto: boolean } | null>(null);
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
@@ -88,12 +92,11 @@ export default function Agenda() {
   const [diaAberto, setDiaAberto] = useState(false);
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmaExcluir, setConfirmaExcluir] = useState(false);
   const [coarse, setCoarse] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
-  const diaArmado = useRef<number | null>(null);
   const dia = useRef<HTMLDialogElement>(null);
-  const form = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   function carregar(alvoAno = year, alvoMes = month) {
@@ -110,6 +113,11 @@ export default function Agenda() {
       .then((resposta) => {
         if (!active) return;
         setData(resposta);
+        setGoogle((atual) => ({
+          estado: resposta.google,
+          conectado: resposta.google !== "desconectado",
+          pronto: atual?.pronto ?? false,
+        }));
         setCarregado({ year, month });
         setSelecaoGrade(selectedRef.current);
         setFalhou(false);
@@ -129,8 +137,13 @@ export default function Agenda() {
     fetch("/api/configuracoes")
       .then(async (resposta) => {
         if (!resposta.ok || !ativo) return;
-        const dados = (await resposta.json()) as Preferencias;
+        const dados = (await resposta.json()) as Configuracoes;
         if (!ativo) return;
+        setGoogle((atual) => ({
+          estado: atual?.estado ?? dados.google,
+          conectado: atual?.conectado ?? dados.googleConnected,
+          pronto: Boolean(dados.googleClientId.trim()) && dados.googleSecretConfigured,
+        }));
         setCamadas((atual) => ({ ...atual, lancamento: dados.showEntries }));
         setCalendarios({ Pessoal: dados.personalCalendar, Trabalho: dados.workCalendar });
       })
@@ -147,19 +160,6 @@ export default function Agenda() {
     media.addEventListener("change", atualizar);
     return () => media.removeEventListener("change", atualizar);
   }, []);
-
-  useLayoutEffect(() => {
-    const atual = dia.current;
-    if (!atual) return;
-    if (diaAberto && !atual.open) atual.showModal();
-  }, [diaAberto]);
-
-  useEffect(() => {
-    const atual = form.current;
-    if (!atual) return;
-    if (draft && !atual.open) atual.showModal();
-    if (!draft && atual.open) atual.close();
-  }, [draft]);
 
   useEffect(() => {
     if (!menu) return;
@@ -182,9 +182,6 @@ export default function Agenda() {
   const anoVisivel = carregado?.year ?? year;
   const mesVisivel = carregado?.month ?? month;
 
-  useEffect(() => {
-    diaArmado.current = null;
-  }, [anoVisivel, mesVisivel]);
   const itens = data ? montarItens(data.appointments, data.entries, camadas, calendarios) : [];
   const doDia = itensNoDia(itens, selecaoGrade);
   const resumo = resumoDoDia(doDia);
@@ -215,18 +212,12 @@ export default function Agenda() {
 
   function escolherDia(day: number) {
     setMenu(null);
-    if (diaArmado.current === day) {
-      abrirDia(day);
-      return;
-    }
-    diaArmado.current = day;
     setSelected(day);
     setSelecaoGrade(day);
     if (coarse) setDiaAberto(true);
   }
 
   function abrirDia(day: number) {
-    diaArmado.current = null;
     setSelected(day);
     setSelecaoGrade(day);
     setMenu(null);
@@ -265,50 +256,184 @@ export default function Agenda() {
       calendar: "Pessoal",
       category: "fixed",
       entryId: "",
+      existente: false,
     });
+  }
+
+  function abrirCompromisso(id: string) {
+    const item = data?.appointments.find((atual) => atual.id === id);
+    if (!item) return;
+    const ano = item.anchorYear ?? item.year;
+    const mes = item.anchorMonth ?? item.month;
+    const dia = item.anchorDay ?? item.day;
+    setDiaAberto(false);
+    setMenu(null);
+    setConfirmaExcluir(false);
+    setDraft({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      location: item.location,
+      date: dataIso(ano, mes, dia),
+      endDate:
+        item.endYear && item.endMonth && item.endDay
+          ? dataIso(item.endYear, item.endMonth, item.endDay)
+          : dataIso(ano, mes, dia),
+      allDay: item.allDay,
+      time: item.time ?? "",
+      endTime: item.endTime ?? "",
+      calendar: item.calendar,
+      category: item.category,
+      entryId: item.entryId ?? "",
+      existente: true,
+    });
+  }
+
+  function pedidoDoRascunho(draftAtual: Rascunho, dataAlvo?: { year: number; month: number; day: number }) {
+    const [anoTexto, mesTexto, diaTexto] = draftAtual.date.split("-");
+    const year = dataAlvo?.year ?? Number(anoTexto);
+    const month = dataAlvo?.month ?? Number(mesTexto);
+    const day = dataAlvo?.day ?? Number(diaTexto);
+    const fim = fimDoRascunho({ ...draftAtual, date: dataIso(year, month, day) });
+    const inicio = year * 10000 + month * 100 + day;
+    const termino =
+      fim.endYear == null || fim.endMonth == null || fim.endDay == null
+        ? null
+        : fim.endYear * 10000 + fim.endMonth * 100 + fim.endDay;
+    const validade =
+      termino != null && termino < inicio
+        ? { endYear: year, endMonth: month, endDay: day }
+        : fim;
+    return {
+      title: draftAtual.title,
+      description: draftAtual.description,
+      location: draftAtual.location,
+      allDay: draftAtual.allDay,
+      year,
+      month,
+      day,
+      time: draftAtual.allDay ? null : draftAtual.time || null,
+      endTime: draftAtual.allDay ? null : draftAtual.endTime || null,
+      calendar: draftAtual.calendar,
+      timezone: fusoDaAgenda(data, draftAtual.calendar),
+      category: draftAtual.category,
+      ...validade,
+      entryId: draftAtual.entryId || null,
+    };
   }
 
   async function salvar(event: React.FormEvent) {
     event.preventDefault();
     if (!draft || saving) return;
     setSaving(true);
-    const [anoTexto, mesTexto, diaTexto] = draft.date.split("-");
+    const pedido = pedidoDoRascunho(draft);
     try {
-      const response = await fetch("/api/compromissos", {
-        method: "POST",
+      const response = await fetch(draft.existente ? `/api/compromissos/${draft.id}` : "/api/compromissos", {
+        method: draft.existente ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: draft.id,
-          title: draft.title,
-          description: draft.description,
-          location: draft.location,
-          allDay: draft.allDay,
-          year: Number(anoTexto),
-          month: Number(mesTexto),
-          day: Number(diaTexto),
-          time: draft.allDay ? null : draft.time || null,
-          endTime: draft.allDay ? null : draft.endTime || null,
-          calendar: draft.calendar,
-          timezone: fusoDaAgenda(data, draft.calendar),
-          category: draft.category,
-          ...fimDoRascunho(draft),
-          entryId: draft.entryId || null,
-        }),
+        body: JSON.stringify(draft.existente ? pedido : { id: draft.id, ...pedido }),
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(body.message || "Não foi possível salvar o compromisso.");
-      const resposta = await carregar(Number(anoTexto), Number(mesTexto));
+      const resposta = await carregar(pedido.year, pedido.month);
       setData(resposta);
-      setCarregado({ year: Number(anoTexto), month: Number(mesTexto) });
+      setCarregado({ year: pedido.year, month: pedido.month });
       setFalhou(false);
       setDraft(null);
-      toast.sucesso("Compromisso criado.");
-      irPara(Number(anoTexto), Number(mesTexto), Number(diaTexto));
+      toast.sucesso(draft.existente ? "Compromisso atualizado." : "Compromisso criado.");
+      irPara(pedido.year, pedido.month, pedido.day);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o compromisso.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function apagarCompromisso(id: string) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/compromissos/${id}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message || "Não foi possível apagar o compromisso.");
+      const resposta = await carregar();
+      setData(resposta);
+      setCarregado({ year, month });
+      setFalhou(false);
+      if (draft?.id === id) setDraft(null);
+      setConfirmaExcluir(false);
+      toast.sucesso("Compromisso apagado.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível apagar o compromisso.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function excluirCompromisso() {
+    if (!draft?.existente || saving) return;
+    if (!confirmaExcluir) {
+      setConfirmaExcluir(true);
+      return;
+    }
+    void apagarCompromisso(draft.id);
+  }
+
+  async function moverCompromisso(id: string, day: number) {
+    const item = data?.appointments.find((atual) => atual.id === id);
+    if (!item || saving || item.day === day) return;
+    const ano = item.anchorYear ?? item.year;
+    const mes = item.anchorMonth ?? item.month;
+    const dia = item.anchorDay ?? item.day;
+    const rascunho: Rascunho = {
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      location: item.location,
+      date: dataIso(ano, mes, dia),
+      endDate:
+        item.endYear && item.endMonth && item.endDay
+          ? dataIso(item.endYear, item.endMonth, item.endDay)
+          : dataIso(ano, mes, dia),
+      allDay: item.allDay,
+      time: item.time ?? "",
+      endTime: item.endTime ?? "",
+      calendar: item.calendar,
+      category: item.category,
+      entryId: item.entryId ?? "",
+      existente: true,
+    };
+    setSaving(true);
+    try {
+      const pedido = pedidoDoRascunho(rascunho, { year: anoVisivel, month: mesVisivel, day });
+      const response = await fetch(`/api/compromissos/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pedido),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message || "Não foi possível mover o compromisso.");
+      const resposta = await carregar(anoVisivel, mesVisivel);
+      setData(resposta);
+      setCarregado({ year: anoVisivel, month: mesVisivel });
+      toast.sucesso(
+        item.category === "fixed" ? "Compromisso movido." : "A repetição passou a começar neste dia.",
+      );
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível mover o compromisso.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Sem ID e segredo do cliente Google, a conexão só começa em Configurações.
+  function conectarGoogle() {
+    if (google?.pronto) {
+      window.location.assign("/api/configuracoes/google/conectar");
+      return;
+    }
+    toast.alerta("Informe o ID e o segredo do cliente Google em Configurações para conectar.");
+    router.push("/configuracoes");
   }
 
   async function sincronizar() {
@@ -356,7 +481,7 @@ export default function Agenda() {
       setData(resposta);
       setCarregado({ year, month });
       setFalhou(false);
-      toast.sucesso(status === "done" ? "Compromisso cumprido." : "Compromisso marcado como descumprido.");
+      toast.sucesso(status === "done" ? "OK! Compromisso cumprido." : "Compromisso desmarcado.");
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível atualizar o status.");
     }
@@ -369,46 +494,31 @@ export default function Agenda() {
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2">
-              <span className="inline-block size-2 shrink-0 rounded-full bg-ink-2" />
-              Google Calendar desconectado
+              <span
+                className={cn(
+                  "inline-block size-2 shrink-0 rounded-full",
+                  google?.estado === "sincronizado" ? "bg-pos" : google?.estado === "erro" ? "bg-neg" : "bg-ink-2",
+                )}
+              />
+              Google Calendar {rotuloDoGoogle(google?.estado ?? "desconectado").toLowerCase()}
             </span>
             <span>{rotuloDoFuso(fusoDaAgenda(data, "Pessoal"))}</span>
           </span>
         }
         actions={
           <>
-            <div className="inline-flex overflow-hidden rounded-sm border border-line bg-surface" role="group" aria-label="Visão">
-              <button
-                type="button"
-                aria-pressed={visao === "mes"}
-                onClick={() => {
-                  setDeslize(0);
-                  setVisao("mes");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "mes" ? "bg-brand-soft text-brand" : "bg-transparent text-ink-2",
-                )}
-              >
-                Mês
-              </button>
-              <button
-                type="button"
-                aria-pressed={visao === "lista"}
-                onClick={() => {
-                  setDeslize(0);
-                  setVisao("lista");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "lista" ? "bg-brand-soft text-brand" : "bg-transparent text-ink-2",
-                )}
-              >
-                Lista
-              </button>
-            </div>
+            <Segmentado
+              aria-label="Visão"
+              opcoes={[
+                { id: "mes", label: "Mês" },
+                { id: "lista", label: "Lista" },
+              ]}
+              valor={visao}
+              onEscolher={(id) => {
+                setDeslize(0);
+                setVisao(id);
+              }}
+            />
             <Button variant="primary" onClick={novoCompromisso}>
               Novo compromisso
             </Button>
@@ -419,7 +529,7 @@ export default function Agenda() {
           {!data && !falhou ? (
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
-          <ConectarGoogle onConnect={() => void sincronizar()} />
+          {google && !google.conectado ? <ConectarGoogle onConnect={conectarGoogle} /> : null}
           <div className="grid max-w-prose gap-1">
             <Rotulo htmlFor="fuso" dica="Pessoal e Trabalho usam este mesmo fuso.">
               Fuso horário
@@ -487,6 +597,7 @@ export default function Agenda() {
                   onSelect={escolherDia}
                   onOpen={abrirDia}
                   onContext={abrirMenu}
+                  onMove={(id, day) => void moverCompromisso(id, day)}
                 />
               ) : (
                 <ListaMes
@@ -494,6 +605,7 @@ export default function Agenda() {
                   month={mesVisivel}
                   itens={itens}
                   onStatus={(id, status) => void atualizarStatus(id, status)}
+                  onEdit={abrirCompromisso}
                 />
               )}
             </Troca>
@@ -544,33 +656,22 @@ export default function Agenda() {
         </div>
       ) : null}
 
-      <dialog
+      <Dialogo
         ref={dia}
-        className={dialogDia}
-        data-largura="media"
+        aberto={diaAberto}
+        largura="media"
         aria-labelledby="titulo-dia"
-        onCancel={(event) => {
-          event.preventDefault();
-          setDiaAberto(false);
-        }}
         onClose={() => setDiaAberto(false)}
         onClick={(event) => {
           if (event.target === dia.current) setDiaAberto(false);
         }}
       >
-        <Presenca
-          aberto={diaAberto}
-          onSaiu={() => {
-            if (dia.current?.open) dia.current.close();
-          }}
-          className="dialog-miolo"
-        >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 id="titulo-dia" className="flex flex-wrap items-center gap-2 font-display text-lg">
               {rotuloDoDia(anoVisivel, mesVisivel, selecaoGrade)}
               {ehHoje(anoVisivel, mesVisivel, selecaoGrade) ? (
-                <Chip tone="ok" className="font-sans font-normal">
+                <Chip tone="ok">
                   Hoje
                 </Chip>
               ) : null}
@@ -598,6 +699,8 @@ export default function Agenda() {
             day={selecaoGrade}
             itens={doDia}
             onStatus={(id, status) => void atualizarStatus(id, status)}
+            onEdit={abrirCompromisso}
+            onDelete={(id) => void apagarCompromisso(id)}
           />
         </div>
         <div className="dialog-acoes">
@@ -605,17 +708,15 @@ export default function Agenda() {
             Novo compromisso neste dia
           </Button>
         </div>
-        </Presenca>
-      </dialog>
+      </Dialogo>
 
-      <dialog
-        ref={form}
-        className={dialogForm}
+      <Dialogo
+        aberto={draft !== null}
         aria-labelledby="titulo-compromisso"
         onClose={() => setDraft(null)}
       >
         <h2 id="titulo-compromisso" className="mb-4 font-display text-lg">
-          Novo compromisso
+          {draft?.existente ? "Editar compromisso" : "Novo compromisso"}
         </h2>
         <form onSubmit={salvar}>
           <div className="dialog-corpo grid gap-4">
@@ -817,17 +918,29 @@ export default function Agenda() {
               Com vínculo, o dia mostra o valor e o status da transação.
             </p>
           </div>
+          {draft?.existente && draft.category !== "fixed" ? (
+            <p className="text-sm text-ink-2">
+              Este compromisso se repete. Mudar a data move a série inteira.
+            </p>
+          ) : null}
           </div>
           <div className="dialog-acoes">
+            {draft?.existente ? (
+              <div className="mr-auto">
+                <Button variant="danger" type="button" disabled={saving} onClick={() => void excluirCompromisso()}>
+                  {confirmaExcluir ? "Confirmar exclusão" : "Excluir"}
+                </Button>
+              </div>
+            ) : null}
             <Button variant="quiet" type="button" onClick={() => setDraft(null)}>
               Cancelar
             </Button>
             <Button variant="primary" type="submit" disabled={saving}>
-              Criar compromisso
+              {draft?.existente ? "Salvar" : "Criar compromisso"}
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
     </div>
   );
 }
@@ -862,7 +975,7 @@ function Camada({
       aria-pressed={pressed}
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-10 items-center gap-2 rounded-sm border bg-surface px-3 font-medium",
+        "inline-flex min-h-10 items-center gap-2 rounded-sm border bg-surface px-3 etiqueta-botao",
         focusRing,
         pressed ? "border-brand text-ink" : "border-line text-ink-2",
       )}

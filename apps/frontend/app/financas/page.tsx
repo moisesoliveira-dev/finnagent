@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CATEGORIAS_TRANSACAO,
   MODOS_TRANSACAO,
@@ -28,13 +28,15 @@ import {
   type Workflow,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Segmentado } from "../../components/ui/segmentado";
+import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { cn, focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
 import { AcoesTransacao, ControleExclusao } from "./acoes";
 import { OcorrenciasDoLancamento } from "./ocorrencias";
 import { TabelaLancamentos } from "./tabela";
@@ -77,9 +79,7 @@ type Rascunho = {
   recurrenceInterval: string;
 };
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 export default function Financas() {
   const toast = useToast();
@@ -92,7 +92,6 @@ export default function Financas() {
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
   const [saving, setSaving] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
 
   function carregar() {
     return api<FinancasResposta>("/api/financas")
@@ -127,13 +126,6 @@ export default function Financas() {
       active = false;
     };
   }, [toast]);
-
-  useEffect(() => {
-    const atual = dialog.current;
-    if (!atual) return;
-    if (draft && !atual.open) atual.showModal();
-    if (!draft && atual.open) atual.close();
-  }, [draft]);
 
   const workflow = data?.workflow;
   const ano = year ?? workflow?.year ?? 2026;
@@ -301,13 +293,14 @@ export default function Financas() {
           category: entrada?.category ?? draft.category,
           priority: pedido.priority,
           cents,
-          installments: entrada ? entrada.installments : installments,
+          // Fora da trava, os termos vêm do formulário; travados, ficam os gravados.
+          installments: travado && entrada ? entrada.installments : installments,
           installmentNumber,
-          dueDate: entrada ? entrada.dueDate : draft.category === "loan" ? draft.dueDate : null,
-          interestRate: entrada ? entrada.interestRate : draft.category === "loan" ? juros : null,
+          dueDate: travado && entrada ? entrada.dueDate : draft.category === "loan" ? draft.dueDate : null,
+          interestRate: travado && entrada ? entrada.interestRate : draft.category === "loan" ? juros : null,
           nextDueDate: draft.category === "fixed" ? draft.nextDueDate : null,
-          recurrence: entrada ? entrada.recurrence : draft.category === "fixed" ? draft.recurrence : null,
-          recurrenceInterval: entrada
+          recurrence: travado && entrada ? entrada.recurrence : draft.category === "fixed" ? draft.recurrence : null,
+          recurrenceInterval: travado && entrada
             ? entrada.recurrenceInterval
             : draft.category === "fixed"
               ? intervalo
@@ -332,38 +325,18 @@ export default function Financas() {
         subtitle={workflow ? subtitulo(workflow) : undefined}
         actions={
           <>
-            <div className="inline-flex overflow-hidden rounded-sm border border-line bg-surface" role="group" aria-label="Visão">
-              <button
-                type="button"
-                aria-pressed={visao === "base"}
-                onClick={() => {
-                  setDeslize(-1);
-                  setVisao("base");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "base" ? "bg-brand-soft text-brand!" : "bg-transparent text-ink-2!",
-                )}
-              >
-                Base
-              </button>
-              <button
-                type="button"
-                aria-pressed={visao === "geral"}
-                onClick={() => {
-                  setDeslize(1);
-                  setVisao("geral");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "geral" ? "bg-brand-soft text-brand!" : "bg-transparent text-ink-2!",
-                )}
-              >
-                Geral
-              </button>
-            </div>
+            <Segmentado
+              aria-label="Visão"
+              opcoes={[
+                { id: "base", label: "Base" },
+                { id: "geral", label: "Geral" },
+              ]}
+              valor={visao}
+              onEscolher={(id, direcao) => {
+                setDeslize(direcao);
+                setVisao(id);
+              }}
+            />
             <Button variant="primary" onClick={abrirLancamento}>
               Novo lançamento
             </Button>
@@ -406,10 +379,9 @@ export default function Financas() {
             </Troca>
           ) : null}
         </div>
-        <dialog
-          ref={dialog}
-          className={dialogClass}
-          data-largura={entrada ? "larga" : undefined}
+        <Dialogo
+          aberto={draft !== null}
+          largura={entrada ? "larga" : undefined}
           onClose={() => setDraft(null)}
         >
           <h2 className="mb-4 font-display text-lg">{editando ? "Editar lançamento" : "Novo lançamento"}</h2>
@@ -780,10 +752,7 @@ export default function Financas() {
               <Button
                 type="button"
                 variant="quiet"
-                onClick={() => {
-                  setDraft(null);
-                  dialog.current?.close();
-                }}
+                onClick={() => setDraft(null)}
               >
                 Cancelar
               </Button>
@@ -792,7 +761,7 @@ export default function Financas() {
               </Button>
             </div>
           </form>
-        </dialog>
+        </Dialogo>
       </PageHeader>
     </div>
   );

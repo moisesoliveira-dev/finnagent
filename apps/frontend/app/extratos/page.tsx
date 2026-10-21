@@ -14,20 +14,18 @@ import {
   type StatusExtrato,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dialogo } from "../../components/ui/dialogo";
+import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
-import { cn, focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
 
 const NOVA = "nova";
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
-const dialogLinhas =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 const ROTULO: Record<StatusExtrato, string> = {
   importado: "Importado",
@@ -276,7 +274,6 @@ export default function Extratos() {
     try {
       await api(`/api/extratos/${excluir.id}`, { method: "DELETE" });
       exclusao.current?.close();
-      setExcluir(null);
       toast.sucesso("Extrato excluído.");
       await carregar();
     } catch (error) {
@@ -363,7 +360,7 @@ export default function Extratos() {
               ))}
             </select>
             <input
-              className={cn(field, "min-w-56 flex-1")}
+              className={cn(field, "min-w-0 flex-1")}
               type="search"
               placeholder="Buscar pelo nome do arquivo"
               aria-label="Buscar"
@@ -372,10 +369,10 @@ export default function Extratos() {
             />
           </div>
 
-          <ul className="overflow-hidden rounded-lg border border-line bg-surface" aria-live="polite">
+          <ListaAnimada className="overflow-hidden rounded-lg border border-line bg-surface" aria-live="polite">
             {filtrados.length ? (
               filtrados.map((item) => (
-                <li key={item.id} className="grid gap-3 border-b border-line p-4 last:border-b-0 tab:grid-cols-[minmax(0,1fr)_auto] tab:items-center">
+                <ItemAnimado key={item.id} className="grid gap-3 border-b border-line p-4 last:border-b-0 tab:grid-cols-[minmax(0,1fr)_auto] tab:items-center">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 font-medium break-all">
                       {item.filename} <Chip>{item.format.toUpperCase()}</Chip>
@@ -417,18 +414,18 @@ export default function Extratos() {
                       Excluir
                     </Button>
                   </div>
-                </li>
+                </ItemAnimado>
               ))
             ) : (
               <li className="px-6 py-6 text-center text-ink-2">
                 {extratos.length ? "Nenhum extrato com esses filtros." : "Nenhum extrato ainda. Importe um OFX, um CSV ou uma foto do extrato."}
               </li>
             )}
-          </ul>
+          </ListaAnimada>
         </>
       ) : null}
 
-      <dialog ref={importacao} className={dialogClass} aria-labelledby="titulo-importar" onClose={() => setSalvando(false)}>
+      <Dialogo ref={importacao} aria-labelledby="titulo-importar" onClose={() => setSalvando(false)}>
         <h2 id="titulo-importar" className="mb-4 font-display text-lg">
           Importar extrato
         </h2>
@@ -529,9 +526,9 @@ export default function Extratos() {
                 <table className="w-full border-separate border-spacing-0 text-sm">
                   <thead>
                     <tr>
-                      <th className="border-b border-line px-3 py-2 text-left font-semibold text-ink-2">Data</th>
-                      <th className="border-b border-line px-3 py-2 text-left font-semibold text-ink-2">Descrição</th>
-                      <th className="border-b border-line px-3 py-2 text-right font-semibold text-ink-2">Valor</th>
+                      <th className="border-b border-line px-3 py-2 text-left etiqueta text-ink-2">Data</th>
+                      <th className="border-b border-line px-3 py-2 text-left etiqueta text-ink-2">Descrição</th>
+                      <th className="border-b border-line px-3 py-2 text-right etiqueta text-ink-2">Valor</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -559,9 +556,9 @@ export default function Extratos() {
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
 
-      <dialog ref={linhasDialog} className={dialogLinhas} data-largura="larga" aria-labelledby="titulo-linhas">
+      <Dialogo ref={linhasDialog} largura="larga" aria-labelledby="titulo-linhas">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="titulo-linhas" className="font-display text-lg break-all">
@@ -600,7 +597,7 @@ export default function Extratos() {
               linhas.lines.length ? (
                 <>
                   <div className="overflow-x-auto rounded-md border border-line">
-                    <table className="w-full min-w-[560px] border-separate border-spacing-0 text-sm">
+                    <table className="w-full border-separate border-spacing-0 text-sm">
                       <thead>
                         <tr>
                           {["Linha", "Data", "Descrição no extrato", "Valor", "Situação"].map((titulo) => (
@@ -635,7 +632,7 @@ export default function Extratos() {
                   </div>
                   <p className="mt-3 text-sm text-ink-2">
                     {linhas.lines.length < linhas.matched
-                      ? `Mostrando ${linhas.lines.length} das primeiras ${linhas.lines.length} (total de ${linhas.total} linhas).`
+                      ? `Mostrando as primeiras ${linhas.lines.length} de ${linhas.matched} linhas.`
                       : `Mostrando ${linhas.lines.length} linhas.`}
                   </p>
                 </>
@@ -650,9 +647,9 @@ export default function Extratos() {
           ) : null}
         </div>
         </div>
-      </dialog>
+      </Dialogo>
 
-      <dialog ref={exclusao} className={dialogClass} aria-labelledby="titulo-excluir">
+      <Dialogo ref={exclusao} aria-labelledby="titulo-excluir" onClose={() => setExcluir(null)}>
         <div className="dialog-corpo">
         <h2 id="titulo-excluir" className="mb-4 font-display text-lg">
           Excluir extrato?
@@ -669,7 +666,7 @@ export default function Extratos() {
             Excluir extrato
           </Button>
         </div>
-      </dialog>
+      </Dialogo>
     </>
   );
 }

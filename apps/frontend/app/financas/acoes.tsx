@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   NOME_MES,
   STATUS_TRANSACAO,
@@ -12,18 +12,18 @@ import {
   type StatusTransacao,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dialogo } from "../../components/ui/dialogo";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Money } from "../../components/ui/money";
 import { useToast } from "../../components/ui/toast";
-import { focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
+import { Icone } from "../../components/ui/icone";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
 import { reaisParaCentavos } from "./reais";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA, ROTULO_STATUS, ROTULO_TIPO, unidadeDaRecorrencia } from "./rotulos";
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 export function AcoesTransacao({
   entry,
@@ -42,15 +42,6 @@ export function AcoesTransacao({
   onAtualizar: () => Promise<void>;
   embutido?: boolean;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const atual = dialog.current;
-    if (!atual) return;
-    if (entry && !atual.open) atual.showModal();
-    if (!entry && atual.open) atual.close();
-  }, [entry]);
-
   const chave = entry
     ? `${entry.id}:${entry.status}:${entry.commitmentId}:${entry.installmentNumber}:${entry.cents}:${entry.suspendedCents}:${entry.adjustments.length}`
     : "vazio";
@@ -71,7 +62,7 @@ export function AcoesTransacao({
   }
 
   return (
-    <dialog ref={dialog} className={dialogClass} onClose={onClose}>
+    <Dialogo aberto={Boolean(entry)} onClose={onClose}>
       {entry ? (
         <Formulario
           key={chave}
@@ -83,7 +74,7 @@ export function AcoesTransacao({
           onAtualizar={onAtualizar}
         />
       ) : null}
-    </dialog>
+    </Dialogo>
   );
 }
 
@@ -314,7 +305,7 @@ function Formulario({
               <div className="flex justify-end">
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="default"
                   disabled={ocupado}
                   onClick={() => void atualizarValor(entry, entries, marcados, amount, executar, toast)}
                 >
@@ -579,11 +570,5 @@ export function ControleExclusao({
 }
 
 function Lixeira() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-      <path d="M4 7h16" />
-      <path d="M9 7V5h6v2" />
-      <path d="M7 7l1 13h8l1-13" />
-    </svg>
-  );
+  return <Icone name="remove" />;
 }

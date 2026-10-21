@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import type { ConferenciaResposta, GruposResposta, LinhaConferencia } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
-import { cn, focusRing } from "../../../components/ui/cn";
+import { campo, cn } from "../../../components/ui/cn";
 import { Money } from "../../../components/ui/money";
 import { Troca } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
 import { PendingAction } from "../../../components/ui/pending-action";
 import { useToast } from "../../../components/ui/toast";
 
-const field = `min-h-10 min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
+const field = campo;
 const POR_PAGINA = 20;
 
 const meses = [
@@ -202,7 +202,7 @@ export default function Conferencia() {
       <Troca id={`${year}-${month}`} direcao={deslize} className="min-w-0">
       {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando conferência.</p> : null}
       {dados ? (
-        <div className="grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_auto]">
           <div className="grid min-w-0 gap-4">
           <input
             className={cn(field, "w-full")}
@@ -264,7 +264,7 @@ export default function Conferencia() {
                             ))}
                           </select>
                           <Button
-                            variant="primary"
+                            variant="default"
                             disabled={ocupado === `${linha.statementId}:${linha.line}`}
                             onClick={() => void acumular(linha)}
                           >
@@ -315,7 +315,7 @@ export default function Conferencia() {
                       <p className="text-sm text-ink-2">{linha.suggestion ? textoDoVinculo(linha.suggestion) : ""}</p>
                       <div className="flex flex-wrap gap-2">
                         <Button
-                          variant="primary"
+                          variant="default"
                           disabled={ocupado === `${linha.statementId}:${linha.line}`}
                           onClick={() => void confirmar(linha)}
                         >

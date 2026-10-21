@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { GruposResposta } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Dialogo } from "../../components/ui/dialogo";
+import { Expandir, Seta } from "../../components/ui/movimento";
 import { Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
 import { PageHeader } from "../../components/ui/page-header";
 import { PendingAction } from "../../components/ui/pending-action";
 import { useToast } from "../../components/ui/toast";
-import { cn, focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
+import { Icone } from "../../components/ui/icone";
+import { Vazio } from "../../components/ui/vazio";
 
 type Group = GruposResposta["groups"][number];
 type Session = GruposResposta["sessions"][number];
@@ -32,9 +36,7 @@ type Exclusao =
   | { tipo: "grupo"; grupo: Group; sessoes: number }
   | { tipo: "sessao"; sessao: Session };
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -88,9 +90,6 @@ export default function Grupos() {
   const [exclusao, setExclusao] = useState<Exclusao | null>(null);
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState("");
-  const groupDialog = useRef<HTMLDialogElement>(null);
-  const sessionDialog = useRef<HTMLDialogElement>(null);
-  const exclusaoDialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -112,27 +111,6 @@ export default function Grupos() {
       active = false;
     };
   }, [toast]);
-
-  useEffect(() => {
-    const dialog = groupDialog.current;
-    if (!dialog) return;
-    if (groupDraft && !dialog.open) dialog.showModal();
-    if (!groupDraft && dialog.open) dialog.close();
-  }, [groupDraft]);
-
-  useEffect(() => {
-    const dialog = sessionDialog.current;
-    if (!dialog) return;
-    if (sessionDraft && !dialog.open) dialog.showModal();
-    if (!sessionDraft && dialog.open) dialog.close();
-  }, [sessionDraft]);
-
-  useEffect(() => {
-    const dialog = exclusaoDialog.current;
-    if (!dialog) return;
-    if (exclusao && !dialog.open) dialog.showModal();
-    if (!exclusao && dialog.open) dialog.close();
-  }, [exclusao]);
 
   function sessionsOf(groupId: string) {
     return sessions.filter((session) => session.groupId === groupId);
@@ -337,9 +315,7 @@ export default function Grupos() {
           </p>
         ) : null}
         {ready && !falhou && groups.length === 0 ? (
-          <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
-            Nenhum grupo ainda.
-          </p>
+          <Vazio>Nenhum grupo ainda.</Vazio>
         ) : null}
         {ready && !falhou && groups.length > 0 ? (
           <input
@@ -377,9 +353,7 @@ export default function Grupos() {
           </PendingAction>
         ) : null}
         {ready && !falhou && groups.length > 0 && visiveis.length === 0 ? (
-          <p className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
-            Nenhum grupo ou sessão encontrado.
-          </p>
+          <Vazio>Nenhum grupo ou sessão encontrado.</Vazio>
         ) : null}
         {visiveis.map(({ group, sessions: sessoesVisiveis }) => (
           <GroupCard
@@ -407,9 +381,8 @@ export default function Grupos() {
         ))}
       </div>
 
-      <dialog
-        ref={groupDialog}
-        className={dialogClass}
+      <Dialogo
+        aberto={groupDraft !== null}
         aria-labelledby="titulo-grupo"
         onClose={() => setGroupDraft(null)}
       >
@@ -466,11 +439,10 @@ export default function Grupos() {
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
 
-      <dialog
-        ref={sessionDialog}
-        className={dialogClass}
+      <Dialogo
+        aberto={sessionDraft !== null}
         aria-labelledby="titulo-sessao"
         onClose={() => setSessionDraft(null)}
       >
@@ -581,11 +553,10 @@ export default function Grupos() {
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
 
-      <dialog
-        ref={exclusaoDialog}
-        className={dialogClass}
+      <Dialogo
+        aberto={exclusao !== null}
         aria-labelledby="titulo-excluir"
         onClose={() => setExclusao(null)}
       >
@@ -609,7 +580,7 @@ export default function Grupos() {
             {exclusao?.tipo === "sessao" ? "Excluir sessão" : "Excluir grupo"}
           </Button>
         </div>
-      </dialog>
+      </Dialogo>
     </PageHeader>
     </div>
   );
@@ -628,39 +599,6 @@ function IconButton({
     <Button variant="quiet" className="size-10 px-0" aria-label={label} onClick={onClick}>
       <Icone name={icon} />
     </Button>
-  );
-}
-
-function Icone({ name }: { name: "add" | "edit" | "remove" }) {
-  const comum = {
-    viewBox: "0 0 24 24",
-    className: "size-4",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-    "aria-hidden": true as const,
-  };
-  if (name === "add") {
-    return (
-      <svg {...comum}>
-        <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (name === "edit") {
-    return (
-      <svg {...comum}>
-        <path d="M4 20h4L18 10l-4-4L4 16v4z" strokeLinejoin="round" />
-        <path d="M13 6l4 4" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...comum}>
-      <path d="M5 7h14" strokeLinecap="round" />
-      <path d="M9 7V5h6v2" strokeLinejoin="round" />
-      <path d="M8 7l1 12h6l1-12" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -712,14 +650,9 @@ function GroupCard({
               aria-controls={panelId}
               onClick={onToggle}
             >
-              <span
-                className={cn(
-                  "size-2 shrink-0 border-r-2 border-b-2 border-ink-2 transition-transform duration-150 motion-reduce:transition-none",
-                  closed ? "-rotate-45" : "rotate-45",
-                )}
-              />
+              <Seta aberto={!closed} />
               <span className="min-w-0 truncate">{name}</span>
-              <Chip className="shrink-0 font-sans font-normal">
+              <Chip className="shrink-0">
                 {sessionCountLabel(sessions.length)}
               </Chip>
             </button>
@@ -746,7 +679,7 @@ function GroupCard({
           <span className="min-w-0 max-w-prose line-clamp-2">{texto(detail)}</span>
         </p>
       </div>
-      <div id={panelId} hidden={closed}>
+      <Expandir id={panelId} aberto={!closed}>
         {sessions.length === 0 ? (
           <div className="flex gap-3 border-t border-line px-4 py-6 text-sm text-ink-2">
             <span className="size-2 shrink-0" aria-hidden="true" />
@@ -806,7 +739,7 @@ function GroupCard({
             ))}
           </ul>
         )}
-      </div>
+      </Expandir>
     </section>
   );
 }

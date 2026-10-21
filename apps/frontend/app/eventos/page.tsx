@@ -14,17 +14,17 @@ import {
   type StatusEvento,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Segmentado } from "../../components/ui/segmentado";
+import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
-import { cn, focusRing } from "../../components/ui/cn";
+import { campo, cn } from "../../components/ui/cn";
 import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
 
-const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = campo;
 const celula = "border-b border-line px-3 py-3 align-top";
-const cabeca = "border-b border-line px-3 py-3 text-left align-top font-semibold whitespace-nowrap text-ink-2";
+const cabeca = "border-b border-line px-3 py-3 text-left align-top etiqueta whitespace-nowrap text-ink-2";
 
 export default function EventosPage() {
   const toast = useToast();
@@ -78,12 +78,6 @@ export default function EventosPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const dialog = detalhes.current;
-    if (!dialog) return;
-    if (aberto && !dialog.open) dialog.showModal();
-  }, [aberto]);
-
   const events = dados?.events ?? [];
   const history = dados?.history ?? [];
   const categories = dados?.categories ?? [...CATEGORIAS_EVENTO];
@@ -112,32 +106,18 @@ export default function EventosPage() {
         subtitle="Fatos registrados pelo sistema e o que aconteceu com cada um."
         actions={
           <>
-            <div className="inline-flex rounded-sm border border-line bg-surface" role="group" aria-label="Visão">
-              {(
-                [
-                  ["eventos", "Eventos"],
-                  ["historico", "Histórico"],
-                ] as const
-              ).map(([id, rotulo], indice) => (
-                <Button
-                  key={id}
-                  variant="quiet"
-                  aria-pressed={visao === id}
-                  className={cn(
-                    "rounded-none border-0",
-                    indice === 0 && "rounded-l-sm",
-                    indice === 1 && "rounded-r-sm",
-                    visao === id && "bg-brand-soft text-brand!",
-                  )}
-                  onClick={() => {
-                    setDeslize(id === "historico" ? 1 : -1);
-                    setVisao(id);
-                  }}
-                >
-                  {rotulo}
-                </Button>
-              ))}
-            </div>
+            <Segmentado
+              aria-label="Visão"
+              opcoes={[
+                { id: "eventos", label: "Eventos" },
+                { id: "historico", label: "Histórico" },
+              ]}
+              valor={visao}
+              onEscolher={(id, direcao) => {
+                setDeslize(direcao);
+                setVisao(id);
+              }}
+            />
             <Button onClick={() => categorias.current?.showModal()}>Categorias</Button>
           </>
         }
@@ -190,13 +170,13 @@ export default function EventosPage() {
               type="search"
               aria-label="Buscar eventos"
               placeholder="Buscar por tipo, agregado ou origem"
-              className={cn(field, "min-w-56 flex-1")}
+              className={cn(field, "min-w-0 flex-1")}
               value={busca}
               onChange={(event) => setBusca(event.target.value)}
             />
           </div>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+            <table className="w-full border-separate border-spacing-0 text-sm">
               <caption className="sr-only">Eventos</caption>
               <thead>
                 <tr>
@@ -263,13 +243,13 @@ export default function EventosPage() {
               type="search"
               aria-label="Buscar no histórico"
               placeholder="Buscar por evento ou consumidor"
-              className={cn(field, "min-w-56 flex-1")}
+              className={cn(field, "min-w-0 flex-1")}
               value={buscaHistorico}
               onChange={(event) => setBuscaHistorico(event.target.value)}
             />
           </div>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+            <table className="w-full border-separate border-spacing-0 text-sm">
               <caption className="sr-only">Histórico</caption>
               <thead>
                 <tr>
@@ -307,7 +287,7 @@ export default function EventosPage() {
         </Troca>
       ) : null}
 
-      <dialog ref={detalhes} className={dialogClass} data-largura="media" aria-labelledby="titulo-evento" onClose={() => setAberto(null)}>
+      <Dialogo ref={detalhes} aberto={aberto !== null} largura="media" aria-labelledby="titulo-evento" onClose={() => setAberto(null)}>
         {aberto ? (
           <>
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -363,7 +343,7 @@ export default function EventosPage() {
                 <div className="min-w-0 overflow-x-auto rounded-md border border-line">
                   <table
                     aria-labelledby="historico-evento"
-                    className="w-full min-w-[520px] border-separate border-spacing-0 text-sm"
+                    className="w-full border-separate border-spacing-0 text-sm"
                   >
                     <thead>
                       <tr>
@@ -396,9 +376,9 @@ export default function EventosPage() {
             </p>
           </>
         ) : null}
-      </dialog>
+      </Dialogo>
 
-      <dialog ref={categorias} className={dialogClass} data-largura="media" aria-labelledby="titulo-categorias">
+      <Dialogo ref={categorias} largura="media" aria-labelledby="titulo-categorias">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 id="titulo-categorias" className="font-display text-lg">
             Categorias de evento
@@ -426,7 +406,7 @@ export default function EventosPage() {
             ))}
           </ul>
         </div>
-      </dialog>
+      </Dialogo>
     </>
   );
 }
@@ -440,7 +420,7 @@ function LinhaHistorico({ linha, onAbrir }: { linha: HistoricoEvento; onAbrir: (
     <tr className="last:[&>td]:border-b-0">
       <td className={cn(celula, "whitespace-nowrap")}>{quando(linha.occurredAt)}</td>
       <td className={celula}>
-        <Button variant="quiet" className="font-mono" onClick={onAbrir}>
+        <Button variant="link" className="font-mono text-sm" onClick={onAbrir}>
           {linha.eventType}
         </Button>
       </td>

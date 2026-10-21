@@ -1,20 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, Figtree } from "next/font/google";
+import { Geist_Mono, TASA_Orbiter } from "next/font/google";
 import { AppShell } from "../components/ui/app-shell";
+import { Movimento } from "../components/ui/movimento";
 import { TemaSalvo } from "../components/ui/tema";
 import { ToastProvider } from "../components/ui/toast";
 import "./globals.css";
 
-const display = Bricolage_Grotesque({
-  subsets: ["latin"],
-  variable: "--font-bricolage",
-  weight: ["600", "700"],
+const orbiter = TASA_Orbiter({
+  subsets: ["latin", "latin-ext"],
+  variable: "--font-orbiter",
 });
 
-const body = Figtree({
+const mono = Geist_Mono({
   subsets: ["latin"],
-  variable: "--font-figtree",
-  weight: ["400", "500", "600"],
+  variable: "--font-geist-mono",
 });
 
 export const metadata: Metadata = {
@@ -30,12 +29,14 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`${display.variable} ${body.variable} h-full`}>
+    <html lang="pt-BR" className={`${orbiter.variable} ${mono.variable} h-full`}>
       <body>
-        <ToastProvider>
-          <TemaSalvo />
-          <AppShell>{children}</AppShell>
-        </ToastProvider>
+        <Movimento>
+          <ToastProvider>
+            <TemaSalvo />
+            <AppShell>{children}</AppShell>
+          </ToastProvider>
+        </Movimento>
       </body>
     </html>
   );

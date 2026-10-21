@@ -18,11 +18,12 @@ import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
-import { focusRing } from "../../components/ui/cn";
+import { campo } from "../../components/ui/cn";
+import { Icone } from "../../components/ui/icone";
 import { doisDigitos } from "./reais";
 import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, rotuloDaSituacao, tomDaPrioridade, tomDaSituacao } from "./rotulos";
 
-const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink disabled:cursor-default disabled:opacity-50 ${focusRing}`;
+const field = campo;
 
 const MESES = [
   "Janeiro",
@@ -191,7 +192,7 @@ export function TabelaLancamentos({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Buscar nome, descrição ou justificativa"
           aria-label="Buscar"
-          className={`${field} min-w-56 flex-1`}
+          className={`${field} min-w-0 flex-1`}
         />
       </div>
       <div className="min-w-0 tab:hidden">
@@ -239,10 +240,7 @@ export function TabelaLancamentos({
                   <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                     <ControleExclusao compact synced={entry.synced} onExcluir={() => onExcluir(entry)} />
                     <Button variant="quiet" aria-label="Editar" onClick={() => onEditar(entry)}>
-                      <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                        <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
-                        <path d="m13.5 6.5 3 3" />
-                      </svg>
+                      <Icone name="edit" />
                     </Button>
                   </div>
                 </li>
@@ -258,7 +256,7 @@ export function TabelaLancamentos({
         </List>
       </div>
       <div className="hidden min-w-0 overflow-x-auto rounded-lg border border-line bg-surface tab:block">
-        <table className="w-full min-w-[880px] border-separate border-spacing-0 text-sm">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Lançamentos filtrados</caption>
           <thead>
             <tr>
@@ -266,14 +264,14 @@ export function TabelaLancamentos({
                 <th
                   key={coluna}
                   scope="col"
-                  className="border-b border-line bg-surface px-3 py-3 text-left align-top font-semibold text-ink-2"
+                  className="border-b border-line bg-surface px-3 py-3 text-left align-top etiqueta text-ink-2"
                 >
                   {coluna}
                 </th>
               ))}
               <th
                 scope="col"
-                className="border-b border-line bg-surface px-3 py-3 text-right align-top font-semibold whitespace-nowrap text-ink-2"
+                className="border-b border-line bg-surface px-3 py-3 text-right align-top etiqueta whitespace-nowrap text-ink-2"
               >
                 Valor
               </th>
@@ -334,17 +332,7 @@ export function TabelaLancamentos({
                         aria-label="Editar"
                         onClick={() => onEditar(entry)}
                       >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="size-4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.75"
-                          aria-hidden="true"
-                        >
-                          <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
-                          <path d="m13.5 6.5 3 3" />
-                        </svg>
+                        <Icone name="edit" />
                       </Button>
                       </div>
                     </td>

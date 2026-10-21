@@ -10,7 +10,7 @@ import { GOOGLE_OAUTH } from "./portas/google-oauth.js";
 @Module({
   imports: [PersistenciaModule],
   controllers: [ConfiguracoesController],
-  exports: [CONFIGURACOES_REPOSITORIO],
+  exports: [CONFIGURACOES_REPOSITORIO, ConfiguracoesService],
   providers: [
     PrismaConfiguracoesRepositorio,
     GoogleOAuthHttp,

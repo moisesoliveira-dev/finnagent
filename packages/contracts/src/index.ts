@@ -780,6 +780,13 @@ export type AgendaGoogle = {
   name: string;
 };
 
+export function rotuloDoGoogle(estado: EstadoGoogle) {
+  if (estado === "sincronizado") return "Conectado";
+  if (estado === "sincronizando") return "Sincronizando";
+  if (estado === "erro") return "Erro na sincronização";
+  return "Desconectado";
+}
+
 export type Configuracoes = Preferencias & {
   google: EstadoGoogle;
   googleSecretConfigured: boolean;
@@ -825,6 +832,10 @@ export type Compromisso = {
   month: number;
   day: number;
   time: string | null;
+  endTime?: string | null;
+  anchorYear?: number;
+  anchorMonth?: number;
+  anchorDay?: number;
   calendar: NomeAgenda;
   timezone: FusoAgenda;
   category: CategoriaCompromisso;
@@ -1124,7 +1135,69 @@ export type PainelResposta = {
   lancamentos: number;
   items: ItemPainel[];
   months: MesPainel[];
+  avisos: Aviso[];
 };
+
+export type Aviso = {
+  id: string;
+  kind: "lembrete" | "vencimento";
+  title: string;
+  at: string;
+};
+
+const ANTECEDENCIA_MS: Record<Lembrete, number> = {
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+};
+
+export function propostaNoPrazo(importedAt: string, pendingHours: number, agora = new Date()) {
+  const inicio = Date.parse(importedAt);
+  if (Number.isNaN(inicio)) return false;
+  return agora.getTime() - inicio <= pendingHours * 60 * 60 * 1000;
+}
+
+export function avisosDe(
+  prefs: Pick<Preferencias, "reminders" | "reminder" | "dueAlerts" | "appAlerts">,
+  compromissos: Compromisso[],
+  entries: Lancamento[],
+  agora = new Date(),
+): Aviso[] {
+  if (!prefs.appAlerts) return [];
+  const avisos: Aviso[] = [];
+  if (prefs.reminders) {
+    const janela = ANTECEDENCIA_MS[prefs.reminder];
+    const agoraMs = agora.getTime();
+    for (const item of compromissos) {
+      if (item.status === "done") continue;
+      const inicio = Date.parse(item.startAt);
+      if (Number.isNaN(inicio)) continue;
+      const falta = inicio - agoraMs;
+      if (falta < 0 || falta > janela) continue;
+      avisos.push({
+        id: `lembrete:${item.id}:${item.startAt}`,
+        kind: "lembrete",
+        title: item.title,
+        at: item.startAt,
+      });
+    }
+  }
+  if (prefs.dueAlerts) {
+    const hoje = diaLocal(agora);
+    for (const entry of entries) {
+      for (const ocorrencia of ocorrenciasDoLancamento(entry)) {
+        if (ocorrencia.status !== "pending" || ocorrencia.dueDate !== hoje) continue;
+        avisos.push({
+          id: `vencimento:${entry.id}:${ocorrencia.number}`,
+          kind: "vencimento",
+          title: entry.description || entry.sessionName,
+          at: ocorrencia.dueDate,
+        });
+      }
+    }
+  }
+  return avisos;
+}
 
 export function montarPainel(
   scope: EscopoPainel,
@@ -1227,6 +1300,7 @@ export function montarPainel(
     lancamentos,
     items,
     months,
+    avisos: [],
   };
 }
 
@@ -1253,6 +1327,12 @@ export const CATEGORIAS_EVENTO = [
     code: "agente",
     name: "Agente",
     description: "Ações propostas e confirmadas pela IA",
+    active: true,
+  },
+  {
+    code: "configuracoes",
+    name: "Configurações",
+    description: "Preferências e a conexão com o Google",
     active: true,
   },
   {
@@ -1385,6 +1465,8 @@ const NOME_AGREGADO: Record<string, string> = {
   "desconectar-google": "Configurações",
   "atualizar-fuso": "Configurações",
   "criar-compromisso": "Compromisso",
+  "atualizar-compromisso": "Compromisso",
+  "excluir-compromisso": "Compromisso",
   "atualizar-status-compromisso": "Compromisso",
   "sincronizar-google-agenda": "Calendário",
   "atualizar-fuso-calendario": "Calendário",
@@ -1446,8 +1528,17 @@ function compararRecente(a: string, b: string) {
   return a < b ? 1 : -1;
 }
 
+const CONFIGURACOES = new Set([
+  "salvar-configuracoes",
+  "iniciar-google",
+  "conectar-google",
+  "desconectar-google",
+]);
+
 const AGENDA = new Set([
   "criar-compromisso",
+  "atualizar-compromisso",
+  "excluir-compromisso",
   "atualizar-status-compromisso",
   "sincronizar-google-agenda",
   "atualizar-fuso-calendario",
@@ -1458,6 +1549,7 @@ function categoriaDe(operation: string): CodigoCategoriaEvento {
   if (FINANCEIRO.has(operation)) return "financeiro";
   if (AGENDA.has(operation)) return "agenda";
   if (EXTRATOS.has(operation)) return "extratos";
+  if (CONFIGURACOES.has(operation)) return "configuracoes";
   return "sistema";
 }
 

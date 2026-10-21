@@ -1,11 +1,13 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
   HORAS_PENDENTE,
   LEMBRETES,
   LIMITE_MODELOS_IA,
   idDeModelo,
+  rotuloDoGoogle,
   type AgendaGoogle,
   type Configuracoes,
   type EstadoGoogle,
@@ -17,8 +19,11 @@ import {
   type Tema,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Segmentado } from "../../components/ui/segmentado";
+import { Dialogo } from "../../components/ui/dialogo";
+import { mola, Seta } from "../../components/ui/movimento";
 import { Chip } from "../../components/ui/chip";
-import { cn, focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
 import { PageHeader } from "../../components/ui/page-header";
 import { aplicarTema, segurarTema } from "../../components/ui/tema";
 import { useToast } from "../../components/ui/toast";
@@ -93,9 +98,8 @@ const FUSOS: Array<[FusoAgenda, string]> = [
   ["UTC", "GMT+0"],
 ];
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink disabled:opacity-50 ${focusRing}`;
+const field = cn(campo, "w-full");
 
-const dialogClass = "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
 
 function achatar(nos: No[], abertos: Record<string, boolean>, pai: string | null = null): Visivel[] {
   const lista: Visivel[] = [];
@@ -148,13 +152,6 @@ function formularioDe(dados: Configuracoes): Preferencias {
   };
 }
 
-function rotuloGoogle(estado: EstadoGoogle) {
-  if (estado === "sincronizado") return "Conectado";
-  if (estado === "sincronizando") return "Sincronizando";
-  if (estado === "erro") return "Erro na sincronização";
-  return "Desconectado";
-}
-
 function opcoesDoCalendario(lista: AgendaGoogle[], atual: string) {
   if (!atual || lista.some((agenda) => agenda.id === atual)) return lista;
   return [{ id: atual, name: atual }, ...lista];
@@ -184,7 +181,6 @@ export function Painel() {
   const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | null>(null);
   const [palavra, setPalavra] = useState("");
   const [permissao, setPermissao] = useState("");
-  const dialogo = useRef<HTMLDialogElement>(null);
   const arvore = useRef<HTMLUListElement>(null);
   const sujoRef = useRef(false);
   const salvoRef = useRef<Preferencias | null>(null);
@@ -262,13 +258,6 @@ export function Painel() {
     if (typeof Notification === "undefined") return;
     setPermissao(Notification.permission);
   }, []);
-
-  useEffect(() => {
-    const atual = dialogo.current;
-    if (!atual) return;
-    if (confirmacao && !atual.open) atual.showModal();
-    if (!confirmacao && atual.open) atual.close();
-  }, [confirmacao]);
 
   useEffect(() => {
     const ativo = arvore.current?.querySelector<HTMLButtonElement>("[data-foco='true']");
@@ -489,16 +478,15 @@ export function Painel() {
       ) : (
         <div className="grid items-start gap-6 desk:grid-cols-4">
           <nav className="grid min-w-0 gap-2 desk:sticky desk:top-4 desk:col-span-1" aria-label="Seções das configurações">
-            <button
-              type="button"
-              className={`flex min-h-10 w-full items-center justify-between rounded-sm border border-line bg-surface px-3 font-semibold desk:hidden ${focusRing}`}
+            <Button
+              className="w-full justify-between desk:hidden"
               aria-expanded={menu}
               aria-controls="arvore-configuracoes"
               onClick={() => setMenu((aberto) => !aberto)}
             >
               <span>{rotuloDa(secao)}</span>
-              <span aria-hidden>{menu ? "▴" : "▾"}</span>
-            </button>
+              <Seta aberto={menu} />
+            </Button>
             <ul
               id="arvore-configuracoes"
               ref={arvore}
@@ -521,14 +509,17 @@ export function Painel() {
                     aria-selected={item.secao ? item.secao === secao : undefined}
                     aria-level={item.pai ? 2 : 1}
                     className={cn(
-                      "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-sm px-3 text-left text-sm",
-                      item.secao === secao ? "bg-brand-soft font-semibold text-brand" : "text-ink-2",
+                      "etiqueta relative flex min-h-10 w-full min-w-0 items-center gap-2 px-3 text-left transition-colors",
+                      item.secao === secao ? "text-brand" : item.grupo ? "text-ink" : "text-ink-2 hover:text-ink",
                       focusRing,
                     )}
                     onClick={() => escolher(item)}
                   >
-                    <span aria-hidden className="w-4 shrink-0 text-center">
-                      {item.grupo ? (item.aberto ? "▾" : "▸") : ""}
+                    {item.secao === secao ? (
+                      <motion.span layoutId="secao" className="absolute inset-y-2 left-0 w-0.5 bg-brand" transition={mola} />
+                    ) : null}
+                    <span className="flex w-4 shrink-0 justify-center">
+                      {item.grupo ? <Seta aberto={item.aberto} /> : null}
                     </span>
                     <span className="min-w-0">{item.rotulo}</span>
                   </button>
@@ -582,30 +573,19 @@ export function Painel() {
             <section hidden={secao !== "aparencia"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-aparencia">
               <h2 id="titulo-aparencia" className="mb-3 font-display text-lg">Aparência</h2>
               <Linha id="tema" titulo="Tema" dica="Automático segue o sistema. A escolha vale como prévia até você salvar." grupo>
-                <div id="tema" role="radiogroup" aria-labelledby="tema-rotulo" aria-describedby="tema-dica" className="flex w-fit flex-wrap rounded-sm border border-line bg-surface">
-                  {(
-                    [
-                      ["auto", "Automático"],
-                      ["light", "Claro"],
-                      ["dark", "Escuro"],
-                    ] as const
-                  ).map(([valor, rotulo]) => (
-                    <button
-                      key={valor}
-                      type="button"
-                      role="radio"
-                      aria-checked={form.theme === valor}
-                      className={cn(
-                        "min-h-10 px-4 font-semibold",
-                        form.theme === valor ? "bg-brand-soft text-brand" : "text-ink-2",
-                        focusRing,
-                      )}
-                      onClick={() => mudarTema(valor)}
-                    >
-                      {rotulo}
-                    </button>
-                  ))}
-                </div>
+                <Segmentado
+                  id="tema"
+                  radio
+                  aria-labelledby="tema-rotulo"
+                  aria-describedby="tema-dica"
+                  opcoes={[
+                    { id: "auto", label: "Automático" },
+                    { id: "light", label: "Claro" },
+                    { id: "dark", label: "Escuro" },
+                  ]}
+                  valor={form.theme}
+                  onEscolher={(id) => mudarTema(id)}
+                />
               </Linha>
             </section>
 
@@ -695,7 +675,7 @@ export function Painel() {
                 grupo
               >
                 <span className="flex flex-wrap items-center gap-2">
-                  <Chip tone={google === "sincronizado" ? "ok" : google === "erro" ? "neg" : "default"}>{rotuloGoogle(google)}</Chip>
+                  <Chip tone={google === "sincronizado" ? "ok" : google === "erro" ? "neg" : "default"}>{rotuloDoGoogle(google)}</Chip>
                   {googleAccount ? <span className="text-sm text-ink-2">{googleAccount}</span> : null}
                   {googleConnected ? (
                     <>
@@ -985,9 +965,8 @@ export function Painel() {
         </div>
       )}
 
-      <dialog
-        ref={dialogo}
-        className={dialogClass}
+      <Dialogo
+        aberto={confirmacao !== null}
         aria-labelledby="titulo-confirmacao"
         onCancel={(event) => {
           event.preventDefault();
@@ -1033,7 +1012,7 @@ export function Painel() {
             {confirmacao === "desconectar" ? "Desconectar" : "Excluir conta"}
           </Button>
         </div>
-      </dialog>
+      </Dialogo>
     </>
   );
 }
@@ -1101,11 +1080,11 @@ function Interruptor({
           checked ? "border-brand bg-brand" : "border-line bg-surface-2",
         )}
       >
-        <span
-          className={cn(
-            "absolute top-1 left-1 size-4 rounded-full transition-transform motion-reduce:transition-none",
-            checked ? "translate-x-6 bg-brand-ink" : "bg-surface",
-          )}
+        <motion.span
+          className={cn("absolute top-1 left-1 size-4 rounded-full", checked ? "bg-brand-ink" : "bg-surface")}
+          initial={false}
+          animate={{ x: checked ? 24 : 0 }}
+          transition={mola}
         />
       </span>
     </button>

@@ -34,12 +34,14 @@ export type NovoCompromisso = {
   entryId: string | null;
 };
 
-export type FalhaDeCompromisso = "identificador" | "lancamento-ausente";
+export type FalhaDeCompromisso = "identificador" | "lancamento-ausente" | "ausente";
 
 export interface AgendaRepositorio {
   listarCalendarios(tenantId: string): Promise<Calendario[]>;
   listarQueAlcancam(tenantId: string, year: number, month: number): Promise<Compromisso[]>;
   criar(tenantId: string, pedido: NovoCompromisso): Promise<Compromisso | FalhaDeCompromisso>;
+  atualizar(tenantId: string, pedido: NovoCompromisso): Promise<Compromisso | FalhaDeCompromisso>;
+  excluir(tenantId: string, id: string): Promise<void | "ausente">;
   atualizarFuso(
     tenantId: string,
     name: NomeAgenda,

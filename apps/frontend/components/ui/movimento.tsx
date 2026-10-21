@@ -1,9 +1,17 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion, type HTMLMotionProps } from "motion/react";
 import type { ReactNode } from "react";
+import { cn } from "./cn";
 
-const curvaCheia = { duration: 0.32, ease: [0.22, 1, 0.36, 1] as const };
+export const curvaCheia = { duration: 0.32, ease: [0.22, 1, 0.36, 1] as const };
+export const curvaSaida = { duration: 0.18, ease: [0.4, 0, 1, 1] as const };
+export const mola = { type: "spring", stiffness: 500, damping: 32 } as const;
+
+// Quem pede menos movimento fica só com a troca de opacidade.
+export function Movimento({ children }: { children: ReactNode }) {
+  return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
+}
 
 export function useCurva() {
   const reduzir = useReducedMotion();
@@ -87,32 +95,44 @@ export function Troca({
   );
 }
 
-export function Presenca({
+// Seta do acordeão: aponta para baixo aberta e para a direita fechada.
+export function Seta({ aberto }: { aberto: boolean }) {
+  const curva = useCurva();
+  return (
+    <motion.span
+      aria-hidden="true"
+      className="size-2 shrink-0 border-r-2 border-b-2 border-ink-2"
+      initial={false}
+      animate={{ rotate: aberto ? 45 : -45 }}
+      transition={curva}
+    />
+  );
+}
+
+// Fica no DOM fechado, para o aria-controls continuar apontando para ele.
+export function Expandir({
   aberto,
-  onSaiu,
-  children,
+  id,
   className,
+  children,
 }: {
   aberto: boolean;
-  onSaiu?: () => void;
-  children: ReactNode;
+  id?: string;
   className?: string;
+  children: ReactNode;
 }) {
   const curva = useCurva();
   return (
-    <AnimatePresence onExitComplete={onSaiu}>
-      {aberto ? (
-        <motion.div
-          className={className}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          transition={curva}
-        >
-          {children}
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+    <motion.div
+      id={id}
+      className={cn("overflow-hidden", className)}
+      inert={!aberto}
+      initial={false}
+      animate={aberto ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+      transition={curva}
+    >
+      {children}
+    </motion.div>
   );
 }
 
@@ -126,24 +146,24 @@ const item = {
   visivel: { opacity: 1, y: 0, transition: curvaCheia },
 };
 
-export function ListaAnimada({ children, className }: { children: ReactNode; className?: string }) {
+export function ListaAnimada({ children, ...props }: HTMLMotionProps<"ul">) {
   const reduzir = useReducedMotion();
   return (
     <motion.ul
-      className={className}
       initial={reduzir ? false : "oculto"}
       animate="visivel"
       variants={reduzir ? undefined : lista}
+      {...props}
     >
       {children}
     </motion.ul>
   );
 }
 
-export function ItemAnimado({ children, className }: { children: ReactNode; className?: string }) {
+export function ItemAnimado({ children, ...props }: HTMLMotionProps<"li">) {
   const reduzir = useReducedMotion();
   return (
-    <motion.li className={className} variants={reduzir ? undefined : item}>
+    <motion.li variants={reduzir ? undefined : item} {...props}>
       {children}
     </motion.li>
   );

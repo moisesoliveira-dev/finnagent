@@ -1,7 +1,9 @@
 "use client";
 
+import { AnimatePresence, motion } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { cn, focusRing } from "./cn";
+import { curvaSaida, useCurva } from "./movimento";
 
 type Tom = "sucesso" | "erro" | "alerta";
 
@@ -38,6 +40,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const sequencia = useRef(0);
   const caixa = useRef<HTMLDivElement>(null);
   const temporizadores = useRef(new Map<number, number>());
+  const curva = useCurva();
 
   const fechar = useCallback((id: number) => {
     const temporizador = temporizadores.current.get(id);
@@ -71,11 +74,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const elemento = caixa.current;
-    if (!elemento) return;
-    if (avisos.length === 0) {
-      if (elemento.matches(":popover-open")) elemento.hidePopover();
-      return;
-    }
+    if (!elemento || avisos.length === 0) return;
     const dialogAberto = document.querySelector("dialog[open]");
     if (elemento.matches(":popover-open")) {
       if (!dialogAberto) return;
@@ -95,24 +94,37 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div ref={caixa} popover="manual" data-toaster="">
+        <AnimatePresence
+          mode="popLayout"
+          onExitComplete={() => {
+            // O popover só sai depois que o último aviso terminou de sair.
+            const elemento = caixa.current;
+            if (avisos.length === 0 && elemento?.matches(":popover-open")) elemento.hidePopover();
+          }}
+        >
         {avisos.map((aviso) => (
-          <article
+          <motion.article
             key={aviso.id}
+            layout
+            initial={{ opacity: 0, x: 24, scale: 0.96 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 24, transition: curvaSaida }}
+            transition={curva}
             role={aviso.tom === "sucesso" ? "status" : "alert"}
             className={cn(
-              "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-md border bg-surface p-3 text-sm text-ink",
+              "flex items-start gap-3 rounded-md border bg-surface p-3 text-sm text-ink",
               aviso.tom === "sucesso" && "border-brand bg-brand-soft",
               aviso.tom === "erro" && "border-neg",
-              aviso.tom === "alerta" && "border-pending-line bg-pending-soft",
+              aviso.tom === "alerta" && "border-line",
             )}
           >
-            <p className="min-w-0">
+            <p className="min-w-0 flex-1">
               <span
                 className={cn(
-                  "font-semibold",
+                  "etiqueta",
                   aviso.tom === "sucesso" && "text-brand",
                   aviso.tom === "erro" && "text-neg",
-                  aviso.tom === "alerta" && "text-pending",
+                  aviso.tom === "alerta" && "text-ink",
                 )}
               >
                 {rotulo[aviso.tom]}
@@ -138,8 +150,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 />
               </svg>
             </button>
-          </article>
+          </motion.article>
         ))}
+        </AnimatePresence>
       </div>
     </ToastContext.Provider>
   );

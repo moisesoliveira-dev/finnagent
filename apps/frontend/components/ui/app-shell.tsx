@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { Button } from "./button";
 import { Rotulo } from "./rotulo";
-import { cn, focusRing } from "./cn";
+import { campo, cn, focusRing } from "./cn";
 import { useCurva } from "./movimento";
 
 const items = [
@@ -38,14 +38,18 @@ function Item({
         href={href}
         aria-current={current ? "page" : undefined}
         className={cn(
-          "relative flex min-h-10 items-center rounded-sm px-3 py-2 font-medium text-ink-2 no-underline",
+          "etiqueta relative flex min-h-10 items-center px-3 py-2 whitespace-nowrap text-ink-2 no-underline transition-colors hover:text-ink",
           focusRing,
           nested && "tab:pl-6",
-          current && "font-semibold text-brand",
+          current && "text-brand hover:text-brand",
         )}
       >
         {current ? (
-          <motion.span layoutId="aba" className="absolute inset-0 rounded-sm bg-brand-soft" transition={curva} />
+          <motion.span
+            layoutId="aba"
+            className="absolute inset-x-3 bottom-1 h-0.5 bg-brand tab:inset-x-auto tab:inset-y-2 tab:left-0 tab:h-auto tab:w-0.5"
+            transition={curva}
+          />
         ) : null}
         <span className="relative">{label}</span>
       </Link>
@@ -63,18 +67,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className={cn(
-        "grid min-h-dvh grid-cols-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]",
+        "grid min-h-dvh grid-cols-1 content-start pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]",
         assistant && "desk:grid-cols-[200px_minmax(0,1fr)_340px]",
       )}
     >
       <nav
         aria-label="Principal"
         className={cn(
-          "sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:max-h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4",
+          "pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4",
           assistant && "desk:row-span-1",
         )}
       >
-        <div className="px-3 font-display text-lg font-bold text-brand">Prumo</div>
+        <div className="flex items-center gap-2 px-3 font-display text-lg font-bold tracking-titulo text-ink">
+          <span aria-hidden className="size-3 shrink-0 bg-cta" />
+          Prumo
+        </div>
         <ul className="flex gap-1 tab:flex-col">
           {items.slice(0, 3).map((item) => (
             <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
@@ -85,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <li className="flex items-center gap-1 tab:flex-col tab:items-stretch">
             <span
               className={cn(
-                "px-3 py-2 text-sm font-semibold",
+                "etiqueta px-3 py-2 whitespace-nowrap",
                 pathname === "/extratos" || pathname.startsWith("/extratos/") ? "text-brand" : "text-ink",
               )}
             >
@@ -133,7 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <input
               id="assistant-message"
               placeholder="Registre um gasto ou marque um compromisso"
-              className={`min-h-10 min-w-0 flex-1 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`}
+              className={cn(campo, "flex-1")}
             />
             <Button type="submit" variant="primary">
               Enviar
