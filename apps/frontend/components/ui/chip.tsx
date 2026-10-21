@@ -2,7 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./cn";
 
 const chip = cva(
-  "inline-block rounded-sm border px-2 py-1 text-xs",
+  "etiqueta inline-block rounded-sm border px-2 py-1",
   {
     variants: {
       tone: {

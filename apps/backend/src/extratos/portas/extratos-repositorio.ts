@@ -39,6 +39,7 @@ export type LinhaImportada = {
   accountName: string;
   filename: string;
   entryId: string | null;
+  importedAt: string;
 };
 
 export type ExtratosRepositorio = {

@@ -43,7 +43,7 @@ export function GradeMes({
 
   return (
     <section aria-label="Calendário do mês">
-      <div className="mb-1 grid grid-cols-7 text-center text-xs text-ink-2" aria-hidden="true">
+      <div className="etiqueta mb-1 grid grid-cols-7 text-center text-ink-2" aria-hidden="true">
         {semana.map((nome) => (
           <span key={nome}>{nome}</span>
         ))}
@@ -127,7 +127,7 @@ export function GradeMes({
                 {compromissos.length > 3 ? (
                   <button
                     type="button"
-                    className="text-left text-xs text-ink-2!"
+                    className={cn("etiqueta text-left text-ink-2 hover:text-ink", focusRing)}
                     onClick={() => onOpen(day)}
                   >
                     +{compromissos.length - 3} mais

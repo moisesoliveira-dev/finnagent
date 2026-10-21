@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type EscopoPainel, type ItemPainel, type PainelResposta } from "@finnagent/contracts";
+import { type Aviso, type EscopoPainel, type ItemPainel, type PainelResposta } from "@finnagent/contracts";
 import { doisDigitos } from "./financas/reais";
 import { Button } from "../components/ui/button";
+import { Segmentado } from "../components/ui/segmentado";
 import { Chip } from "../components/ui/chip";
-import { cn, focusRing } from "../components/ui/cn";
+import { campo } from "../components/ui/cn";
+import { Vazio } from "../components/ui/vazio";
 import { List } from "../components/ui/list";
 import { ListRow } from "../components/ui/list-row";
 import { Money } from "../components/ui/money";
@@ -35,7 +37,7 @@ const ESCOPOS: { id: EscopoPainel; label: string }[] = [
   { id: "ano", label: "Ano" },
 ];
 
-const field = `min-h-10 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
+const field = campo;
 
 function hoje() {
   const data = new Date();
@@ -151,33 +153,15 @@ export default function Dashboard() {
     <>
       <PageHeader title="Dashboard" subtitle={periodo} />
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div
-          className="inline-flex rounded-sm border border-line bg-surface"
-          role="group"
+        <Segmentado
           aria-label="Período"
-        >
-          {ESCOPOS.map((item, index) => (
-            <Button
-              key={item.id}
-              variant="quiet"
-              aria-pressed={scope === item.id}
-              className={cn(
-                "rounded-none border-0",
-                index === 0 && "rounded-l-sm",
-                index === ESCOPOS.length - 1 && "rounded-r-sm",
-                scope === item.id && "bg-brand-soft text-brand!",
-              )}
-              onClick={() => {
-                const ordem = ESCOPOS.map((escopo) => escopo.id);
-                const delta = ordem.indexOf(item.id) - ordem.indexOf(scope);
-                setDeslize(delta > 0 ? 1 : delta < 0 ? -1 : 0);
-                setScope(item.id);
-              }}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
+          opcoes={ESCOPOS}
+          valor={scope}
+          onEscolher={(id, direcao) => {
+            setDeslize(direcao);
+            setScope(id);
+          }}
+        />
         <div className="flex items-center gap-1 font-semibold">
           <Button
             variant="quiet"
@@ -246,6 +230,16 @@ export default function Dashboard() {
             </Stat>
           </dl>
           <p className="text-sm text-ink-2">{contagem(painel)}</p>
+          {painel.avisos.length > 0 ? (
+            <section className="grid min-w-0 gap-3" aria-label="Avisos">
+              <h2 className="font-display text-lg">Avisos</h2>
+              <List>
+                {painel.avisos.map((aviso) => (
+                  <LinhaAviso key={aviso.id} aviso={aviso} />
+                ))}
+              </List>
+            </section>
+          ) : null}
 
           {painel.scope === "ano" ? (
             <div className="min-w-0 overflow-x-auto rounded-lg border border-line bg-surface">
@@ -253,9 +247,9 @@ export default function Dashboard() {
                 <caption className="sr-only">Meses do ano</caption>
                 <thead>
                   <tr>
-                    <th className="border-b border-line px-4 py-3 text-left font-semibold text-ink-2">Mês</th>
-                    <th className="border-b border-line px-4 py-3 text-right font-semibold text-ink-2">Sobra</th>
-                    <th className="border-b border-line px-4 py-3 text-right font-semibold text-ink-2">
+                    <th className="border-b border-line px-4 py-3 text-left etiqueta text-ink-2">Mês</th>
+                    <th className="border-b border-line px-4 py-3 text-right etiqueta text-ink-2">Sobra</th>
+                    <th className="border-b border-line px-4 py-3 text-right etiqueta text-ink-2">
                       Compromissos
                     </th>
                   </tr>
@@ -265,8 +259,8 @@ export default function Dashboard() {
                     <tr key={mes.month} className="last:[&>*]:border-b-0">
                       <th className="border-b border-line p-0 text-left font-medium" scope="row">
                         <Button
-                          variant="quiet"
-                          className="w-full justify-start rounded-none px-4 text-brand!"
+                          variant="link"
+                          className="w-full justify-start px-4"
                           onClick={() => {
                             setScope("mes");
                             ir({ year, month: mes.month, day: 1 }, -1);
@@ -285,17 +279,15 @@ export default function Dashboard() {
               </table>
             </div>
           ) : dias.length === 0 ? (
-            <p className="rounded-lg border border-line bg-surface p-6 text-sm text-ink-2">
-              {painel.scope === "dia" ? "Nada neste dia." : "Nada neste mês."}
-            </p>
+            <Vazio>{painel.scope === "dia" ? "Nada neste dia." : "Nada neste mês."}</Vazio>
           ) : (
             dias.map((dia) => (
               <section key={dia} className="grid min-w-0 gap-3">
                 {painel.scope === "mes" ? (
                   <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
                     <Button
-                      variant="quiet"
-                      className="h-auto justify-start px-0 font-display text-lg font-bold text-brand!"
+                      variant="link"
+                      className="h-auto justify-start font-display text-lg font-bold"
                       onClick={() => {
                         setScope("dia");
                         ir({ year, month, day: dia }, -1);
@@ -304,7 +296,7 @@ export default function Dashboard() {
                       {rotulo(year, month, dia).replace(/^Hoje, /, "")}
                     </Button>
                     {year === atual.year && month === atual.month && dia === atual.day ? (
-                      <Chip tone="ok" className="font-sans font-normal">
+                      <Chip tone="ok">
                         Hoje
                       </Chip>
                     ) : null}
@@ -322,6 +314,17 @@ export default function Dashboard() {
       ) : null}
       </Troca>
     </>
+  );
+}
+
+function LinhaAviso({ aviso }: { aviso: Aviso }) {
+  return (
+    <ListRow
+      kind={aviso.kind === "lembrete" ? "event" : "transaction"}
+      title={aviso.title}
+      meta={aviso.kind === "lembrete" ? "Lembrete" : "Vence hoje"}
+      value={null}
+    />
   );
 }
 

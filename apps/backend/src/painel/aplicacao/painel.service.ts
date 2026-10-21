@@ -1,6 +1,19 @@
-import { Injectable } from "@nestjs/common";
-import { montarPainel, type EscopoPainel, type PainelResposta } from "@finnagent/contracts";
+import { Inject, Injectable } from "@nestjs/common";
+import {
+  avisosDe,
+  centavosNoMes,
+  montarPainel,
+  type Compromisso,
+  type EscopoPainel,
+  type Lancamento,
+  type PainelResposta,
+  type Workflow,
+} from "@finnagent/contracts";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
+import {
+  CONFIGURACOES_REPOSITORIO,
+  type ConfiguracoesRepositorio,
+} from "../../configuracoes/portas/configuracoes-repositorio.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 
@@ -9,6 +22,7 @@ export class PainelService {
   constructor(
     private readonly financas: FinancasService,
     private readonly agenda: AgendaService,
+    @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
   ) {}
 
   async listar(
@@ -28,8 +42,29 @@ export class PainelService {
     const meses = scope === "ano" ? Array.from({ length: 12 }, (_, indice) => indice + 1) : [month ?? 1];
     const compromissos = [];
     for (const mes of meses) {
-      compromissos.push(...(await this.agenda.ocorrencias(tenantId, year, mes)));
+      const ocorrencias = await this.agenda.ocorrencias(tenantId, year, mes);
+      compromissos.push(...ocorrencias.map((item) => comValor(item, base.entries, base.workflow)));
     }
-    return montarPainel(scope, year, month, day, base.workflow, base.entries, compromissos);
+    const painel = montarPainel(scope, year, month, day, base.workflow, base.entries, compromissos);
+    const preferencias = await this.configuracoes.obter(tenantId);
+    return {
+      ...painel,
+      avisos: avisosDe(preferencias, compromissos, base.entries),
+    };
   }
+}
+
+function comValor(compromisso: Compromisso, entries: Lancamento[], workflow: Workflow) {
+  const entry = entries.find((item) => item.id === compromisso.entryId);
+  if (!entry) return compromisso;
+  const cents = centavosNoMes(entry, workflow, compromisso.year, compromisso.month - 1);
+  return {
+    ...compromisso,
+    link: {
+      entryId: entry.id,
+      groupName: entry.groupName,
+      sessionName: entry.sessionName,
+      cents: cents ?? entry.cents,
+    },
+  };
 }

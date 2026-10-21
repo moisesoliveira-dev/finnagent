@@ -1,5 +1,6 @@
 "use client";
 
+import { animate, useReducedMotion } from "motion/react";
 import { useEffect, useId, useRef } from "react";
 import { focusRing } from "./cn";
 
@@ -28,6 +29,7 @@ export function Dica({ texto }: { texto: string }) {
   const painel = useRef<HTMLDivElement>(null);
   const espera = useRef<number | null>(null);
   const toque = useRef(false);
+  const reduzir = useReducedMotion();
 
   useEffect(() => {
     const botao = ancora.current;
@@ -51,7 +53,8 @@ export function Dica({ texto }: { texto: string }) {
     const box = botao.getBoundingClientRect();
     el.style.left = `${box.left}px`;
     el.style.top = `${box.bottom + 4}px`;
-    if (!el.matches(":popover-open")) el.showPopover();
+    const abriu = !el.matches(":popover-open");
+    if (abriu) el.showPopover();
     const margem = 8;
     let left = box.left;
     let top = box.bottom + 4;
@@ -62,6 +65,7 @@ export function Dica({ texto }: { texto: string }) {
     if (top + el.offsetHeight > window.innerHeight - margem) top = box.top - el.offsetHeight - 4;
     el.style.left = `${Math.round(left)}px`;
     el.style.top = `${Math.round(top)}px`;
+    if (abriu && !reduzir) animate(el, { opacity: [0, 1], y: [4, 0] }, { duration: 0.16, ease: "easeOut" });
   }
 
   function fechar() {

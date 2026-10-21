@@ -1,26 +1,31 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
   FUSO_PADRAO,
   FUSOS_AGENDA,
+  rotuloDoGoogle,
   type AgendaResposta,
   type CategoriaCompromisso,
-  type Preferencias,
+  type Configuracoes,
+  type EstadoGoogle,
   type FusoAgenda,
   type NomeAgenda,
   type StatusCompromisso,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Segmentado } from "../../components/ui/segmentado";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { cn, focusRing } from "../../components/ui/cn";
-import { Presenca, Troca } from "../../components/ui/movimento";
+import { campo, cn, focusRing } from "../../components/ui/cn";
+import { Dialogo } from "../../components/ui/dialogo";
+import { Troca } from "../../components/ui/movimento";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
 import { ListaMes, PainelDoDia, resumoDoDia } from "./lista";
@@ -50,11 +55,7 @@ const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
   time: "Repete neste dia, todo mês, até a validade.",
 };
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogDia =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
-const dialogForm =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 const meses = [
   "Janeiro",
@@ -73,6 +74,8 @@ const meses = [
 
 export default function Agenda() {
   const toast = useToast();
+  const router = useRouter();
+  const [google, setGoogle] = useState<{ estado: EstadoGoogle; conectado: boolean; pronto: boolean } | null>(null);
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
@@ -94,7 +97,6 @@ export default function Agenda() {
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const dia = useRef<HTMLDialogElement>(null);
-  const form = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   function carregar(alvoAno = year, alvoMes = month) {
@@ -111,6 +113,11 @@ export default function Agenda() {
       .then((resposta) => {
         if (!active) return;
         setData(resposta);
+        setGoogle((atual) => ({
+          estado: resposta.google,
+          conectado: resposta.google !== "desconectado",
+          pronto: atual?.pronto ?? false,
+        }));
         setCarregado({ year, month });
         setSelecaoGrade(selectedRef.current);
         setFalhou(false);
@@ -130,8 +137,13 @@ export default function Agenda() {
     fetch("/api/configuracoes")
       .then(async (resposta) => {
         if (!resposta.ok || !ativo) return;
-        const dados = (await resposta.json()) as Preferencias;
+        const dados = (await resposta.json()) as Configuracoes;
         if (!ativo) return;
+        setGoogle((atual) => ({
+          estado: atual?.estado ?? dados.google,
+          conectado: atual?.conectado ?? dados.googleConnected,
+          pronto: Boolean(dados.googleClientId.trim()) && dados.googleSecretConfigured,
+        }));
         setCamadas((atual) => ({ ...atual, lancamento: dados.showEntries }));
         setCalendarios({ Pessoal: dados.personalCalendar, Trabalho: dados.workCalendar });
       })
@@ -148,19 +160,6 @@ export default function Agenda() {
     media.addEventListener("change", atualizar);
     return () => media.removeEventListener("change", atualizar);
   }, []);
-
-  useLayoutEffect(() => {
-    const atual = dia.current;
-    if (!atual) return;
-    if (diaAberto && !atual.open) atual.showModal();
-  }, [diaAberto]);
-
-  useEffect(() => {
-    const atual = form.current;
-    if (!atual) return;
-    if (draft && !atual.open) atual.showModal();
-    if (!draft && atual.open) atual.close();
-  }, [draft]);
 
   useEffect(() => {
     if (!menu) return;
@@ -427,6 +426,16 @@ export default function Agenda() {
     }
   }
 
+  // Sem ID e segredo do cliente Google, a conexão só começa em Configurações.
+  function conectarGoogle() {
+    if (google?.pronto) {
+      window.location.assign("/api/configuracoes/google/conectar");
+      return;
+    }
+    toast.alerta("Informe o ID e o segredo do cliente Google em Configurações para conectar.");
+    router.push("/configuracoes");
+  }
+
   async function sincronizar() {
     try {
       const response = await fetch("/api/agenda/sincronizar", { method: "POST" });
@@ -485,46 +494,31 @@ export default function Agenda() {
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2">
-              <span className="inline-block size-2 shrink-0 rounded-full bg-ink-2" />
-              Google Calendar desconectado
+              <span
+                className={cn(
+                  "inline-block size-2 shrink-0 rounded-full",
+                  google?.estado === "sincronizado" ? "bg-pos" : google?.estado === "erro" ? "bg-neg" : "bg-ink-2",
+                )}
+              />
+              Google Calendar {rotuloDoGoogle(google?.estado ?? "desconectado").toLowerCase()}
             </span>
             <span>{rotuloDoFuso(fusoDaAgenda(data, "Pessoal"))}</span>
           </span>
         }
         actions={
           <>
-            <div className="inline-flex overflow-hidden rounded-sm border border-line bg-surface" role="group" aria-label="Visão">
-              <button
-                type="button"
-                aria-pressed={visao === "mes"}
-                onClick={() => {
-                  setDeslize(0);
-                  setVisao("mes");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "mes" ? "bg-brand-soft text-brand" : "bg-transparent text-ink-2",
-                )}
-              >
-                Mês
-              </button>
-              <button
-                type="button"
-                aria-pressed={visao === "lista"}
-                onClick={() => {
-                  setDeslize(0);
-                  setVisao("lista");
-                }}
-                className={cn(
-                  "min-h-10 px-4 font-semibold",
-                  focusRing,
-                  visao === "lista" ? "bg-brand-soft text-brand" : "bg-transparent text-ink-2",
-                )}
-              >
-                Lista
-              </button>
-            </div>
+            <Segmentado
+              aria-label="Visão"
+              opcoes={[
+                { id: "mes", label: "Mês" },
+                { id: "lista", label: "Lista" },
+              ]}
+              valor={visao}
+              onEscolher={(id) => {
+                setDeslize(0);
+                setVisao(id);
+              }}
+            />
             <Button variant="primary" onClick={novoCompromisso}>
               Novo compromisso
             </Button>
@@ -535,7 +529,7 @@ export default function Agenda() {
           {!data && !falhou ? (
             <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
           ) : null}
-          <ConectarGoogle onConnect={() => void sincronizar()} />
+          {google && !google.conectado ? <ConectarGoogle onConnect={conectarGoogle} /> : null}
           <div className="grid max-w-prose gap-1">
             <Rotulo htmlFor="fuso" dica="Pessoal e Trabalho usam este mesmo fuso.">
               Fuso horário
@@ -662,33 +656,22 @@ export default function Agenda() {
         </div>
       ) : null}
 
-      <dialog
+      <Dialogo
         ref={dia}
-        className={dialogDia}
-        data-largura="media"
+        aberto={diaAberto}
+        largura="media"
         aria-labelledby="titulo-dia"
-        onCancel={(event) => {
-          event.preventDefault();
-          setDiaAberto(false);
-        }}
         onClose={() => setDiaAberto(false)}
         onClick={(event) => {
           if (event.target === dia.current) setDiaAberto(false);
         }}
       >
-        <Presenca
-          aberto={diaAberto}
-          onSaiu={() => {
-            if (dia.current?.open) dia.current.close();
-          }}
-          className="dialog-miolo"
-        >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 id="titulo-dia" className="flex flex-wrap items-center gap-2 font-display text-lg">
               {rotuloDoDia(anoVisivel, mesVisivel, selecaoGrade)}
               {ehHoje(anoVisivel, mesVisivel, selecaoGrade) ? (
-                <Chip tone="ok" className="font-sans font-normal">
+                <Chip tone="ok">
                   Hoje
                 </Chip>
               ) : null}
@@ -725,12 +708,10 @@ export default function Agenda() {
             Novo compromisso neste dia
           </Button>
         </div>
-        </Presenca>
-      </dialog>
+      </Dialogo>
 
-      <dialog
-        ref={form}
-        className={dialogForm}
+      <Dialogo
+        aberto={draft !== null}
         aria-labelledby="titulo-compromisso"
         onClose={() => setDraft(null)}
       >
@@ -959,7 +940,7 @@ export default function Agenda() {
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
     </div>
   );
 }
@@ -994,7 +975,7 @@ function Camada({
       aria-pressed={pressed}
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-10 items-center gap-2 rounded-sm border bg-surface px-3 font-medium",
+        "inline-flex min-h-10 items-center gap-2 rounded-sm border bg-surface px-3 etiqueta-botao",
         focusRing,
         pressed ? "border-brand text-ink" : "border-line text-ink-2",
       )}

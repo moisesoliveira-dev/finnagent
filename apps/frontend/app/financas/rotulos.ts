@@ -51,7 +51,7 @@ export const ROTULO_RECORRENCIA: Record<Recorrencia, string> = {
 
 export function tomDoStatus(status: StatusTransacao) {
   if (status === "completed") return "ok" as const;
-  if (status === "pending") return "ai" as const;
+  if (status === "pending") return "default" as const;
   if (status === "cancelled") return "neg" as const;
   return "default" as const;
 }
@@ -68,7 +68,7 @@ export function tomDaSituacao(situacao: SituacaoOcorrencia) {
 
 export function tomDaPrioridade(priority: PrioridadeTransacao) {
   if (priority === "high") return "neg" as const;
-  if (priority === "low") return "ai" as const;
+  if (priority === "low") return "default" as const;
   return "default" as const;
 }
 

@@ -8,13 +8,16 @@ import {
   type Lancamento,
   type Ocorrencia,
   type StatusTransacao,
+  centavosComSinal,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
+import { campo } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { useToast } from "../../components/ui/toast";
 import { api } from "./api";
+import { centavosParaReais, reaisParaCentavos } from "./reais";
 import { rotuloDaSituacao, tomDaSituacao } from "./rotulos";
 
 export function OcorrenciasDoLancamento({
@@ -29,13 +32,13 @@ export function OcorrenciasDoLancamento({
   const hoje = diaLocal();
   const lista = ocorrenciasDoLancamento(entry);
 
-  async function enviar(item: Ocorrencia, status: StatusTransacao, sucesso: string) {
+  async function enviar(item: Ocorrencia, corpo: { status?: StatusTransacao; dueDate?: string; plannedCents?: number }, sucesso: string) {
     if (ocupado != null) return;
     setOcupado(item.number);
     try {
       await api(`/api/lancamentos/${entry.id}/ocorrencias/${item.number}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(corpo),
       });
       toast.sucesso(sucesso);
       await onAtualizar();
@@ -63,17 +66,34 @@ export function OcorrenciasDoLancamento({
             >
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
                 <p className="text-sm whitespace-nowrap text-ink">
-                  <span className="tabular-nums">{item.number}.</span>{" "}
-                  <time dateTime={item.dueDate}>{dataBr(item.dueDate)}</time>
+                  <span className="tabular-nums">{item.number}.</span>
                 </p>
-                <div className="ml-auto flex shrink-0 items-center gap-3">
-                  <Money cents={centavos} />
-                  <Chip tone={tomDaSituacao(situacao)} className="shrink-0">
-                    {rotuloDaSituacao(situacao)}
-                  </Chip>
-                </div>
+                {item.status === "pending" && !entry.synced ? (
+                  <CamposPendentes
+                    item={item}
+                    mode={entry.mode}
+                    ocupado={ocupado != null}
+                    onGravar={(corpo) => void enviar(item, corpo, "Ocorrência atualizada.")}
+                  />
+                ) : (
+                  <>
+                    <time className="text-sm text-ink" dateTime={item.dueDate}>
+                      {dataBr(item.dueDate)}
+                    </time>
+                    <div className="ml-auto flex shrink-0 items-center gap-3">
+                      <Money cents={centavos} />
+                    </div>
+                  </>
+                )}
+                <Chip tone={tomDaSituacao(situacao)} className="shrink-0">
+                  {rotuloDaSituacao(situacao)}
+                </Chip>
               </div>
-              <AcoesDaLinha item={item} ocupado={ocupado != null} onEnviar={enviar} />
+              <AcoesDaLinha
+                item={item}
+                ocupado={ocupado != null}
+                onEnviar={(atual, status, sucesso) => enviar(atual, { status }, sucesso)}
+              />
             </li>
           );
         })}
@@ -138,6 +158,55 @@ function AcoesDaLinha({
     );
   }
   return null;
+}
+
+function CamposPendentes({
+  item,
+  mode,
+  ocupado,
+  onGravar,
+}: {
+  item: Ocorrencia;
+  mode: Lancamento["mode"];
+  ocupado: boolean;
+  onGravar: (corpo: { dueDate?: string; plannedCents?: number }) => void;
+}) {
+  const [data, setData] = useState(item.dueDate);
+  const [valor, setValor] = useState(centavosParaReais(item.plannedCents));
+
+  function gravarData() {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(data) && data !== item.dueDate) onGravar({ dueDate: data });
+  }
+
+  function gravarValor() {
+    const centavos = reaisParaCentavos(valor);
+    if (centavos == null) return;
+    const comSinal = centavosComSinal(Math.abs(centavos), mode);
+    if (comSinal !== item.plannedCents) onGravar({ plannedCents: comSinal });
+  }
+
+  return (
+    <>
+      <input
+        type="date"
+        aria-label={`Data da ocorrência ${item.number}`}
+        value={data}
+        disabled={ocupado}
+        onChange={(event) => setData(event.target.value)}
+        onBlur={gravarData}
+        className={campo}
+      />
+      <input
+        aria-label={`Valor da ocorrência ${item.number}`}
+        value={valor}
+        inputMode="decimal"
+        disabled={ocupado}
+        onChange={(event) => setValor(event.target.value)}
+        onBlur={gravarValor}
+        className={`${campo} min-w-0 flex-1 text-right`}
+      />
+    </>
+  );
 }
 
 function dataBr(iso: string) {

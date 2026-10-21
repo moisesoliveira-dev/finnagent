@@ -12,6 +12,7 @@ import {
   type Vinculo,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
+import { ConfiguracoesService } from "../../configuracoes/aplicacao/configuracoes.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { montarIntervalo } from "../dominio/fuso.js";
@@ -30,6 +31,7 @@ export class AgendaService {
     @Inject(AGENDA_REPOSITORIO) private readonly agenda: AgendaRepositorio,
     @Inject(GOOGLE_AGENDA) private readonly google: GoogleAgenda,
     private readonly financas: FinancasService,
+    private readonly configuracoes: ConfiguracoesService,
   ) {}
 
   async ocorrencias(tenantId: string, year: number, month: number) {
@@ -46,8 +48,9 @@ export class AgendaService {
       .flatMap((item) => ocorrenciasNoMes(item, year, month))
       .map((item) => comVinculo(item, entries))
       .sort((a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title));
+    const config = await this.configuracoes.obter(tenantId);
     return {
-      google: "desconectado",
+      google: config.google,
       calendars,
       appointments,
       entries,

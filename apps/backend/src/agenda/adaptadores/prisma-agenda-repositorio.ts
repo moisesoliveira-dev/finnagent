@@ -74,6 +74,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
       }
       await this.alinharFuso(tx, tenantId, pedido.timezone);
       const criado = await tx.appointment.create({ data: dadosDe(tenantId, pedido) });
+      await this.alinharVinculo(tx, tenantId, pedido.id, pedido.entryId);
       const serial = pedidoSerial(pedido);
       await gravarOutbox(tx, tenantId, "criar-compromisso", pedido.id, serial, marcaDe(serial));
       return compromissoDe(criado, pedido.timezone);
@@ -91,7 +92,10 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
       }
       const status = statusDe(atual.status);
       const completo = { ...pedido, status };
-      if (mesmoCompromisso(atual, completo)) return compromissoDe(atual, pedido.timezone);
+      if (mesmoCompromisso(atual, completo)) {
+        await this.alinharVinculo(tx, tenantId, pedido.id, completo.entryId);
+        return compromissoDe(atual, pedido.timezone);
+      }
       await tx.appointment.updateMany({
         where: { id: pedido.id, tenantId },
         data: {
@@ -114,6 +118,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
           entryId: completo.entryId,
         },
       });
+      await this.alinharVinculo(tx, tenantId, pedido.id, completo.entryId);
       const salvo = await tx.appointment.findFirst({ where: { id: pedido.id, tenantId } });
       if (!salvo) throw new Error("Compromisso ausente depois de gravar a atualização.");
       const serial = pedidoSerial(completo);
@@ -226,6 +231,39 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     }
     if (atual.timezone === timezone) return;
     await tx.calendar.updateMany({ where: { id: atual.id, tenantId }, data: { timezone } });
+  }
+
+  private async alinharVinculo(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    compromissoId: string,
+    entryId: string | null,
+  ) {
+    const ligadas = await tx.entry.findMany({
+      where: { tenantId, commitmentId: compromissoId },
+      select: { id: true, category: true },
+    });
+    for (const linha of ligadas) {
+      if (linha.id === entryId) continue;
+      const deCompromisso =
+        linha.category === "fixed" || linha.category === "installment" || linha.category === "loan";
+      await tx.entry.updateMany({
+        where: { id: linha.id, tenantId },
+        data: {
+          commitmentId: null,
+          transactionType: deCompromisso ? "appointment" : "unusual",
+        },
+      });
+    }
+    if (!entryId) return;
+    await tx.appointment.updateMany({
+      where: { tenantId, entryId, NOT: { id: compromissoId } },
+      data: { entryId: null },
+    });
+    await tx.entry.updateMany({
+      where: { id: entryId, tenantId },
+      data: { commitmentId: compromissoId, transactionType: "appointment" },
+    });
   }
 
   private async alinharFuso(tx: Prisma.TransactionClient, tenantId: string, timezone: FusoAgenda) {

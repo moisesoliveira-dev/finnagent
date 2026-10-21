@@ -7,8 +7,8 @@ export function Stat({
 }) {
   return (
     <div className="grid gap-1">
-      <dt className="text-sm text-ink-2">{label}</dt>
-      <dd className="text-lg font-semibold">{children}</dd>
+      <dt className="etiqueta text-ink-2">{label}</dt>
+      <dd className="font-display text-lg font-bold tracking-titulo">{children}</dd>
     </div>
   );
 }

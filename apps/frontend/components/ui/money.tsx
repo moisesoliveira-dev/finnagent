@@ -17,9 +17,9 @@ export function Money({
   const tone = cents > 0 ? "text-pos" : cents < 0 ? "text-neg" : "text-ink";
   const marca =
     acumulado && cents > 0
-      ? "rounded-sm bg-pos/20 px-2 font-bold"
+      ? "rounded-sm bg-pos-soft px-2 font-bold"
       : acumulado && cents < 0
-        ? "rounded-sm bg-neg/20 px-2 font-bold"
+        ? "rounded-sm bg-neg-soft px-2 font-bold"
         : strong
           ? "font-semibold"
           : "font-medium";

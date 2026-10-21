@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { StatusCompromisso } from "@finnagent/contracts";
 import { Chip } from "../../components/ui/chip";
-import { cn } from "../../components/ui/cn";
+import { Icone } from "../../components/ui/icone";
+import { cn, focusRing } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
@@ -35,7 +36,7 @@ export function ListaMes({
           <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
             {rotuloDoDia(year, month, day)}
             {ehHoje(year, month, day) ? (
-              <Chip tone="ok" className="font-sans font-normal">
+              <Chip tone="ok">
                 Hoje
               </Chip>
             ) : null}
@@ -125,7 +126,7 @@ function ItemDoDia({
   return (
     <ItemAnimado className="relative border-b border-line py-4 pl-3 last:border-b-0">
       <span className={cn("absolute inset-y-3 left-0 w-1 rounded-sm", faixaDoItem(item))} aria-hidden />
-      <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-4">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-4">
         <time className="pt-1 text-xs text-ink-2">{item.time ?? "Dia todo"}</time>
         <div className="grid min-w-0 gap-2">
           <div className="flex items-baseline justify-between gap-3">
@@ -136,21 +137,22 @@ function ItemDoDia({
                   <button
                     type="button"
                     aria-label="Editar"
-                    className="grid size-8 place-items-center rounded-sm text-ink-2! hover:bg-surface-2 hover:text-ink!"
+                    className={cn("grid size-10 place-items-center text-ink-2 hover:bg-surface-2 hover:text-ink", focusRing)}
                     onClick={() => onEdit(item.id)}
                   >
-                    <IconeEditar />
+                    <Icone name="edit" />
                   </button>
                   <button
                     type="button"
                     aria-label={confirmar ? "Confirmar exclusão" : "Excluir"}
                     className={cn(
-                      "grid size-8 place-items-center rounded-sm hover:bg-surface-2",
-                      confirmar ? "text-neg!" : "text-ink-2! hover:text-neg!",
+                      "grid size-10 place-items-center hover:bg-surface-2",
+                      focusRing,
+                      confirmar ? "text-neg" : "text-ink-2 hover:text-neg",
                     )}
                     onClick={onExcluir}
                   >
-                    <IconeExcluir />
+                    <Icone name="remove" />
                   </button>
                 </>
               ) : null}
@@ -171,12 +173,12 @@ function ItemDoDia({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               {pagamento ? (
-                <Chip tone={pagamento === "pago" ? "ok" : "ai"}>
+                <Chip tone={pagamento === "pago" ? "ok" : "default"}>
                   {pagamento === "pago" ? "Pago" : "Pendente"}
                 </Chip>
               ) : null}
               {item.status ? (
-                <Chip tone={item.status === "done" ? "ok" : "ai"}>{rotuloDoStatus(item.status)}</Chip>
+                <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
               ) : null}
             </div>
             {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
@@ -199,35 +201,6 @@ function OkCompromisso({ feito, onChange }: { feito: boolean; onChange: () => vo
       />
       <span className={cn("font-semibold", feito ? "text-brand" : "text-ink-2")}>OK!</span>
     </label>
-  );
-}
-
-function IconeEditar() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M10 2.5 13.5 6 6 13.5H2.5V10L10 2.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconeExcluir() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M3 4.5h10M6 4.5V3h4v1.5M4.2 4.5 4.7 13h6.6l.5-8.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -300,14 +273,14 @@ function Linha({
   return (
     <li
       className={cn(
-        "grid grid-cols-[56px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 border-b border-line px-4 py-3 last:border-b-0 tab:grid-cols-[56px_minmax(0,1fr)_auto]",
+        "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 border-b border-line px-4 py-3 last:border-b-0 tab:grid-cols-[auto_minmax(0,1fr)_auto]",
         item.kind === "compromisso" && "border-l-4 border-l-event pl-3",
       )}
     >
       <time className="text-sm text-ink-2">{item.time ?? "Dia todo"}</time>
       <div className="flex min-w-0 flex-col gap-1 break-words">
         {item.kind === "compromisso" ? (
-          <button type="button" className="text-left font-medium text-ink!" onClick={() => onEdit(item.id)}>
+          <button type="button" className={cn("text-left font-medium text-ink hover:text-brand", focusRing)} onClick={() => onEdit(item.id)}>
             {item.title}
           </button>
         ) : (

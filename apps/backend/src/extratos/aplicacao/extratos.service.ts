@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   centavosNoMes,
+  propostaNoPrazo,
   type ConferenciaResposta,
   type ExtratosResposta,
   type Lancamento,
@@ -160,15 +161,35 @@ export class ExtratosService {
     const base = await this.financas.listar(tenantId, true);
     const doMes = lancamentosDoMes(abertas.entries, abertas.workflow, year, month);
     const linhas = await this.extratos.listarLinhasNoMes(tenantId, year, month);
+    const preferencias = await this.configuracoes.obter(tenantId);
+    if (preferencias.categorize === "aplicar") {
+      for (const linha of linhas) {
+        if (linha.entryId) continue;
+        if (!propostaNoPrazo(linha.importedAt, preferencias.pendingHours)) continue;
+        const suggestion = sugerirCruzamento(linha, doMes);
+        if (!suggestion) continue;
+        const cruzado = await this.extratos.confirmarCruzamento(
+          tenantId,
+          linha.statementId,
+          linha.line,
+          suggestion.entryId,
+        );
+        if (cruzado !== "ausente" && cruzado !== "lancamento-ausente") linha.entryId = suggestion.entryId;
+      }
+    }
     return {
       year,
       month,
       lines: linhas.map((linha) => {
-        const link = vinculoDe(linha.entryId, base.entries);
+        const { importedAt, ...resto } = linha;
+        const link = vinculoDe(resto.entryId, base.entries);
         return {
-          ...linha,
+          ...resto,
           link,
-          suggestion: link ? null : sugerirCruzamento(linha, doMes),
+          suggestion:
+            link || !propostaNoPrazo(importedAt, preferencias.pendingHours)
+              ? null
+              : sugerirCruzamento(resto, doMes),
         };
       }),
     };

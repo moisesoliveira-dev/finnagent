@@ -13,7 +13,9 @@ import {
   type Workflow,
 } from "@finnagent/contracts";
 import { List } from "../../components/ui/list";
+import { Vazio } from "../../components/ui/vazio";
 import { Money } from "../../components/ui/money";
+import { Expandir, Seta } from "../../components/ui/movimento";
 import { Stat } from "../../components/ui/stat";
 import { cn, focusRing } from "../../components/ui/cn";
 
@@ -65,9 +67,9 @@ export function VisaoGeral({
         </dl>
       ) : null}
       {grupos.length === 0 ? (
-        <p className="min-w-0 rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-2">
+        <Vazio>
           <span className="block max-w-prose">Nenhum lançamento neste ano.</span>
-        </p>
+        </Vazio>
       ) : (
       <>
       <div className="grid min-w-0 gap-4 tab:hidden">
@@ -87,12 +89,7 @@ export function VisaoGeral({
                   aria-expanded={aberto}
                   onClick={() => setClosed((current) => ({ ...current, [grupo.id]: aberto }))}
                 >
-                  <span
-                    className={cn(
-                      "size-2 shrink-0 border-r-2 border-b-2 border-ink-2 transition-transform duration-150 motion-reduce:transition-none",
-                      aberto ? "rotate-45" : "-rotate-45",
-                    )}
-                  />
+                  <Seta aberto={aberto} />
                   <span className="min-w-0 flex-1 wrap-break-word">{grupo.name}</span>
                   <span className="shrink-0 font-sans leading-normal tracking-normal">
                     <Money cents={somaDosCentavos(somas)} acumulado />
@@ -118,7 +115,7 @@ export function VisaoGeral({
                   );
                 })}
               </dl>
-              {aberto ? (
+              <Expandir aberto={aberto}>
                 <ul className="min-w-0">
                   {grupo.entries.map((entry) => {
                     const valores = colunas.map((month) => centavosNoMes(entry, workflow, year, month));
@@ -151,7 +148,7 @@ export function VisaoGeral({
                     );
                   })}
                 </ul>
-              ) : null}
+              </Expandir>
             </section>
           );
         })}
@@ -162,15 +159,15 @@ export function VisaoGeral({
           <caption className="sr-only">Visão geral por mês</caption>
           <thead>
             <tr>
-              <th scope="col" className={cabeca("sticky left-0 z-20 min-w-64 border-r")}>
+              <th scope="col" className={cabeca("sticky left-0 z-20 min-w-0 border-r")}>
                 Grupo e transação
               </th>
               {colunas.map((month) => (
-                <th key={month} scope="col" className={cn(cabeca(), "min-w-28 text-right")}>
+                <th key={month} scope="col" className={cn(cabeca(), "min-w-0 text-right")}>
                   {NOME_MES[month]}
                 </th>
               ))}
-              <th scope="col" className={cabeca("sticky right-0 z-20 min-w-28 border-l text-right")}>
+              <th scope="col" className={cabeca("sticky right-0 z-20 min-w-0 border-l text-right")}>
                 Total
               </th>
             </tr>
@@ -205,12 +202,7 @@ export function VisaoGeral({
                         setClosed((current) => ({ ...current, [grupo.id]: aberto }))
                       }
                     >
-                      <span
-                        className={cn(
-                          "size-2 shrink-0 border-r-2 border-b-2 border-ink-2 transition-transform duration-150 motion-reduce:transition-none",
-                          aberto ? "rotate-45" : "-rotate-45",
-                        )}
-                      />
+                      <Seta aberto={aberto} />
                       {grupo.name}
                     </button>
                   </th>
@@ -422,28 +414,28 @@ function agrupar(entries: Lancamento[]) {
 
 function cabeca(extra = "") {
   return cn(
-    "border-b border-line bg-surface px-3 py-3 text-left align-top font-semibold whitespace-nowrap text-ink-2",
+    "border-b border-line bg-surface px-3 py-3 text-left align-top etiqueta whitespace-nowrap text-ink-2",
     extra,
   );
 }
 
 function fixa(fundo: string) {
   return cn(
-    "sticky left-0 z-10 min-w-64 border-r border-b border-line px-3 py-3 text-left align-top whitespace-nowrap",
+    "sticky left-0 z-10 min-w-0 border-r border-b border-line px-3 py-3 text-left align-top whitespace-nowrap",
     fundo,
   );
 }
 
 function numero(fundo: string) {
   return cn(
-    "min-w-28 border-b border-line px-3 py-3 text-right align-top whitespace-nowrap",
+    "min-w-0 border-b border-line px-3 py-3 text-right align-top whitespace-nowrap",
     fundo,
   );
 }
 
 function total(fundo: string) {
   return cn(
-    "sticky right-0 z-10 min-w-28 border-b border-l border-line px-3 py-3 text-right align-top font-semibold whitespace-nowrap",
+    "sticky right-0 z-10 min-w-0 border-b border-l border-line px-3 py-3 text-right align-top font-semibold whitespace-nowrap",
     fundo,
   );
 }

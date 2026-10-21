@@ -1,12 +1,16 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { calcularMeta, type CalculoMeta, type Meta, type MetasResposta } from "@finnagent/contracts";
 import { CampoValor } from "../financas/campo-valor";
 import { reaisParaCentavos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
+import { Dialogo } from "../../components/ui/dialogo";
+import { ItemAnimado, ListaAnimada, useCurva } from "../../components/ui/movimento";
 import { Chip } from "../../components/ui/chip";
-import { focusRing } from "../../components/ui/cn";
+import { campo, cn, focusRing } from "../../components/ui/cn";
+import { Vazio } from "../../components/ui/vazio";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
@@ -28,9 +32,7 @@ const MESES = [
   "Dezembro",
 ];
 
-const field = `min-h-10 w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`;
-const dialogClass =
-  "rounded-lg border border-line bg-surface text-ink backdrop:bg-overlay/80";
+const field = cn(campo, "w-full");
 
 function reais(cents: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
@@ -85,6 +87,7 @@ function textoDoCalculo(meta: Pick<Meta, "dueYear" | "dueMonth">, calculo: Calcu
 
 export default function MetasPage() {
   const toast = useToast();
+  const curva = useCurva();
   const dialogo = useRef<HTMLDialogElement>(null);
   const exclusao = useRef<HTMLDialogElement>(null);
   const [dados, setDados] = useState<MetasResposta | null>(null);
@@ -163,10 +166,7 @@ export default function MetasPage() {
         toast.sucesso("Meta excluída.");
         return carregar();
       })
-      .then(() => {
-        setApagando(null);
-        exclusao.current?.close();
-      })
+      .then(() => exclusao.current?.close())
       .catch((error: Error) => toast.erro(error.message))
       .finally(() => setSalvando(false));
   }
@@ -215,11 +215,9 @@ export default function MetasPage() {
           </dl>
 
           {dados.goals.length === 0 ? (
-            <p className="rounded-lg border border-line bg-surface p-6 text-sm text-ink-2">
-              Nenhuma meta ainda. Crie a primeira para ver quanto separar por mês.
-            </p>
+            <Vazio>Nenhuma meta ainda. Crie a primeira para ver quanto separar por mês.</Vazio>
           ) : (
-            <ul className="grid gap-4 tab:grid-cols-2">
+            <ListaAnimada className="grid gap-4 tab:grid-cols-2">
               {dados.goals.map((meta) => {
                 const calculo = calcularMeta(meta, dados, dados.surplusCents);
                 const progresso =
@@ -227,7 +225,7 @@ export default function MetasPage() {
                     ? Math.min(100, Math.round((meta.savedCents / meta.targetCents) * 100))
                     : 0;
                 return (
-                  <li key={meta.id} className="grid min-w-0 gap-3 rounded-lg border border-line bg-surface p-4">
+                  <ItemAnimado key={meta.id} className="grid min-w-0 gap-3 rounded-lg border border-line bg-surface p-4">
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <h2 className="min-w-0 font-display text-lg wrap-break-word">{meta.name}</h2>
                       {calculo.alcancada ? (
@@ -237,7 +235,12 @@ export default function MetasPage() {
                       ) : null}
                     </div>
                     <div className="h-2 overflow-hidden rounded-sm bg-brand-soft" aria-hidden>
-                      <div className="h-full bg-brand" style={{ width: `${progresso}%` }} />
+                      <motion.div
+                        className="h-full bg-brand"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progresso}%` }}
+                        transition={curva}
+                      />
                     </div>
                     <p className="text-sm font-medium">
                       {reais(meta.savedCents)} de {reais(meta.targetCents)}
@@ -258,17 +261,16 @@ export default function MetasPage() {
                         Excluir
                       </Button>
                     </div>
-                  </li>
+                  </ItemAnimado>
                 );
               })}
-            </ul>
+            </ListaAnimada>
           )}
         </>
       ) : null}
 
-      <dialog
+      <Dialogo
         ref={dialogo}
-        className={dialogClass}
         aria-labelledby="titulo-nova-meta"
       >
         <h2 id="titulo-nova-meta" className="mb-4 font-display text-lg">
@@ -372,9 +374,9 @@ export default function MetasPage() {
             </Button>
           </div>
         </form>
-      </dialog>
+      </Dialogo>
 
-      <dialog ref={exclusao} className={dialogClass} aria-labelledby="titulo-excluir-meta">
+      <Dialogo ref={exclusao} aria-labelledby="titulo-excluir-meta" onClose={() => setApagando(null)}>
         <div className="dialog-corpo grid gap-4">
           <h2 id="titulo-excluir-meta" className="font-display text-lg">
             Excluir esta meta?
@@ -384,10 +386,7 @@ export default function MetasPage() {
         <div className="dialog-acoes">
             <Button
               variant="quiet"
-              onClick={() => {
-                setApagando(null);
-                exclusao.current?.close();
-              }}
+              onClick={() => exclusao.current?.close()}
             >
               Cancelar
             </Button>
@@ -395,7 +394,7 @@ export default function MetasPage() {
               Excluir
             </Button>
           </div>
-      </dialog>
+      </Dialogo>
     </>
   );
 }

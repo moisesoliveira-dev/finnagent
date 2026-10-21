@@ -2,68 +2,83 @@
 
 :root {
   color-scheme: light;
-  --bg: #edf0f2;
+  --bg: #fafaf7;
   --surface: #ffffff;
-  --surface-2: #f5f7f8;
-  --ink: #14202b;
-  --ink-2: #4a5866;
-  --line: #d9dfe4;
-  --brand: #0e5a52;
+  --surface-2: #f3f2ec;
+  --ink: oklch(0.2 0.012 148);
+  --ink-2: oklch(0.46 0.012 148);
+  --line: #e3e2da;
+  --brand: oklch(0.536 0.1296 222.9);
   --brand-ink: #ffffff;
-  --brand-soft: #dcebe8;
-  --pending: #8a5a0b;
-  --pending-soft: #fbf0d9;
-  --pending-line: #e3a93b;
-  --pos: #1b7f4b;
-  --neg: #b8392f;
-  --event: #3a4fa3;
-  --event-soft: #e4e8f6;
-  --overlay: #14202b;
+  --brand-soft: color-mix(in oklch, oklch(0.536 0.1296 222.9) 10%, var(--surface));
+  --cta: oklch(0.88 0.18 96);
+  --cta-ink: #171309;
+  --pending: oklch(0.52 0.12 62);
+  --pending-soft: oklch(0.96 0.04 78);
+  --pending-line: oklch(0.76 0.14 70);
+  --pos: oklch(0.52 0.13 155);
+  --neg: oklch(0.55 0.2 27);
+  --pos-soft: color-mix(in oklch, oklch(0.52 0.13 155) 14%, var(--surface));
+  --neg-soft: color-mix(in oklch, oklch(0.55 0.2 27) 12%, var(--surface));
+  --event: oklch(0.5 0.17 268);
+  --event-soft: color-mix(in oklch, oklch(0.5 0.17 268) 10%, var(--surface));
+  --overlay: #0d1111;
+  --pontos: oklch(0.2 0.012 148 / 0.1);
   --cursor-prumo: url("/cursor.svg") 1 1;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f161c;
-  --surface: #17212a;
-  --surface-2: #1d2833;
-  --ink: #e8edf1;
-  --ink-2: #9daab6;
-  --line: #2a3743;
-  --brand: #4db8a8;
-  --brand-ink: #06201c;
-  --brand-soft: #153630;
-  --pending: #e8b866;
-  --pending-soft: #33290f;
-  --pending-line: #c8912f;
-  --pos: #5cc98a;
-  --neg: #f0847a;
-  --event: #8fa2f0;
-  --event-soft: #1e2547;
-  --overlay: #05080c;
+  --bg: #0d1111;
+  --surface: #13181a;
+  --surface-2: #171d20;
+  --ink: #ededec;
+  --ink-2: #8b9291;
+  --line: #263034;
+  --brand: oklch(0.74 0.12 222.9);
+  --brand-ink: #061318;
+  --brand-soft: color-mix(in oklch, oklch(0.74 0.12 222.9) 12%, var(--surface));
+  --cta: oklch(0.88 0.18 96);
+  --cta-ink: #171309;
+  --pending: oklch(0.82 0.13 78);
+  --pending-soft: color-mix(in oklch, oklch(0.82 0.13 78) 10%, var(--surface));
+  --pending-line: oklch(0.7 0.13 70);
+  --pos: oklch(0.76 0.15 155);
+  --neg: oklch(0.7 0.19 26);
+  --pos-soft: color-mix(in oklch, oklch(0.76 0.15 155) 16%, var(--surface));
+  --neg-soft: color-mix(in oklch, oklch(0.7 0.19 26) 16%, var(--surface));
+  --event: oklch(0.72 0.15 262);
+  --event-soft: color-mix(in oklch, oklch(0.72 0.15 262) 12%, var(--surface));
+  --overlay: #030304;
+  --pontos: rgb(237 237 236 / 0.07);
   --cursor-prumo: url("/cursor-dark.svg") 1 1;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0f161c;
-    --surface: #17212a;
-    --surface-2: #1d2833;
-    --ink: #e8edf1;
-    --ink-2: #9daab6;
-    --line: #2a3743;
-    --brand: #4db8a8;
-    --brand-ink: #06201c;
-    --brand-soft: #153630;
-    --pending: #e8b866;
-    --pending-soft: #33290f;
-    --pending-line: #c8912f;
-    --pos: #5cc98a;
-    --neg: #f0847a;
-    --event: #8fa2f0;
-    --event-soft: #1e2547;
-    --overlay: #05080c;
+    --bg: #0d1111;
+    --surface: #13181a;
+    --surface-2: #171d20;
+    --ink: #ededec;
+    --ink-2: #8b9291;
+    --line: #263034;
+    --brand: oklch(0.74 0.12 222.9);
+    --brand-ink: #061318;
+    --brand-soft: color-mix(in oklch, oklch(0.74 0.12 222.9) 12%, var(--surface));
+    --cta: oklch(0.88 0.18 96);
+    --cta-ink: #171309;
+    --pending: oklch(0.82 0.13 78);
+    --pending-soft: color-mix(in oklch, oklch(0.82 0.13 78) 10%, var(--surface));
+    --pending-line: oklch(0.7 0.13 70);
+    --pos: oklch(0.76 0.15 155);
+    --neg: oklch(0.7 0.19 26);
+  --pos-soft: color-mix(in oklch, oklch(0.76 0.15 155) 16%, var(--surface));
+  --neg-soft: color-mix(in oklch, oklch(0.7 0.19 26) 16%, var(--surface));
+    --event: oklch(0.72 0.15 262);
+    --event-soft: color-mix(in oklch, oklch(0.72 0.15 262) 12%, var(--surface));
+    --overlay: #030304;
+    --pontos: rgb(237 237 236 / 0.07);
     --cursor-prumo: url("/cursor-dark.svg") 1 1;
   }
 }
@@ -79,11 +94,15 @@
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);
   --color-brand-soft: var(--brand-soft);
+  --color-cta: var(--cta);
+  --color-cta-ink: var(--cta-ink);
   --color-pending: var(--pending);
   --color-pending-soft: var(--pending-soft);
   --color-pending-line: var(--pending-line);
   --color-pos: var(--pos);
   --color-neg: var(--neg);
+  --color-pos-soft: var(--pos-soft);
+  --color-neg-soft: var(--neg-soft);
   --color-event: var(--event);
   --color-event-soft: var(--event-soft);
   --color-overlay: var(--overlay);
@@ -93,17 +112,21 @@
   --breakpoint-*: initial;
   --breakpoint-tab: 760px;
   --breakpoint-desk: 1100px;
-  --font-display: var(--font-bricolage), "Segoe UI", system-ui, sans-serif;
-  --font-sans: var(--font-figtree), "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-orbiter), "Segoe UI", system-ui, sans-serif;
+  --font-sans: var(--font-orbiter), "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.25rem;
   --text-xl: 1.75rem;
   --text-2xl: 2.5rem;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 18px;
+  --text-2xs: 0.6875rem;
+  --tracking-titulo: -0.03em;
+  --tracking-rotulo: 0.1em;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
   --container-prose: 72ch;
 }
 
@@ -117,6 +140,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   line-height: 1.5;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -125,14 +149,49 @@ h2,
 h3 {
   font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+h1 {
+  letter-spacing: -0.035em;
+}
+
+/* Etiqueta em mono, maiúscula e espaçada: navegação, chip, rótulo de número. */
+@utility etiqueta {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-rotulo);
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* A mesma etiqueta, no tamanho do texto de botão. */
+@utility etiqueta-botao {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-rotulo);
+  text-transform: uppercase;
+}
+
+/* Trama de pontos, usada no fundo da navegação. */
+@utility pontos {
+  background-image: radial-gradient(var(--pontos) 1px, transparent 1px);
+  background-size: 6px 6px;
 }
 
 button {
-  font: inherit;
-  color: inherit;
   cursor: pointer;
+}
+
+/* Na camada base, para a fonte e a cor do utilitário valerem no botão. */
+@layer base {
+  button {
+    font: inherit;
+    color: inherit;
+  }
 }
 
 * {
@@ -173,6 +232,27 @@ dialog {
   margin: auto;
   overflow: hidden;
   padding: 1.5rem 1.5rem 0;
+}
+
+dialog::backdrop {
+  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@starting-style {
+  dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+dialog[data-saindo]::backdrop {
+  opacity: 0;
+  transition-duration: 0.18s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog::backdrop {
+    transition: none;
+  }
 }
 
 dialog[data-largura="media"] {
