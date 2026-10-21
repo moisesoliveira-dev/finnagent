@@ -39,6 +39,11 @@ describe("ocorrências do compromisso", () => {
     expect(ocorrenciasNoMes(serie, 2026, 10).map((item) => item.day)).toEqual([7]);
     expect(ocorrenciasNoMes(serie, 2026, 12).map((item) => item.day)).toEqual([7]);
     expect(ocorrenciasNoMes(serie, 2027, 1).map((item) => item.day)).toEqual([7]);
+    expect(ocorrenciasNoMes(serie, 2026, 12)[0]).toMatchObject({
+      anchorYear: 2026,
+      anchorMonth: 10,
+      anchorDay: 7,
+    });
   });
 
   it("encosta o periódico do dia 31 no último dia do mês curto", () => {
