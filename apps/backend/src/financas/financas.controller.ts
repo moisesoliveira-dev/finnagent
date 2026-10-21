@@ -98,6 +98,15 @@ const criarLancamento = z
   });
 
 const statusPedido = z.object({ status: z.enum(STATUS_TRANSACAO) });
+const ocorrenciaPedido = z
+  .object({
+    status: z.enum(STATUS_TRANSACAO).optional(),
+    dueDate: dataIso.optional(),
+    plannedCents: z.number().int().gte(-2_147_483_647).lte(2_147_483_647).optional(),
+  })
+  .refine(
+    (pedido) => pedido.status != null || pedido.dueDate != null || pedido.plannedCents != null,
+  );
 const compromissoPedido = z.object({ commitmentId: z.uuid() });
 const mesPedido = z.object({
   year: z.number().int().min(2000).max(2100),
@@ -166,6 +175,27 @@ export class FinancasController {
     if (!parsed.success) throw new BadRequestException("Escolha o status da transação.");
     return this.executar(() =>
       this.financas.atualizarStatus(this.tenant(tenant), this.id(id), parsed.data.status),
+    );
+  }
+
+  @Patch("lancamentos/:id/ocorrencias/:numero")
+  atualizarOcorrencia(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Param("numero") numero: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = ocorrenciaPedido.safeParse(body);
+    const number = Number(numero);
+    if (!parsed.success || !Number.isInteger(number) || number < 1 || number > 3660) {
+      throw new BadRequestException("Não foi possível atualizar a ocorrência.");
+    }
+    if (parsed.data.dueDate && !dataValida(parsed.data.dueDate)) {
+      throw new BadRequestException("Informe uma data válida.");
+    }
+    if (parsed.data.plannedCents === 0) throw new BadRequestException("Informe o valor.");
+    return this.executar(() =>
+      this.financas.atualizarOcorrencia(this.tenant(tenant), this.id(id), number, parsed.data),
     );
   }
 

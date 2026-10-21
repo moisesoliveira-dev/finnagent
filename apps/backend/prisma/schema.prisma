@@ -87,12 +87,29 @@ model Entry {
   session           Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   amounts           EntryAmount[]
   adjustments       EntryAdjustment[]
+  occurrences       EntryOccurrence[]
   appointments      Appointment[]
   statementLines    StatementLine[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
   @@map("entries")
+}
+
+model EntryOccurrence {
+  tenantId     String    @map("tenant_id")
+  entryId      String    @map("entry_id")
+  number       Int
+  dueOn        DateTime  @map("due_on") @db.Date
+  plannedCents Int       @map("planned_cents")
+  paidCents    Int?      @map("paid_cents")
+  paidOn       DateTime? @map("paid_on") @db.Date
+  status       String    @default("pending")
+  entry        Entry     @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([tenantId, entryId, number])
+  @@index([tenantId])
+  @@map("entry_occurrences")
 }
 
 model EntryAdjustment {

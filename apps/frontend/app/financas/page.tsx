@@ -11,6 +11,8 @@ import {
   ajustarTransacao,
   centavosComSinal,
   categoriaDeCompromisso,
+  ocorrenciasDoLancamento,
+  termosTravados,
   categoriaSempreEntrada,
   categoriaSempreSaida,
   prioridadeAplicavel,
@@ -27,12 +29,14 @@ import {
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
+import { Money } from "../../components/ui/money";
 import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
 import { AcoesTransacao, ControleExclusao } from "./acoes";
+import { OcorrenciasDoLancamento } from "./ocorrencias";
 import { TabelaLancamentos } from "./tabela";
 import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
@@ -136,6 +140,9 @@ export default function Financas() {
   const vista = draft ? ajustarTransacao(draft) : null;
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
+  const travado = entrada
+    ? termosTravados(ocorrenciasDoLancamento(entrada), entrada.synced)
+    : false;
 
   async function excluir(entry: Lancamento) {
     if (entry.synced) {
@@ -254,6 +261,7 @@ export default function Financas() {
     }
     if (
       parcelado &&
+      !editando &&
       (!Number.isInteger(installmentNumber) ||
         (installmentNumber ?? 0) < 1 ||
         (installmentNumber ?? 0) > (installments ?? 0))
@@ -401,6 +409,7 @@ export default function Financas() {
         <dialog
           ref={dialog}
           className={dialogClass}
+          data-largura={entrada ? "larga" : undefined}
           onClose={() => setDraft(null)}
         >
           <h2 className="mb-4 font-display text-lg">{editando ? "Editar lançamento" : "Novo lançamento"}</h2>
@@ -477,6 +486,12 @@ export default function Financas() {
                 className={cn(field, "min-h-16 py-2")}
               />
             </div>
+            {editando && travado && draft && entrada ? (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2">
+                <time dateTime={draft.date}>{dataBr(draft.date)}</time>
+                <Money cents={centavosDoContrato(entrada)} />
+              </p>
+            ) : (
             <div className="dialog-par">
               <div className="grid gap-1">
                 <Rotulo htmlFor="lancamento-data" dica="O dia deste lançamento.">
@@ -508,9 +523,11 @@ export default function Financas() {
                 />
               </div>
             </div>
+            )}
             {editando && vista && draft ? (
               <p className="text-sm text-ink-2">{resumoDaBase(draft, vista)}</p>
-            ) : (
+            ) : null}
+            {editando ? null : (
               <div className="dialog-par">
                 <CampoSelect
                   id="lancamento-categoria"
@@ -560,6 +577,7 @@ export default function Financas() {
               </div>
             )}
             <div className="dialog-par">
+              {editando ? null : (
               <CampoSelect
                 id="lancamento-status"
                 label="Status"
@@ -572,6 +590,7 @@ export default function Financas() {
                   )
                 }
               />
+              )}
               {vista && prioridadeAplicavel(vista.category, vista.mode) ? (
                 <CampoSelect
                   id="lancamento-prioridade"
@@ -590,8 +609,9 @@ export default function Financas() {
                 />
               ) : null}
             </div>
-            {draft?.category === "installment" || draft?.category === "loan" ? (
+            {draft && (draft.category === "installment" || draft.category === "loan") && (!editando || !travado) ? (
               <div className="dialog-par">
+                {editando ? null : (
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-parcela" dica="Qual parcela está em andamento.">
                     Parcela atual
@@ -608,7 +628,8 @@ export default function Financas() {
                     className={field}
                   />
                 </div>
-                {editando ? null : (
+                )}
+                {editando && travado ? null : (
                   <div className="grid gap-1">
                     <Rotulo htmlFor="lancamento-parcelas" dica="Quantas parcelas este lançamento tem.">
                       Total de parcelas
@@ -628,7 +649,7 @@ export default function Financas() {
                 )}
               </div>
             ) : null}
-            {!editando && draft?.category === "loan" ? (
+            {(!editando || !travado) && draft?.category === "loan" ? (
               <div className="dialog-par">
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-vencimento" dica="O dia em que o empréstimo vence.">
@@ -666,7 +687,7 @@ export default function Financas() {
             ) : null}
             {draft?.category === "fixed" ? (
               <div className="grid gap-4">
-                {editando ? null : (
+                {!editando || !travado ? (
                   <div className="dialog-par">
                     <CampoSelect
                       id="lancamento-recorrencia"
@@ -703,7 +724,8 @@ export default function Financas() {
                       />
                     </div>
                   </div>
-                )}
+                ) : null}
+                {editando ? null : (
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-proximo" dica="A próxima data em que o valor fixo acontece.">
                     Próximo vencimento
@@ -720,7 +742,18 @@ export default function Financas() {
                     className={field}
                   />
                 </div>
+                )}
               </div>
+            ) : null}
+            {entrada ? (
+              <OcorrenciasDoLancamento
+                entry={entrada}
+                onAtualizar={async () => {
+                  const resposta = await carregar();
+                  const atual = resposta?.entries.find((item) => item.id === entrada.id);
+                  if (atual) setDraft(rascunhoDe(atual));
+                }}
+              />
             ) : null}
             {entrada ? (
               <AcoesTransacao
@@ -804,11 +837,15 @@ function subtitulo(workflow: Workflow) {
   return `Workflow de ${workflow.year} · iniciado em ${doisDigitos(workflow.day)}/${doisDigitos(workflow.month)}`;
 }
 
-function rascunhoDe(entry: Lancamento): Rascunho {
+function centavosDoContrato(entry: Lancamento) {
   const doMes = entry.months.find(
     (mes) => mes.year === entry.startYear && mes.month === entry.startMonth,
   );
-  const valor = entry.cents !== 0 ? entry.cents : (doMes?.cents ?? entry.cents);
+  return entry.cents !== 0 ? entry.cents : (doMes?.cents ?? entry.cents);
+}
+
+function rascunhoDe(entry: Lancamento): Rascunho {
+  const valor = centavosDoContrato(entry);
   return {
     id: entry.id,
     sessionId: entry.sessionId,

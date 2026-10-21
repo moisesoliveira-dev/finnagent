@@ -45,7 +45,12 @@ export class FinancasService {
     if (resultado === "sessao-ausente") throw new NaoEncontrado("Sessão não encontrada.");
     if (resultado === "sessao-encerrada") throw new Conflito("Essa sessão já foi encerrada.");
     if (resultado === "base") {
-      throw new Conflito("Movimento, categoria e os dados definidos na criação não podem ser alterados.");
+      throw new Conflito("Movimento e categoria não podem ser alterados.");
+    }
+    if (resultado === "ocorrencia") {
+      throw new Conflito(
+        "Data, valor e os termos ficam travados quando alguma ocorrência já saiu de pendente ou o lançamento foi cruzado com o extrato.",
+      );
     }
     if (typeof resultado === "string") throw new Conflito("Não foi possível salvar o lançamento.");
     return resultado;
@@ -53,6 +58,15 @@ export class FinancasService {
 
   atualizarStatus(tenantId: string, id: string, status: StatusTransacao) {
     return this.um(this.financas.atualizarStatus(tenantId, id, status));
+  }
+
+  atualizarOcorrencia(
+    tenantId: string,
+    id: string,
+    number: number,
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
+  ) {
+    return this.um(this.financas.atualizarOcorrencia(tenantId, id, number, pedido));
   }
 
   associarCompromisso(tenantId: string, id: string, commitmentId: string) {
@@ -102,6 +116,12 @@ export class FinancasService {
     if (codigo === "concluida") throw new Conflito("As parcelas já foram concluídas.");
     if (codigo === "sincronizado") {
       throw new Conflito("Esse lançamento foi sincronizado com o extrato e não pode ser apagado.");
+    }
+    if (codigo === "bloqueada") throw new Conflito("Essa ocorrência não pode receber essa alteração.");
+    if (codigo === "ocorrencia") {
+      throw new Conflito(
+        "Data, valor e os termos ficam travados quando alguma ocorrência já saiu de pendente ou o lançamento foi cruzado com o extrato.",
+      );
     }
     throw new Conflito("Não foi possível atualizar a transação.");
   }
