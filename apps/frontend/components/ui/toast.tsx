@@ -112,19 +112,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             transition={curva}
             role={aviso.tom === "sucesso" ? "status" : "alert"}
             className={cn(
-              "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-md border bg-surface p-3 text-sm text-ink",
+              "flex items-start gap-3 rounded-md border bg-surface p-3 text-sm text-ink",
               aviso.tom === "sucesso" && "border-brand bg-brand-soft",
               aviso.tom === "erro" && "border-neg",
-              aviso.tom === "alerta" && "border-pending-line bg-pending-soft",
+              aviso.tom === "alerta" && "border-line",
             )}
           >
-            <p className="min-w-0">
+            <p className="min-w-0 flex-1">
               <span
                 className={cn(
                   "etiqueta",
                   aviso.tom === "sucesso" && "text-brand",
                   aviso.tom === "erro" && "text-neg",
-                  aviso.tom === "alerta" && "text-pending",
+                  aviso.tom === "alerta" && "text-ink",
                 )}
               >
                 {rotulo[aviso.tom]}

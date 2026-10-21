@@ -101,7 +101,7 @@ export function GradeMes({
               >
                 {day}
               </button>
-              <span className="hidden min-w-0 flex-col gap-0.5 tab:flex">
+              <span className="hidden min-w-0 flex-col gap-1 tab:flex">
                 {compromissos.slice(0, 3).map((item) => (
                   <div
                     key={`${item.id}-chip`}
@@ -134,19 +134,19 @@ export function GradeMes({
                   </button>
                 ) : null}
               </span>
-              <span className="mt-auto flex flex-wrap gap-[3px]">
+              <span className="mt-auto flex flex-wrap gap-1">
                 {doDia.slice(0, 4).map((item) => (
                   <span
                     key={item.id}
                     aria-hidden
-                    className={cn("size-1.5 rounded-full tab:hidden", corDoPonto(item))}
+                    className={cn("size-1 rounded-full tab:hidden", corDoPonto(item))}
                   />
                 ))}
                 {lancamentos.slice(0, 4).map((item) => (
                   <span
                     key={`${item.id}-mesa`}
                     aria-hidden
-                    className={cn("hidden size-1.5 rounded-full tab:inline-block", corDoPonto(item))}
+                    className={cn("hidden size-1 rounded-full tab:inline-block", corDoPonto(item))}
                   />
                 ))}
               </span>

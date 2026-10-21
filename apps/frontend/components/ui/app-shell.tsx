@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { Button } from "./button";
 import { Rotulo } from "./rotulo";
-import { cn, focusRing } from "./cn";
+import { campo, cn, focusRing } from "./cn";
 import { useCurva } from "./movimento";
 
 const items = [
@@ -140,7 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <input
               id="assistant-message"
               placeholder="Registre um gasto ou marque um compromisso"
-              className={`min-h-10 min-w-0 flex-1 rounded-sm border border-line bg-surface px-3 text-base text-ink ${focusRing}`}
+              className={cn(campo, "flex-1")}
             />
             <Button type="submit" variant="primary">
               Enviar
