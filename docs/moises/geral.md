@@ -285,3 +285,23 @@ Arquivos:
 - `.cursor/rules/monorepo.mdc`
 - `.cursor/rules/hospedagem.mdc`
 - `.cursor/rules/docker.mdc`
+
+## Edição do compromisso
+
+O que foi feito: o compromisso pode ser atualizado e apagado. Na grade, o dia muda de fundo com o mouse e fica marcado ao clicar. O modal do dia mostra o lápis e a lixeira em cada compromisso. Arrastar para outro dia muda a data. Na lista e no dia, o título também abre a edição. O diálogo tem Salvar e Excluir, com confirmação. Apagar solta o lançamento que apontava para o compromisso. Uma repetição movida passa a começar no dia novo. O evento de atualizar é atualizar-compromisso e o de apagar é excluir-compromisso.
+
+Motivo: a agenda só criava compromisso e mudava o status.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/agenda/aplicacao/agenda.service.ts`
+- `apps/backend/src/agenda/aplicacao/ocorrencias.ts`
+- `apps/backend/src/agenda/aplicacao/ocorrencias.spec.ts`
+- `apps/backend/src/agenda/adaptadores/prisma-agenda-repositorio.ts`
+- `apps/backend/src/agenda/agenda.controller.ts`
+- `apps/backend/src/agenda/portas/agenda-repositorio.ts`
+- `apps/frontend/app/api/compromissos/[id]/route.ts`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/agenda/grade.tsx`
+- `apps/frontend/app/agenda/lista.tsx`
