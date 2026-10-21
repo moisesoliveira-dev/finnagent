@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { cn, focusRing } from "../../components/ui/cn";
 import { diasDoMes, itensNoDia, rotuloDoDia, type ItemDia } from "./itens";
 
@@ -12,6 +13,7 @@ export function GradeMes({
   onSelect,
   onOpen,
   onContext,
+  onMove,
 }: {
   year: number;
   month: number;
@@ -21,7 +23,10 @@ export function GradeMes({
   onSelect: (day: number) => void;
   onOpen: (day: number) => void;
   onContext: (day: number, x: number, y: number) => void;
+  onMove: (id: string, day: number) => void;
 }) {
+  const arrastou = useRef(false);
+  const [destino, setDestino] = useState<number | null>(null);
   const dias = diasDoMes(year, month);
   const inicio = new Date(year, month - 1, 1).getDay();
   const anterior = new Date(year, month - 1, 0).getDate();
@@ -57,48 +62,76 @@ export function GradeMes({
           const compromissos = doDia.filter((item) => item.kind === "compromisso");
           const lancamentos = doDia.filter((item) => item.kind === "lancamento");
           return (
-            <button
+            <div
               key={`dia-${day}`}
-              type="button"
               data-dia={day}
-              aria-haspopup="menu"
-              aria-pressed={day === selected}
-              aria-label={`${rotuloDoDia(year, month, day)}, ${doDia.length} itens`}
               className={cn(
-                "flex min-h-[68px] flex-col items-stretch gap-1 bg-surface p-1 text-left tab:min-h-[108px] tab:p-2",
-                day === selected
-                  ? "outline-solid outline-2 -outline-offset-2 outline-brand focus-visible:ring-3 focus-visible:ring-brand/40"
-                  : focusRing,
+                "flex min-h-[68px] cursor-pointer flex-col items-stretch gap-1 p-1 text-left tab:min-h-[108px] tab:p-2",
+                day === selected ? "bg-brand-soft" : "bg-surface hover:bg-surface-2",
+                destino === day && "bg-event-soft",
               )}
-              onClick={() => onSelect(day)}
+              onClick={() => onOpen(day)}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDestino(day);
+              }}
+              onDragLeave={() => setDestino((atual) => (atual === day ? null : atual))}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDestino(null);
+                const id = event.dataTransfer.getData("text/plain");
+                if (id) onMove(id, day);
+              }}
               onDoubleClick={() => onOpen(day)}
               onContextMenu={(event) => {
                 event.preventDefault();
-                const x = event.clientX;
-                const y = event.clientY;
-                onContext(day, x, y);
+                onContext(day, event.clientX, event.clientY);
               }}
             >
-              <span
+              <button
+                type="button"
+                aria-pressed={day === selected}
+                aria-label={`${rotuloDoDia(year, month, day)}, ${doDia.length} itens`}
                 className={cn(
                   "grid size-6 place-items-center self-start rounded-sm text-sm font-semibold",
-                  day === today && "bg-brand text-brand-ink",
+                  focusRing,
+                  day === today && "bg-brand text-brand-ink!",
                 )}
+                onClick={() => onSelect(day)}
               >
                 {day}
-              </span>
+              </button>
               <span className="hidden min-w-0 flex-col gap-0.5 tab:flex">
-                {compromissos.slice(0, 2).map((item) => (
-                  <span
+                {compromissos.slice(0, 3).map((item) => (
+                  <div
                     key={`${item.id}-chip`}
-                    className="flex min-w-0 items-center gap-1 rounded-sm bg-event-soft px-1 text-xs leading-snug text-event"
+                    draggable
+                    onDragStart={(event) => {
+                      arrastou.current = true;
+                      event.dataTransfer.setData("text/plain", item.id);
+                      event.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragEnd={() => {
+                      setDestino(null);
+                      window.setTimeout(() => {
+                        arrastou.current = false;
+                      }, 0);
+                    }}
+                    className="flex min-w-0 items-center gap-1 rounded-sm bg-event-soft px-1 text-left text-xs leading-snug text-event"
                   >
+                    {item.time ? <span className="shrink-0 tabular-nums">{item.time}</span> : null}
                     <span className="min-w-0 flex-1 truncate">{item.title}</span>
                     {item.link ? <span className="font-semibold">R$</span> : null}
-                  </span>
+                  </div>
                 ))}
-                {compromissos.length > 2 ? (
-                  <span className="text-xs text-ink-2">+{compromissos.length - 2} mais</span>
+                {compromissos.length > 3 ? (
+                  <button
+                    type="button"
+                    className="text-left text-xs text-ink-2!"
+                    onClick={() => onOpen(day)}
+                  >
+                    +{compromissos.length - 3} mais
+                  </button>
                 ) : null}
               </span>
               <span className="mt-auto flex flex-wrap gap-[3px]">
@@ -117,13 +150,13 @@ export function GradeMes({
                   />
                 ))}
               </span>
-            </button>
+            </div>
           );
         })}
       </div>
       <p className="mt-3 max-w-prose text-sm text-ink-2">
-        Dois cliques no dia abrem os itens. No celular, um toque abre. O botão direito também abre o menu. “R$” no
-        compromisso indica uma transação vinculada. O ponto vermelho é saída e o verde, entrada.
+        Clique no dia para ver os compromissos. Arraste um compromisso para outro dia. “R$” indica uma transação
+        vinculada.
       </p>
     </section>
   );

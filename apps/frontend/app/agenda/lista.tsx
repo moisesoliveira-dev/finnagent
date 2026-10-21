@@ -1,5 +1,5 @@
+import { useState } from "react";
 import type { StatusCompromisso } from "@finnagent/contracts";
-import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { cn } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
@@ -12,11 +12,13 @@ export function ListaMes({
   month,
   itens,
   onStatus,
+  onEdit,
 }: {
   year: number;
   month: number;
   itens: ItemDia[];
   onStatus: (id: string, status: StatusCompromisso) => void;
+  onEdit: (id: string) => void;
 }) {
   const dias = [...new Set(itens.map((item) => item.day))].sort((a, b) => a - b);
   if (dias.length === 0) {
@@ -38,7 +40,7 @@ export function ListaMes({
               </Chip>
             ) : null}
           </h2>
-          <ListaDoDia year={year} month={month} day={day} itens={itensNoDia(itens, day)} onStatus={onStatus} />
+          <ListaDoDia year={year} month={month} day={day} itens={itensNoDia(itens, day)} onStatus={onStatus} onEdit={onEdit} />
         </section>
       ))}
     </div>
@@ -56,20 +58,43 @@ export function PainelDoDia({
   day,
   itens,
   onStatus,
+  onEdit,
+  onDelete,
 }: {
   year: number;
   month: number;
   day: number;
   itens: ItemDia[];
   onStatus: (id: string, status: StatusCompromisso) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
+  const [confirmar, setConfirmar] = useState<string | null>(null);
   if (itens.length === 0) {
     return <p className="py-6 text-sm text-ink-2">Nada neste dia.</p>;
   }
   return (
     <ListaAnimada>
       {itens.map((item) => (
-        <ItemDoDia key={item.id} year={year} month={month} day={day} item={item} onStatus={onStatus} />
+        <ItemDoDia
+          key={item.id}
+          year={year}
+          month={month}
+          day={day}
+          item={item}
+          onStatus={onStatus}
+          onEdit={onEdit}
+          confirmar={confirmar === item.id}
+          onExcluir={() => {
+            if (item.kind !== "compromisso") return;
+            if (confirmar === item.id) {
+              setConfirmar(null);
+              onDelete(item.id);
+              return;
+            }
+            setConfirmar(item.id);
+          }}
+        />
       ))}
     </ListaAnimada>
   );
@@ -81,12 +106,18 @@ function ItemDoDia({
   day,
   item,
   onStatus,
+  onEdit,
+  confirmar,
+  onExcluir,
 }: {
   year: number;
   month: number;
   day: number;
   item: ItemDia;
   onStatus: (id: string, status: StatusCompromisso) => void;
+  onEdit: (id: string) => void;
+  confirmar: boolean;
+  onExcluir: () => void;
 }) {
   const pagamento = item.link ? statusDoDia(year, month, day) : null;
   const meta = metaDoItem(item);
@@ -99,7 +130,32 @@ function ItemDoDia({
         <div className="grid min-w-0 gap-2">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="min-w-0 truncate font-medium">{item.title}</h3>
-            {item.link ? <Money cents={item.link.cents} strong /> : null}
+            <span className="flex shrink-0 items-center gap-1">
+              {item.kind === "compromisso" ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Editar"
+                    className="grid size-8 place-items-center rounded-sm text-ink-2! hover:bg-surface-2 hover:text-ink!"
+                    onClick={() => onEdit(item.id)}
+                  >
+                    <IconeEditar />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={confirmar ? "Confirmar exclusão" : "Excluir"}
+                    className={cn(
+                      "grid size-8 place-items-center rounded-sm hover:bg-surface-2",
+                      confirmar ? "text-neg!" : "text-ink-2! hover:text-neg!",
+                    )}
+                    onClick={onExcluir}
+                  >
+                    <IconeExcluir />
+                  </button>
+                </>
+              ) : null}
+              {item.link ? <Money cents={item.link.cents} strong /> : null}
+            </span>
           </div>
           {item.description ? <p className="line-clamp-2 text-sm text-ink-2">{item.description}</p> : null}
           {item.location ? <p className="text-sm text-ink-2">{item.location}</p> : null}
@@ -123,15 +179,55 @@ function ItemDoDia({
                 <Chip tone={item.status === "done" ? "ok" : "ai"}>{rotuloDoStatus(item.status)}</Chip>
               ) : null}
             </div>
-            {item.status ? (
-              <Button variant={item.status === "done" ? "quiet" : "default"} onClick={() => onStatus(item.id, proximo)}>
-                {item.status === "done" ? "Marcar descumprido" : "Marcar cumprido"}
-              </Button>
-            ) : null}
+            {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
           </div>
         </div>
       </div>
     </ItemAnimado>
+  );
+}
+
+function OkCompromisso({ feito, onChange }: { feito: boolean; onChange: () => void }) {
+  return (
+    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={feito}
+        onChange={onChange}
+        aria-label={feito ? "Desmarcar cumprido" : "Marcar como cumprido"}
+        className="size-4 accent-brand"
+      />
+      <span className={cn("font-semibold", feito ? "text-brand" : "text-ink-2")}>OK!</span>
+    </label>
+  );
+}
+
+function IconeEditar() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M10 2.5 13.5 6 6 13.5H2.5V10L10 2.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconeExcluir() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M3 4.5h10M6 4.5V3h4v1.5M4.2 4.5 4.7 13h6.6l.5-8.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -161,12 +257,14 @@ export function ListaDoDia({
   day,
   itens,
   onStatus,
+  onEdit,
 }: {
   year: number;
   month: number;
   day: number;
   itens: ItemDia[];
   onStatus: (id: string, status: StatusCompromisso) => void;
+  onEdit: (id: string) => void;
 }) {
   if (itens.length === 0) {
     return (
@@ -176,7 +274,7 @@ export function ListaDoDia({
   return (
     <List>
       {itens.map((item) => (
-        <Linha key={item.id} year={year} month={month} day={day} item={item} onStatus={onStatus} />
+        <Linha key={item.id} year={year} month={month} day={day} item={item} onStatus={onStatus} onEdit={onEdit} />
       ))}
     </List>
   );
@@ -188,12 +286,14 @@ function Linha({
   day,
   item,
   onStatus,
+  onEdit,
 }: {
   year: number;
   month: number;
   day: number;
   item: ItemDia;
   onStatus: (id: string, status: StatusCompromisso) => void;
+  onEdit: (id: string) => void;
 }) {
   const status = item.link ? statusDoDia(year, month, day) : null;
   const proximo = item.status === "done" ? "undone" : "done";
@@ -206,7 +306,13 @@ function Linha({
     >
       <time className="text-sm text-ink-2">{item.time ?? "Dia todo"}</time>
       <div className="flex min-w-0 flex-col gap-1 break-words">
-        <div className="font-medium">{item.title}</div>
+        {item.kind === "compromisso" ? (
+          <button type="button" className="text-left font-medium text-ink!" onClick={() => onEdit(item.id)}>
+            {item.title}
+          </button>
+        ) : (
+          <div className="font-medium">{item.title}</div>
+        )}
         {item.description ? <p className="text-sm text-ink-2">{item.description}</p> : null}
         {item.location ? <p className="text-sm text-ink-2">{item.location}</p> : null}
         <div className="flex flex-wrap gap-2">
@@ -226,11 +332,7 @@ function Linha({
       </div>
       <div className="col-start-2 flex flex-wrap items-center justify-end gap-2 tab:col-start-auto">
         {item.link ? <Money cents={item.link.cents} strong /> : null}
-        {item.status ? (
-          <Button variant="quiet" onClick={() => onStatus(item.id, proximo)}>
-            {item.status === "done" ? "Marcar descumprido" : "Marcar cumprido"}
-          </Button>
-        ) : null}
+        {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
       </div>
     </li>
   );

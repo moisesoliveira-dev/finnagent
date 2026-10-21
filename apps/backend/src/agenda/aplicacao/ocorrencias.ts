@@ -77,9 +77,15 @@ function noDia(definicao: Compromisso, year: number, month: number, day: number)
   );
   return {
     ...definicao,
+    anchorYear: definicao.anchorYear ?? definicao.year,
+    anchorMonth: definicao.anchorMonth ?? definicao.month,
+    anchorDay: definicao.anchorDay ?? definicao.day,
     year,
     month,
     day,
+    endTime: definicao.allDay
+      ? null
+      : `${String(fim.hour).padStart(2, "0")}:${String(fim.minute).padStart(2, "0")}`,
     startAt: startAt.toISOString(),
     endAt: endAt.toISOString(),
     link: null,

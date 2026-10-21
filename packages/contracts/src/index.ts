@@ -825,6 +825,10 @@ export type Compromisso = {
   month: number;
   day: number;
   time: string | null;
+  endTime?: string | null;
+  anchorYear?: number;
+  anchorMonth?: number;
+  anchorDay?: number;
   calendar: NomeAgenda;
   timezone: FusoAgenda;
   category: CategoriaCompromisso;
@@ -1385,6 +1389,8 @@ const NOME_AGREGADO: Record<string, string> = {
   "desconectar-google": "Configurações",
   "atualizar-fuso": "Configurações",
   "criar-compromisso": "Compromisso",
+  "atualizar-compromisso": "Compromisso",
+  "excluir-compromisso": "Compromisso",
   "atualizar-status-compromisso": "Compromisso",
   "sincronizar-google-agenda": "Calendário",
   "atualizar-fuso-calendario": "Calendário",
@@ -1448,6 +1454,8 @@ function compararRecente(a: string, b: string) {
 
 const AGENDA = new Set([
   "criar-compromisso",
+  "atualizar-compromisso",
+  "excluir-compromisso",
   "atualizar-status-compromisso",
   "sincronizar-google-agenda",
   "atualizar-fuso-calendario",

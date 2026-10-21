@@ -80,7 +80,42 @@ export class AgendaService {
     if (resultado === "lancamento-ausente") {
       throw new NaoEncontrado("Lançamento não encontrado nesse mês.");
     }
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     return comVinculo(resultado, entries);
+  }
+
+  async atualizar(tenantId: string, id: string, pedido: Omit<NovoCompromisso, "id" | "startAt" | "endAt" | "hour" | "minute" | "status"> & {
+    time: string | null;
+    endTime: string | null;
+  }): Promise<Compromisso> {
+    if (pedido.entryId) {
+      const base = await this.financas.listar(tenantId);
+      if (!base.entries.some((item) => item.id === pedido.entryId)) {
+        throw new NaoEncontrado("Lançamento não encontrado.");
+      }
+    }
+    const mensagem = mensagemDaCategoria(pedido);
+    if (mensagem) throw new PedidoInvalido(mensagem);
+    const intervalo = montarIntervalo(pedido);
+    if (intervalo === "hora") throw new PedidoInvalido("Informe a hora inicial e a final.");
+    if (intervalo === "ordem") throw new PedidoInvalido("A hora final vem depois da inicial.");
+    const resultado = await this.agenda.atualizar(tenantId, {
+      ...pedido,
+      id,
+      ...intervalo,
+      status: "undone",
+      time: pedido.allDay ? null : pedido.time,
+    });
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
+    if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (resultado === "identificador") throw new Conflito("Não foi possível salvar o compromisso.");
+    const base = await this.financas.listar(tenantId);
+    return comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month));
+  }
+
+  async excluir(tenantId: string, id: string) {
+    const resultado = await this.agenda.excluir(tenantId, id);
+    if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
   }
 
   async atualizarFuso(tenantId: string, name: NomeAgenda, timezone: FusoAgenda): Promise<Calendario> {

@@ -80,6 +80,73 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     });
   }
 
+  async atualizar(tenantId: string, pedido: NovoCompromisso) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.appointment.findFirst({ where: { id: pedido.id, tenantId } });
+      if (!atual) return "ausente" as const;
+      if (pedido.entryId) {
+        const lancamento = await tx.entry.findFirst({ where: { id: pedido.entryId, tenantId } });
+        if (!lancamento) return "lancamento-ausente" as const;
+      }
+      const status = statusDe(atual.status);
+      const completo = { ...pedido, status };
+      if (mesmoCompromisso(atual, completo)) return compromissoDe(atual, pedido.timezone);
+      await tx.appointment.updateMany({
+        where: { id: pedido.id, tenantId },
+        data: {
+          title: completo.title,
+          description: completo.description,
+          location: completo.location,
+          startAt: completo.startAt,
+          endAt: completo.endAt,
+          allDay: completo.allDay,
+          year: completo.year,
+          month: completo.month,
+          day: completo.day,
+          hour: completo.hour,
+          minute: completo.minute,
+          calendar: completo.calendar,
+          category: completo.category,
+          endYear: completo.endYear,
+          endMonth: completo.endMonth,
+          endDay: completo.endDay,
+          entryId: completo.entryId,
+        },
+      });
+      const salvo = await tx.appointment.findFirst({ where: { id: pedido.id, tenantId } });
+      if (!salvo) throw new Error("Compromisso ausente depois de gravar a atualização.");
+      const serial = pedidoSerial(completo);
+      await gravarOutbox(tx, tenantId, "atualizar-compromisso", pedido.id, serial, marcaDe(serial));
+      return compromissoDe(salvo, pedido.timezone);
+    });
+  }
+
+  async excluir(tenantId: string, id: string) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.appointment.findFirst({ where: { id, tenantId }, select: { id: true } });
+      if (!atual) return "ausente" as const;
+      const ligadas = await tx.entry.findMany({
+        where: { tenantId, commitmentId: id },
+        select: { id: true, category: true },
+      });
+      for (const linha of ligadas) {
+        const deCompromisso =
+          linha.category === "fixed" || linha.category === "installment" || linha.category === "loan";
+        await tx.entry.updateMany({
+          where: { id: linha.id, tenantId },
+          data: {
+            commitmentId: null,
+            transactionType: deCompromisso ? "appointment" : "unusual",
+          },
+        });
+      }
+      await tx.appointment.deleteMany({ where: { id, tenantId } });
+      await gravarOutbox(tx, tenantId, "excluir-compromisso", id, { id });
+    });
+  }
+
   async atualizarFuso(tenantId: string, name: NomeAgenda, timezone: FusoAgenda) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
@@ -279,6 +346,10 @@ function compromissoDe(row: Linha, timezone: FusoAgenda): Compromisso {
     month: row.month,
     day: row.day,
     time: tempoDe(row.hour, row.minute),
+    endTime: row.allDay ? null : tempoDe(partesNoFuso(row.endAt, timezone).hour, partesNoFuso(row.endAt, timezone).minute),
+    anchorYear: row.year,
+    anchorMonth: row.month,
+    anchorDay: row.day,
     calendar: agendaDe(row.calendar),
     timezone,
     category: categoriaDe(row.category),
