@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { GruposResposta } from "@finnagent/contracts";
+import type { GruposResposta, TipoSessao } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Expandir, Seta } from "../../components/ui/movimento";
 import { Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
+import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { PendingAction } from "../../components/ui/pending-action";
+import { Segmentado } from "../../components/ui/segmentado";
 import { useToast } from "../../components/ui/toast";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { Vazio } from "../../components/ui/vazio";
-
 type Group = GruposResposta["groups"][number];
 type Session = GruposResposta["sessions"][number];
 type RascunhoGrupo = { id: string | null; name: string; description: string };
@@ -24,6 +25,7 @@ type RascunhoSessao = {
   justification: string;
   groupId: string;
   escolherGrupo: boolean;
+  kind: TipoSessao;
 };
 type Sugestao = {
   titulo: string;
@@ -60,6 +62,10 @@ function sessionCountLabel(count: number) {
 function texto(value: string | undefined) {
   const trimmed = value?.trim() ?? "";
   return trimmed || "Sem descrição";
+}
+
+function rotuloDoTipo(kind: TipoSessao) {
+  return kind === "valor" ? "Valor único" : "Acúmulo";
 }
 
 function inicioDaSessao(iso: string | null) {
@@ -160,6 +166,7 @@ export default function Grupos() {
       justification: session?.justification ?? "",
       groupId: session?.groupId || groupId || (escolherGrupo ? (unico?.id ?? "") : ""),
       escolherGrupo,
+      kind: session?.kind ?? "acumulo",
     });
   }
 
@@ -224,7 +231,7 @@ export default function Grupos() {
             method: "POST",
             body: JSON.stringify({
               id: crypto.randomUUID(),
-              cents: 0,
+              kind: sessionDraft.kind,
               ...corpo,
             }),
           });
@@ -514,6 +521,36 @@ export default function Grupos() {
               Até 160 caracteres. A IA usa a justificativa no contexto da sessão.
             </p>
           </div>
+          {sessionDraft?.id ? (
+            <p className="max-w-prose text-sm text-ink-2">
+              {sessionDraft.kind === "valor"
+                ? "Valor único. A transação define a entrada, a saída e o valor."
+                : "Acúmulo. Cada transação define o próprio valor."}
+            </p>
+          ) : (
+            <div className="grid gap-1">
+              <span className="text-sm font-medium" id="sessao-tipo">
+                Tipo
+              </span>
+              <Segmentado
+                radio
+                aria-labelledby="sessao-tipo"
+                opcoes={[
+                  { id: "valor", label: "Valor único" },
+                  { id: "acumulo", label: "Acúmulo" },
+                ]}
+                valor={sessionDraft?.kind ?? "acumulo"}
+                onEscolher={(kind) =>
+                  setSessionDraft((current) => (current ? { ...current, kind } : current))
+                }
+              />
+              <p className="text-xs text-ink-2">
+                {sessionDraft?.kind === "valor"
+                  ? "Aceita uma transação única. Ela define a entrada ou a saída e o valor. Depois de lançada, sai das opções."
+                  : "Aceita extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
+              </p>
+            </div>
+          )}
           {sessionDraft?.escolherGrupo ? (
             <div className="grid gap-1">
               <Rotulo htmlFor="sessao-grupo" dica="O grupo para onde esta sessão vai.">
@@ -700,7 +737,10 @@ function GroupCard({
                 <span className="size-2 shrink-0" aria-hidden="true" />
                 <div className="flex min-w-0 flex-1 flex-col gap-3 tab:flex-row tab:items-start tab:justify-between">
                   <div className="grid min-w-0 gap-1">
-                    <div className="font-medium">{session.name}</div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="font-medium">{session.name}</span>
+                      <Chip>{rotuloDoTipo(session.kind)}</Chip>
+                    </div>
                     <p
                       className={cn(
                         "max-w-prose text-sm text-ink-2 line-clamp-2",
@@ -718,6 +758,29 @@ function GroupCard({
                     {inicioDaSessao(session.startedAt) ? (
                       <p className="text-sm text-ink-2">{inicioDaSessao(session.startedAt)}</p>
                     ) : null}
+                    <p className="text-sm text-ink-2">
+                      {session.kind === "valor" ? "Transação única" : "Extra, parcela, empréstimo ou fixa"}
+                    </p>
+                    {session.kind === "valor" && (session.cents !== 0 || session.additions.length > 0) ? (
+                      <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+                        <span>Base</span>
+                        <Money cents={session.cents} />
+                        {session.additions.length > 0 ? (
+                          <>
+                            <span>Acréscimos</span>
+                            <Money
+                              cents={session.additions.reduce((soma, item) => soma + item.cents, 0)}
+                            />
+                          </>
+                        ) : null}
+                      </p>
+                    ) : session.kind === "acumulo" ? (
+                      <p className="text-sm text-ink-2">Soma das transações</p>
+                    ) : null}
+                    <p className="flex items-center gap-2 text-sm">
+                      <span className="text-ink-2">Total</span>
+                      <Money cents={session.totalCents} acumulado />
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <IconButton

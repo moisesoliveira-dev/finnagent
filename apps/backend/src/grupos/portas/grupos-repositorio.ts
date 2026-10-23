@@ -1,4 +1,4 @@
-import type { GruposResposta, Grupo, Sessao, ViradaResposta } from "@finnagent/contracts";
+import type { GruposResposta, Grupo, Sessao, TipoSessao, ViradaResposta } from "@finnagent/contracts";
 
 export const GRUPOS_REPOSITORIO = Symbol("GRUPOS_REPOSITORIO");
 
@@ -31,6 +31,7 @@ export interface GruposRepositorio {
     tenantId: string,
     id: string,
     dados: DadosDaSessao,
+    kind: TipoSessao,
     cents: number,
     startedAt: string,
   ): Promise<Sessao | FalhaDeSessao>;

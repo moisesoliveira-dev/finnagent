@@ -7,6 +7,7 @@ import {
   type FinancasResposta,
   type FusoAgenda,
   type LancamentoDoMes,
+  type MovimentoCompromisso,
   type NomeAgenda,
   type StatusCompromisso,
   type Vinculo,
@@ -17,7 +18,8 @@ import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { montarIntervalo } from "../dominio/fuso.js";
 import { eventoValido } from "../dominio/sincronizar.js";
-import { mensagemDaCategoria, ocorrenciasNoMes } from "./ocorrencias.js";
+import { situacaoNoMes } from "../../financas/dominio/vista.js";
+import { comValidade, mensagemDaCategoria, ocorrenciasNoMes, validadeAoMover } from "./ocorrencias.js";
 import {
   AGENDA_REPOSITORIO,
   type AgendaRepositorio,
@@ -41,7 +43,7 @@ export class AgendaService {
 
   async listar(tenantId: string, year: number, month: number): Promise<AgendaResposta> {
     const base = await this.financas.listar(tenantId);
-    const entries = lancamentosDoMes(base, year, month);
+    const entries = lancamentosDoMes(base, year, month, await this.financas.hoje(tenantId));
     const calendars = await this.agenda.listarCalendarios(tenantId);
     const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
     const appointments = definicoes
@@ -61,8 +63,9 @@ export class AgendaService {
     time: string | null;
     endTime: string | null;
   }): Promise<Compromisso> {
+    pedido = comValidade(pedido);
     const base = await this.financas.listar(tenantId);
-    const entries = lancamentosDoMes(base, pedido.year, pedido.month);
+    const entries = lancamentosDoMes(base, pedido.year, pedido.month, await this.financas.hoje(tenantId));
     if (pedido.entryId && !entries.some((item) => item.id === pedido.entryId)) {
       throw new NaoEncontrado("Lançamento não encontrado nesse mês.");
     }
@@ -91,6 +94,7 @@ export class AgendaService {
     time: string | null;
     endTime: string | null;
   }): Promise<Compromisso> {
+    pedido = comValidade(pedido);
     if (pedido.entryId) {
       const base = await this.financas.listar(tenantId);
       if (!base.entries.some((item) => item.id === pedido.entryId)) {
@@ -113,7 +117,32 @@ export class AgendaService {
     if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");
     if (resultado === "identificador") throw new Conflito("Não foi possível salvar o compromisso.");
     const base = await this.financas.listar(tenantId);
-    return comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month));
+    const hoje = await this.financas.hoje(tenantId);
+    return comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month, hoje));
+  }
+
+  async mover(
+    tenantId: string,
+    id: string,
+    destino: { year: number; month: number; day: number },
+  ): Promise<MovimentoCompromisso> {
+    const atual = await this.agenda.obter(tenantId, id);
+    if (!atual) throw new NaoEncontrado("Compromisso não encontrado.");
+    const appointment = await this.atualizar(tenantId, id, {
+      title: atual.title,
+      description: atual.description,
+      location: atual.location,
+      allDay: atual.allDay,
+      ...destino,
+      time: atual.allDay ? null : atual.time,
+      endTime: atual.allDay ? null : (atual.endTime ?? null),
+      calendar: atual.calendar,
+      timezone: atual.timezone,
+      category: atual.category,
+      ...validadeAoMover(atual, destino),
+      entryId: atual.entryId,
+    });
+    return { appointment, series: atual.category !== "fixed" };
   }
 
   async excluir(tenantId: string, id: string) {
@@ -143,7 +172,7 @@ export class AgendaService {
   }
 }
 
-function lancamentosDoMes(base: FinancasResposta, year: number, month: number) {
+function lancamentosDoMes(base: FinancasResposta, year: number, month: number, hoje: string) {
   const monthIndex = month - 1;
   const ultimo = new Date(year, month, 0).getDate();
   const entries: LancamentoDoMes[] = [];
@@ -157,6 +186,7 @@ function lancamentosDoMes(base: FinancasResposta, year: number, month: number) {
       groupName: entry.groupName,
       sessionName: entry.sessionName,
       cents,
+      situation: situacaoNoMes(entry, year, month, hoje),
     });
   }
   return entries;
@@ -170,6 +200,7 @@ function comVinculo(compromisso: Compromisso, entries: LancamentoDoMes[]): Compr
         groupName: entry.groupName,
         sessionName: entry.sessionName,
         cents: entry.cents,
+        situation: entry.situation,
       }
     : null;
   return { ...compromisso, link };

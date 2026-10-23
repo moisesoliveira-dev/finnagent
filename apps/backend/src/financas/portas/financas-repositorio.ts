@@ -44,6 +44,10 @@ export type FalhaDeLancamento =
   | "identificador"
   | "sessao-ausente"
   | "sessao-encerrada"
+  | "tipo-valor"
+  | "tipo-acumulo"
+  | "valor-base"
+  | "valor-lancada"
   | "ausente"
   | "categoria"
   | "encerrada"
@@ -60,6 +64,7 @@ export interface FinancasRepositorio {
   garantirWorkflow(tenantId: string): Promise<Workflow>;
   semearLancamentos(tenantId: string): Promise<void>;
   listar(tenantId: string, incluirEncerradas?: boolean): Promise<FinancasResposta>;
+  obter(tenantId: string, id: string): Promise<Lancamento | null>;
   criar(
     tenantId: string,
     pedido: NovoLancamento,
@@ -106,4 +111,9 @@ export interface FinancasRepositorio {
     valores: ValorFixo[],
   ): Promise<Lancamento[] | FalhaDeLancamento>;
   excluir(tenantId: string, id: string): Promise<void | FalhaDeLancamento>;
+  excluirOcorrencia(
+    tenantId: string,
+    id: string,
+    number: number,
+  ): Promise<"entry" | "occurrence" | FalhaDeLancamento>;
 }

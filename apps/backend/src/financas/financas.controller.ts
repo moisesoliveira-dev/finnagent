@@ -11,6 +11,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import {
@@ -20,13 +21,12 @@ import {
   RECORRENCIAS,
   STATUS_TRANSACAO,
   TIPOS_TRANSACAO,
-  ajustarTransacao,
-  centavosComSinal,
-  tipoDaCategoria,
 } from "@finnagent/contracts";
 import { z } from "zod";
 import { FinancasService } from "./aplicacao/financas.service.js";
-import { dataValida, partesDaData } from "./dominio/transacao.js";
+import { PedidoInvalido } from "./dominio/erros.js";
+import type { PedidoLancamento } from "./dominio/pedido.js";
+import { dataValida } from "./dominio/transacao.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 
 const tenantId = z.uuid();
@@ -34,68 +34,38 @@ const texto = z.string().trim().min(1).max(160);
 const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const centavos = z.number().int().gte(-2_147_483_647).lte(2_147_483_647);
 
-const criarLancamento = z
-  .object({
-    id: z.uuid(),
-    sessionId: z.uuid(),
-    name: texto,
-    description: z.string().trim().max(160),
-    justification: texto,
-    date: dataIso,
-    mode: z.enum(MODOS_TRANSACAO),
-    status: z.enum(STATUS_TRANSACAO),
-    transactionType: z.enum(TIPOS_TRANSACAO),
-    category: z.enum(CATEGORIAS_TRANSACAO),
-    priority: z.enum(PRIORIDADES_TRANSACAO),
-    cents: centavos,
-    installments: z.number().int().min(1).max(360).nullable(),
-    installmentNumber: z.number().int().min(1).max(360).nullable(),
-    dueDate: dataIso.nullable(),
-    interestRate: z.number().min(0).max(1000).nullable(),
-    nextDueDate: dataIso.nullable(),
-    recurrence: z.enum(RECORRENCIAS).nullable(),
-    recurrenceInterval: z.number().int().min(1).max(3660).nullable(),
-  })
-  .superRefine((pedido, contexto) => {
-    if (pedido.cents === 0) contexto.addIssue({ code: "custom", path: ["cents"] });
-    if (!dataValida(pedido.date)) contexto.addIssue({ code: "custom", path: ["date"] });
-    const parcelado = pedido.category === "installment" || pedido.category === "loan";
-    if (parcelado && pedido.installments == null) {
-      contexto.addIssue({ code: "custom", path: ["installments"] });
-    }
-    if (!parcelado && pedido.installments != null) {
-      contexto.addIssue({ code: "custom", path: ["installments"] });
-    }
-    if (parcelado && (pedido.installmentNumber == null || pedido.installmentNumber > (pedido.installments ?? 0))) {
-      contexto.addIssue({ code: "custom", path: ["installmentNumber"] });
-    }
-    if (!parcelado && pedido.installmentNumber != null) {
-      contexto.addIssue({ code: "custom", path: ["installmentNumber"] });
-    }
-    const emprestimo = pedido.category === "loan";
-    if (emprestimo && (pedido.dueDate == null || pedido.interestRate == null)) {
-      contexto.addIssue({ code: "custom", path: ["dueDate"] });
-    }
-    if (emprestimo && pedido.dueDate != null && !dataValida(pedido.dueDate)) {
-      contexto.addIssue({ code: "custom", path: ["dueDate"] });
-    }
-    if (!emprestimo && (pedido.dueDate != null || pedido.interestRate != null)) {
-      contexto.addIssue({ code: "custom", path: ["dueDate"] });
-    }
-    if (pedido.category === "fixed" && (pedido.nextDueDate == null || !dataValida(pedido.nextDueDate))) {
-      contexto.addIssue({ code: "custom", path: ["nextDueDate"] });
-    }
-    if (pedido.category !== "fixed" && pedido.nextDueDate != null) {
-      contexto.addIssue({ code: "custom", path: ["nextDueDate"] });
-    }
-    const fixa = pedido.category === "fixed";
-    if (fixa && (pedido.recurrence == null || pedido.recurrenceInterval == null)) {
-      contexto.addIssue({ code: "custom", path: ["recurrence"] });
-    }
-    if (!fixa && (pedido.recurrence != null || pedido.recurrenceInterval != null)) {
-      contexto.addIssue({ code: "custom", path: ["recurrence"] });
-    }
-  });
+const opcional = <T extends z.ZodType>(schema: T) => schema.nullable().catch(null);
+
+const formularioLancamento = z.object({
+  id: z.uuid(),
+  sessionId: z.uuid(),
+  name: texto,
+  description: z.string().trim().max(160),
+  justification: texto,
+  date: dataIso,
+  mode: z.enum(MODOS_TRANSACAO),
+  status: z.enum(STATUS_TRANSACAO),
+  transactionType: z.enum(TIPOS_TRANSACAO),
+  category: z.enum(CATEGORIAS_TRANSACAO),
+  priority: z.enum(PRIORIDADES_TRANSACAO),
+  cents: centavos,
+  installments: opcional(z.number().int().min(1).max(360)),
+  installmentNumber: opcional(z.number().int().min(1).max(360)),
+  dueDate: opcional(dataIso),
+  interestRate: opcional(z.number().min(0).max(1000)),
+  nextDueDate: opcional(dataIso),
+  recurrence: opcional(z.enum(RECORRENCIAS)),
+  recurrenceInterval: opcional(z.number().int().min(1).max(3660)),
+});
+const filtroBase = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).nullable().catch(null),
+  month: z.coerce.number().int().min(1).max(12).nullable().catch(null),
+  day: z.coerce.number().int().min(1).max(31).nullable().catch(null),
+  groupId: z.uuid().nullable().catch(null),
+  category: z.enum(CATEGORIAS_TRANSACAO).nullable().catch(null),
+  q: z.string().max(160).catch(""),
+});
+const anoPedido = z.coerce.number().int().min(2000).max(2100);
 
 const statusPedido = z.object({ status: z.enum(STATUS_TRANSACAO) });
 const ocorrenciaPedido = z
@@ -125,13 +95,29 @@ export class FinancasController {
 
   @Get("financas")
   listar(@Headers("x-tenant-id") tenant: string | undefined) {
-    return this.executar(() => this.financas.listar(this.tenant(tenant)));
+    return this.executar(() => this.financas.vista(this.tenant(tenant)));
+  }
+
+  @Get("financas/base")
+  base(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Query() query: Record<string, string | undefined>,
+  ) {
+    const filtro = filtroBase.parse(query);
+    return this.executar(() => this.financas.base(this.tenant(tenant), filtro));
+  }
+
+  @Get("financas/geral")
+  geral(@Headers("x-tenant-id") tenant: string | undefined, @Query("year") year: string | undefined) {
+    const parsed = anoPedido.safeParse(year);
+    if (!parsed.success) throw new BadRequestException("Informe o ano.");
+    return this.executar(() => this.financas.geral(this.tenant(tenant), parsed.data));
   }
 
   @Post("lancamentos")
   criar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = this.pedido(body);
-    return this.executar(() => this.financas.criar(this.tenant(tenant), pedido));
+    return this.executar(() => this.financas.registrar(this.tenant(tenant), pedido));
   }
 
   @Delete("lancamentos/:id")
@@ -148,7 +134,7 @@ export class FinancasController {
   ) {
     const origem = body && typeof body === "object" ? body : {};
     const pedido = this.pedido({ ...origem, id: this.id(id) });
-    return this.executar(() => this.financas.atualizar(this.tenant(tenant), pedido));
+    return this.executar(() => this.financas.editar(this.tenant(tenant), pedido));
   }
 
   @Post("lancamentos/fixos/valor")
@@ -197,6 +183,19 @@ export class FinancasController {
     return this.executar(() =>
       this.financas.atualizarOcorrencia(this.tenant(tenant), this.id(id), number, parsed.data),
     );
+  }
+
+  @Delete("lancamentos/:id/ocorrencias/:numero")
+  excluirOcorrencia(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Param("numero") numero: string,
+  ) {
+    const number = Number(numero);
+    if (!Number.isInteger(number) || number < 1 || number > 3660) {
+      throw new BadRequestException("Não foi possível apagar este mês.");
+    }
+    return this.executar(() => this.financas.excluirOcorrencia(this.tenant(tenant), this.id(id), number));
   }
 
   @Post("lancamentos/:id/compromisso")
@@ -276,37 +275,19 @@ export class FinancasController {
     return parsed.data;
   }
 
-  private pedido(body: unknown) {
-    const parsed = criarLancamento.safeParse(body);
+  private pedido(body: unknown): PedidoLancamento {
+    const parsed = formularioLancamento.safeParse(body);
     if (!parsed.success) {
       const campo = parsed.error.issues[0]?.path[0];
       if (campo === "sessionId") throw new BadRequestException("Escolha uma sessão.");
       if (campo === "name") throw new BadRequestException("Dê um nome à transação.");
       if (campo === "description") throw new BadRequestException("A descrição pode ter até 160 caracteres.");
-      if (campo === "recurrence" || campo === "recurrenceInterval") {
-        throw new BadRequestException("Informe a recorrência.");
-      }
       if (campo === "justification") throw new BadRequestException("Informe a justificativa.");
-      if (campo === "date" || campo === "nextDueDate" || campo === "dueDate") {
-        throw new BadRequestException("Informe uma data válida.");
-      }
+      if (campo === "date") throw new BadRequestException("Informe uma data válida.");
       if (campo === "cents") throw new BadRequestException("Informe o valor.");
-      if (campo === "installments" || campo === "installmentNumber") {
-        throw new BadRequestException("Informe as parcelas.");
-      }
       throw new BadRequestException("Não foi possível salvar o lançamento.");
     }
-    const pedido = ajustarTransacao(parsed.data);
-    const partes = partesDaData(pedido.date);
-    const cents = centavosComSinal(pedido.cents, pedido.mode);
-    return {
-      ...pedido,
-      cents,
-      type: tipoDaCategoria(pedido.category),
-      day: partes.day,
-      startYear: partes.year,
-      startMonth: partes.month,
-    };
+    return parsed.data;
   }
 
   private async executar<T>(run: () => Promise<T>) {
@@ -316,6 +297,7 @@ export class FinancasController {
       if (error instanceof BancoIndisponivel) {
         throw new ServiceUnavailableException(error.message);
       }
+      if (error instanceof PedidoInvalido) throw new BadRequestException(error.message);
       if (error instanceof Conflito) throw new ConflictException(error.message);
       if (error instanceof NaoEncontrado) throw new NotFoundException(error.message);
       throw error;

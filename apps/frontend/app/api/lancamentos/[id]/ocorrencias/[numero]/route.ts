@@ -13,3 +13,12 @@ export function PATCH(
     ),
   );
 }
+
+export function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string; numero: string }> },
+) {
+  return context.params.then((params) =>
+    callBackend(`lancamentos/${params.id}/ocorrencias/${params.numero}`, { method: "DELETE" }),
+  );
+}

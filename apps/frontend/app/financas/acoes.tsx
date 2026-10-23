@@ -4,11 +4,8 @@ import { useEffect, useState } from "react";
 import {
   NOME_MES,
   STATUS_TRANSACAO,
-  centavosComSinal,
-  ocorrenciasDoLancamento,
-  proximoVencimento,
   type AgendaResposta,
-  type Lancamento,
+  type LancamentoVista,
   type StatusTransacao,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
@@ -33,14 +30,22 @@ export function AcoesTransacao({
   onClose,
   onAtualizar,
   embutido = false,
+  status,
+  commitmentId,
+  onStatus,
+  onCommitment,
 }: {
-  entry: Lancamento | null;
-  entries: Lancamento[];
+  entry: LancamentoVista | null;
+  entries: LancamentoVista[];
   year: number;
   month: number;
   onClose: () => void;
   onAtualizar: () => Promise<void>;
   embutido?: boolean;
+  status?: StatusTransacao;
+  commitmentId?: string;
+  onStatus?: (status: StatusTransacao) => void;
+  onCommitment?: (commitmentId: string) => void;
 }) {
   const chave = entry
     ? `${entry.id}:${entry.status}:${entry.commitmentId}:${entry.installmentNumber}:${entry.cents}:${entry.suspendedCents}:${entry.adjustments.length}`
@@ -57,6 +62,10 @@ export function AcoesTransacao({
         month={month}
         onClose={onClose}
         onAtualizar={onAtualizar}
+        status={status}
+        commitmentId={commitmentId}
+        onStatus={onStatus}
+        onCommitment={onCommitment}
       />
     );
   }
@@ -72,6 +81,10 @@ export function AcoesTransacao({
           month={month}
           onClose={onClose}
           onAtualizar={onAtualizar}
+          status={status}
+          commitmentId={commitmentId}
+          onStatus={onStatus}
+          onCommitment={onCommitment}
         />
       ) : null}
     </Dialogo>
@@ -86,19 +99,30 @@ function Formulario({
   onClose,
   onAtualizar,
   embutido = false,
+  status: statusExterno,
+  commitmentId: compromissoExterno,
+  onStatus,
+  onCommitment,
 }: {
-  entry: Lancamento;
-  entries: Lancamento[];
+  entry: LancamentoVista;
+  entries: LancamentoVista[];
   year: number;
   month: number;
   onClose: () => void;
   onAtualizar: () => Promise<void>;
   embutido?: boolean;
+  status?: StatusTransacao;
+  commitmentId?: string;
+  onStatus?: (status: StatusTransacao) => void;
+  onCommitment?: (commitmentId: string) => void;
 }) {
   const toast = useToast();
-  const [status, setStatus] = useState<StatusTransacao>(entry.status);
+  const controlado = onStatus != null && onCommitment != null;
+  const [statusLocal, setStatus] = useState<StatusTransacao>(entry.status);
   const [compromissos, setCompromissos] = useState<AgendaResposta["appointments"]>([]);
-  const [commitmentId, setCommitmentId] = useState(entry.commitmentId ?? "");
+  const [commitmentLocal, setCommitmentId] = useState(entry.commitmentId ?? "");
+  const status = controlado ? (statusExterno ?? entry.status) : statusLocal;
+  const commitmentId = controlado ? (compromissoExterno ?? "") : commitmentLocal;
   const [mes, setMes] = useState(month);
   const [ano, setAno] = useState(String(year));
   const [amount, setAmount] = useState("");
@@ -134,7 +158,7 @@ function Formulario({
   }
 
   async function apagarLancamento() {
-    if (!entry || ocupado || entry.synced) return;
+    if (!entry || ocupado || !entry.actions.remove) return;
     setOcupado(true);
     try {
       await api(`/api/lancamentos/${entry.id}`, { method: "DELETE" });
@@ -149,7 +173,7 @@ function Formulario({
     }
   }
 
-  const outras = entries.filter((item) => item.category === "fixed" && item.id !== entry?.id);
+  const outras = entries.filter((item) => item.actions.fixedMonth && item.id !== entry?.id);
 
   const corpo = (
         <>
@@ -161,7 +185,11 @@ function Formulario({
             <select
               id="transacao-status"
               value={status}
-              onChange={(event) => setStatus(event.target.value as StatusTransacao)}
+              onChange={(event) => {
+                const proximo = event.target.value as StatusTransacao;
+                if (onStatus) onStatus(proximo);
+                else setStatus(proximo);
+              }}
               className={field}
             >
               {STATUS_TRANSACAO.map((item) => (
@@ -170,21 +198,6 @@ function Formulario({
                 </option>
               ))}
             </select>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                disabled={ocupado}
-                onClick={() =>
-                  void executar(
-                    `/api/lancamentos/${entry.id}/status`,
-                    { method: "PATCH", body: JSON.stringify({ status }) },
-                    "Status atualizado.",
-                  )
-                }
-              >
-                Atualizar status
-              </Button>
-            </div>
           </div>
           <div className="grid gap-1">
             <Rotulo htmlFor="transacao-compromisso" dica="Liga este lançamento a um compromisso do mês.">
@@ -193,7 +206,11 @@ function Formulario({
             <select
               id="transacao-compromisso"
               value={commitmentId}
-              onChange={(event) => setCommitmentId(event.target.value)}
+              onChange={(event) => {
+                const proximo = event.target.value;
+                if (onCommitment) onCommitment(proximo);
+                else setCommitmentId(proximo);
+              }}
               className={field}
             >
               <option value="">Escolha um compromisso do mês</option>
@@ -203,26 +220,11 @@ function Formulario({
                 </option>
               ))}
             </select>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                disabled={ocupado || !commitmentId}
-                onClick={() =>
-                  void executar(
-                    `/api/lancamentos/${entry.id}/compromisso`,
-                    { method: "POST", body: JSON.stringify({ commitmentId }) },
-                    "Compromisso associado.",
-                  )
-                }
-              >
-                Associar compromisso
-              </Button>
-            </div>
           </div>
-          {entry.category === "installment" || entry.category === "loan" ? (
-            <Serie entry={entry} ocupado={ocupado} executar={executar} />
+          {entry.actions.series ? (
+            <Serie id={entry.id} serie={entry.actions.series} ocupado={ocupado} executar={executar} />
           ) : null}
-          {entry.category === "fixed" ? (
+          {entry.actions.fixedMonth ? (
             <div className="grid gap-3">
               <div className="grid gap-4 tab:grid-cols-2">
                 <div className="grid gap-1">
@@ -307,7 +309,7 @@ function Formulario({
                   type="button"
                   variant="default"
                   disabled={ocupado}
-                  onClick={() => void atualizarValor(entry, entries, marcados, amount, executar, toast)}
+                  onClick={() => void atualizarValor(entry.id, marcados, amount, executar, toast)}
                 >
                   Atualizar valor
                 </Button>
@@ -338,7 +340,7 @@ function Formulario({
       <div className="dialog-corpo grid gap-4">{corpo}</div>
       <div className="dialog-acoes">
         <div className="mr-auto">
-          <ControleExclusao synced={entry.synced} ocupado={ocupado} onExcluir={apagarLancamento} />
+          <ControleExclusao removivel={entry.actions.remove} ocupado={ocupado} onExcluir={apagarLancamento} />
         </div>
         <Button type="button" variant="quiet" onClick={onClose}>
           Fechar
@@ -349,37 +351,28 @@ function Formulario({
   );
 }
 
-function mesesSuspensos(entry: Lancamento) {
-  return entry.adjustments.filter((ajuste) => ajuste.effect === "suspended").length;
-}
-
-function valorSuspenso(entry: Lancamento) {
-  const sinal = entry.mode === "outflows" ? -1 : 1;
-  return sinal * Math.abs(entry.cents) * mesesSuspensos(entry);
-}
-
-function Detalhe({ entry }: { entry: Lancamento }) {
-  if (entry.category === "installment" || entry.category === "loan") {
+function Detalhe({ entry }: { entry: LancamentoVista }) {
+  if (entry.actions.series) {
     return (
       <p className="text-sm text-ink-2">
         Parcela {entry.installmentNumber ?? 1} de {entry.installments ?? 0}
-        {entry.category === "loan" && entry.dueDate
+        {entry.actions.series === "loan" && entry.dueDate
           ? ` · vence em ${entry.dueDate.split("-").reverse().join("/")} · juros ${entry.interestRate ?? 0}%`
           : ""}
       </p>
     );
   }
-  if (entry.category === "fixed") {
+  if (entry.actions.fixedMonth) {
     return (
       <p className="text-sm text-ink-2">
-        Próximo vencimento {proximoVencimento(ocorrenciasDoLancamento(entry))?.split("-").reverse().join("/") ?? "—"}
+        Próximo vencimento {entry.nextDue?.split("-").reverse().join("/") ?? "—"}
         {entry.recurrence
           ? ` · ${ROTULO_RECORRENCIA[entry.recurrence].toLowerCase()}, a cada ${entry.recurrenceInterval ?? 1} ${unidadeDaRecorrencia(entry.recurrence)}`
           : ""}
-        {mesesSuspensos(entry) > 0 ? (
+        {entry.suspendedTotal !== 0 ? (
           <>
             {" "}
-            · suspenso <Money cents={valorSuspenso(entry)} />
+            · suspenso <Money cents={entry.suspendedTotal} />
           </>
         ) : null}
       </p>
@@ -389,23 +382,25 @@ function Detalhe({ entry }: { entry: Lancamento }) {
 }
 
 function Serie({
-  entry,
+  id,
+  serie,
   ocupado,
   executar,
 }: {
-  entry: Lancamento;
+  id: string;
+  serie: "installment" | "loan";
   ocupado: boolean;
   executar: (path: string, init: RequestInit, sucesso: string) => Promise<void>;
 }) {
-  const trecho = entry.category === "loan" ? "emprestimo" : "parcelas";
-  const nome = entry.category === "loan" ? "empréstimo" : "parcelas";
+  const trecho = serie === "loan" ? "emprestimo" : "parcelas";
+  const nome = serie === "loan" ? "empréstimo" : "parcelas";
   return (
     <div className="flex flex-wrap justify-end gap-2">
       <Button
         type="button"
         disabled={ocupado}
         onClick={() =>
-          void executar(`/api/lancamentos/${entry.id}/${trecho}/adiantar`, { method: "POST" }, `Parcela do ${nome} adiantada.`)
+          void executar(`/api/lancamentos/${id}/${trecho}/adiantar`, { method: "POST" }, `Parcela do ${nome} adiantada.`)
         }
       >
         Adiantar
@@ -415,9 +410,9 @@ function Serie({
         disabled={ocupado}
         onClick={() =>
           void executar(
-            `/api/lancamentos/${entry.id}/${trecho}/cancelar`,
+            `/api/lancamentos/${id}/${trecho}/cancelar`,
             { method: "POST" },
-            entry.category === "loan" ? "Empréstimo cancelado." : "Parcelas canceladas.",
+            serie === "loan" ? "Empréstimo cancelado." : "Parcelas canceladas.",
           )
         }
       >
@@ -448,8 +443,7 @@ function ajustar(
 }
 
 function atualizarValor(
-  entry: Lancamento,
-  entries: Lancamento[],
+  id: string,
   marcados: string[],
   amount: string,
   executar: (path: string, init: RequestInit, sucesso: string) => Promise<void>,
@@ -460,16 +454,8 @@ function atualizarValor(
     toast.erro("Informe o valor.");
     return;
   }
-  const ids = marcados.includes(entry.id) ? marcados : [entry.id, ...marcados];
-  const updates = ids.flatMap((id) => {
-    const item = entries.find((atual) => atual.id === id);
-    if (!item || item.category !== "fixed") return [];
-    return [{ id, cents: centavosComSinal(cents, item.mode) }];
-  });
-  if (updates.length === 0) {
-    toast.erro("Escolha uma transação fixa.");
-    return;
-  }
+  const ids = marcados.includes(id) ? marcados : [id, ...marcados];
+  const updates = ids.map((item) => ({ id: item, cents: Math.abs(cents) }));
   return executar(
     "/api/lancamentos/fixos/valor",
     { method: "POST", body: JSON.stringify({ updates }) },
@@ -478,12 +464,14 @@ function atualizarValor(
 }
 
 export function ControleExclusao({
-  synced,
+  removivel,
+  rotulo = "Excluir lançamento",
   compact = false,
   ocupado = false,
   onExcluir,
 }: {
-  synced: boolean;
+  removivel: boolean;
+  rotulo?: string;
   compact?: boolean;
   ocupado?: boolean;
   onExcluir: () => Promise<void>;
@@ -504,7 +492,7 @@ export function ControleExclusao({
     }
   }
 
-  if (synced) {
+  if (!removivel) {
     if (compact) {
       return (
         <Button
@@ -541,7 +529,7 @@ export function ControleExclusao({
           type="button"
           variant="quiet"
           className="size-10 px-0"
-          aria-label="Excluir lançamento"
+          aria-label={rotulo}
           disabled={busy}
           onClick={() => setConfirma(true)}
         >

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { Grupo, Sessao } from "@finnagent/contracts";
+import type { Grupo, Sessao, TipoSessao } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { fimDaSessao, inicioDaSessao } from "../dominio/sessao.js";
+import { fimDaSessao, inicioDaSessao, pedidoDaSessao } from "../dominio/sessao.js";
 import {
   GRUPOS_REPOSITORIO,
   type DadosDaSessao,
@@ -72,13 +72,15 @@ export class GruposService {
     tenantId: string,
     id: string,
     dados: DadosDaSessao,
-    cents: number,
+    kind: TipoSessao,
   ): Promise<Sessao> {
+    const pedido = pedidoDaSessao(kind);
     const resultado = await this.grupos.criarSessao(
       tenantId,
       id,
       dados,
-      cents,
+      pedido.kind,
+      pedido.cents,
       inicioDaSessao(),
     );
     if (resultado === "identificador") {

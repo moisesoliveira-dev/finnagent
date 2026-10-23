@@ -25,9 +25,12 @@ import {
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
+import { categoriaPermitida, protegeValorBase } from "../../grupos/dominio/sessao.js";
+import type { TipoSessao } from "@finnagent/contracts";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
 import type { Prisma } from "@prisma/client";
 import { jurosEmPontos, percentualDeJuros } from "../dominio/transacao.js";
+import { removerDaLinha } from "../dominio/vista.js";
 import type {
   FinancasRepositorio,
   NovoLancamento,
@@ -108,6 +111,11 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     };
   }
 
+  async obter(tenantId: string, id: string) {
+    const row = await this.buscar(this.banco(), tenantId, id);
+    return row ? lancamentoDe(row) : null;
+  }
+
   async criar(tenantId: string, pedido: NovoLancamento) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
@@ -124,12 +132,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         if (mesmoLancamento(atual, pedido)) return lancamentoDe(atual);
         return "identificador" as const;
       }
-      const sessao = await tx.session.findFirst({
-        where: { id: pedido.sessionId, tenantId },
-        include: { group: true },
-      });
-      if (!sessao || sessao.group.tenantId !== tenantId) return "sessao-ausente" as const;
-      if (sessao.endedAt) return "sessao-encerrada" as const;
+      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category);
+      if (recusa) return recusa;
       const ultimo = await tx.entry.aggregate({
         where: { tenantId },
         _max: { position: true },
@@ -186,14 +190,14 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       ) {
         return "ocorrencia" as const;
       }
-      if (atual.sessionId !== pedido.sessionId) {
-        const sessao = await tx.session.findFirst({
-          where: { id: pedido.sessionId, tenantId },
-          include: { group: true },
-        });
-        if (!sessao || sessao.group.tenantId !== tenantId) return "sessao-ausente" as const;
-        if (sessao.endedAt) return "sessao-encerrada" as const;
-      }
+      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category, {
+        id: atual.id,
+        cents: atual.cents,
+        mode: atual.mode,
+        pedidoCents: pedido.cents,
+        pedidoMode: pedido.mode,
+      });
+      if (recusa) return recusa;
       const meses = mesesDoPedido(pedido);
       await tx.entry.updateMany({
         where: { id: pedido.id, tenantId },
@@ -568,6 +572,37 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       await gravarOutbox(tx, tenantId, "excluir-lancamento", id, { id });
     });
   }
+
+  async excluirOcorrencia(tenantId: string, id: string, number: number) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await this.buscar(tx, tenantId, id);
+      if (!atual) return "ausente" as const;
+      if ((atual.statementLines?.length ?? 0) > 0) return "sincronizado" as const;
+      const lista = efetivasDaLinha(atual);
+      const alvo = lista.find((item) => item.number === number);
+      if (!alvo) return "ausente" as const;
+      const remocao = removerDaLinha(lancamentoDe(atual), lista, alvo);
+      if (remocao === null) return "bloqueada" as const;
+      if (remocao === "entry") {
+        await tx.appointment.updateMany({ where: { tenantId, entryId: id }, data: { entryId: null } });
+        await tx.entry.deleteMany({ where: { id, tenantId } });
+        await gravarOutbox(tx, tenantId, "excluir-lancamento", id, { id });
+        return "entry" as const;
+      }
+      const materializada = await this.materializar(tx, tenantId, atual);
+      const indice = materializada.findIndex((item) => item.number === number);
+      const transicao = materializada[indice] ? transicaoDaOcorrencia(materializada[indice], "cancelled") : "bloqueada";
+      if (transicao === "bloqueada") return "bloqueada" as const;
+      materializada[indice] = transicao;
+      await this.substituir(tx, tenantId, id, materializada);
+      await this.resumir(tx, tenantId, atual, materializada);
+      await this.alinharAjustes(tx, tenantId, atual, materializada);
+      const payload = { id, number };
+      await gravarOutbox(tx, tenantId, "excluir-ocorrencia", id, payload, marcaDe(payload));
+      return "occurrence" as const;
+    });
+  }
 }
 
 function mesesDoPedido(pedido: NovoLancamento) {
@@ -882,6 +917,50 @@ function ocorrenciaDe(row: OcorrenciaGravada): Ocorrencia {
     paidOn: row.paidOn ? dataIso(row.paidOn) : null,
     status: row.status as StatusTransacao,
   };
+}
+
+async function recusaDaSessao(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  sessionId: string,
+  category: CategoriaTransacao,
+  valor?: {
+    id: string;
+    cents: number;
+    mode: string;
+    pedidoCents: number;
+    pedidoMode: string;
+  },
+) {
+  const sessao = await tx.session.findFirst({
+    where: { id: sessionId, tenantId },
+    include: { group: true },
+  });
+  if (!sessao || sessao.group.tenantId !== tenantId) return "sessao-ausente" as const;
+  if (sessao.endedAt) return "sessao-encerrada" as const;
+  const kind: TipoSessao = sessao.kind === "valor" ? "valor" : "acumulo";
+  if (!categoriaPermitida(kind, category)) {
+    return kind === "valor" ? ("tipo-valor" as const) : ("tipo-acumulo" as const);
+  }
+  if (kind !== "valor") return null;
+  const irmas = await tx.entry.findMany({
+    where: { tenantId, sessionId, status: { not: "cancelled" } },
+    select: { id: true, position: true, status: true },
+  });
+  const jaEsta = valor != null && irmas.some((item) => item.id === valor.id);
+  if (!jaEsta && irmas.length > 0) return "valor-lancada" as const;
+  if (
+    valor &&
+    protegeValorBase(
+      kind,
+      valor.id,
+      irmas,
+      valor.cents !== valor.pedidoCents || valor.mode !== valor.pedidoMode,
+    )
+  ) {
+    return "valor-base" as const;
+  }
+  return null;
 }
 
 function igualLista(atual: Ocorrencia[], proxima: Ocorrencia[]) {

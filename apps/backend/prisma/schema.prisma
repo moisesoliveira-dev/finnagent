@@ -30,12 +30,27 @@ model Session {
   startedAt     DateTime? @map("started_at") @db.Date
   endedAt       DateTime? @map("ended_at") @db.Date
   cents         Int       @default(0)
+  kind          String    @default("acumulo")
   group         Group            @relation(fields: [groupId], references: [id], onDelete: Restrict)
   entries       Entry[]
+  additions     SessionAddition[]
   aliases       StatementAlias[]
 
   @@index([tenantId])
   @@map("sessions")
+}
+
+model SessionAddition {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  sessionId String   @map("session_id")
+  cents     Int
+  note      String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("session_additions")
 }
 
 model YearStay {

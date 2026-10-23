@@ -3,6 +3,7 @@ import type {
   Compromisso,
   LancamentoDoMes,
   NomeAgenda,
+  SituacaoOcorrencia,
   StatusCompromisso,
 } from "@finnagent/contracts";
 
@@ -17,7 +18,7 @@ export type ItemDia = {
   status: StatusCompromisso | null;
   calendar: NomeAgenda | null;
   category: CategoriaCompromisso | null;
-  link: { groupName: string; sessionName: string; cents: number } | null;
+  link: { groupName: string; sessionName: string; cents: number; situation: SituacaoOcorrencia } | null;
 };
 
 export function rotuloDaCategoria(categoria: CategoriaCompromisso) {
@@ -81,6 +82,7 @@ export function montarItens(
           groupName: item.groupName,
           sessionName: item.sessionName,
           cents: item.cents,
+          situation: item.situation,
         },
       });
     }
@@ -104,13 +106,6 @@ export function rotuloDoDia(year: number, month: number, day: number) {
 export function ehHoje(year: number, month: number, day: number) {
   const hoje = new Date();
   return hoje.getFullYear() === year && hoje.getMonth() === month - 1 && hoje.getDate() === day;
-}
-
-export function statusDoDia(year: number, month: number, day: number) {
-  const hoje = new Date();
-  const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-  const data = new Date(year, month - 1, day);
-  return data < inicio ? "pago" : "previsto";
 }
 
 export function diasDoMes(year: number, month: number) {

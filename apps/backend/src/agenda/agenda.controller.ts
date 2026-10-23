@@ -68,6 +68,11 @@ const fuso = z.object({
   timezone: z.enum(FUSOS_AGENDA),
 });
 const status = z.object({ status: z.enum(STATUS_COMPROMISSO) });
+const destino = z.object({
+  year: z.number().int().min(2000).max(2100),
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+});
 
 @Controller()
 export class AgendaController {
@@ -138,6 +143,22 @@ export class AgendaController {
       throw new BadRequestException("Não foi possível salvar o compromisso.");
     }
     return this.executar(() => this.agenda.atualizar(this.tenant(tenant), identificador.data, pedido.data));
+  }
+
+  @Post("compromissos/:id/mover")
+  mover(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const identificador = z.uuid().safeParse(id);
+    const pedido = destino.safeParse(body);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    if (!pedido.success) throw new BadRequestException("Esse dia não existe nesse mês.");
+    if (pedido.data.day > new Date(pedido.data.year, pedido.data.month, 0).getDate()) {
+      throw new BadRequestException("Esse dia não existe nesse mês.");
+    }
+    return this.executar(() => this.agenda.mover(this.tenant(tenant), identificador.data, pedido.data));
   }
 
   @Delete("compromissos/:id")

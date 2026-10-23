@@ -6,6 +6,15 @@ export type Grupo = {
   description: string;
 };
 
+export const TIPOS_SESSAO = ["valor", "acumulo"] as const;
+export type TipoSessao = (typeof TIPOS_SESSAO)[number];
+
+export type Acrescimo = {
+  id: string;
+  cents: number;
+  note: string;
+};
+
 export type Sessao = {
   id: string;
   groupId: string;
@@ -14,7 +23,12 @@ export type Sessao = {
   justification: string;
   startedAt: string | null;
   endedAt: string | null;
+  kind: TipoSessao;
+  categories: CategoriaTransacao[];
+  available: boolean;
   cents: number;
+  additions: Acrescimo[];
+  totalCents: number;
 };
 
 export type GruposResposta = {
@@ -317,6 +331,103 @@ export type Lancamento = {
 export type FinancasResposta = {
   workflow: Workflow;
   entries: Lancamento[];
+};
+
+export type OcorrenciaVista = Ocorrencia & {
+  situation: SituacaoOcorrencia;
+  cents: number;
+  next: StatusTransacao[];
+  editable: boolean;
+};
+
+export type RegraCategoria = {
+  mode: ModoTransacao | null;
+  transactionType: TipoTransacao | null;
+  priority: "sempre" | "saida" | "nunca";
+  installments: boolean;
+  loan: boolean;
+  recurrence: boolean;
+};
+
+export type LancamentoVista = Omit<Lancamento, "occurrences"> & {
+  occurrences: OcorrenciaVista[];
+  situation: SituacaoOcorrencia;
+  termsLocked: boolean;
+  nextDue: string | null;
+  contractCents: number;
+  suspendedTotal: number;
+  actions: {
+    remove: boolean;
+    series: "installment" | "loan" | null;
+    fixedMonth: boolean;
+  };
+};
+
+export type FinancasVista = {
+  workflow: Workflow;
+  entries: LancamentoVista[];
+  rules: Record<CategoriaTransacao, RegraCategoria>;
+};
+
+export type LinhaBase = {
+  entryId: string;
+  number: number;
+  dueDate: string;
+  name: string;
+  description: string;
+  justification: string;
+  groupName: string;
+  sessionName: string;
+  category: CategoriaTransacao;
+  priority: PrioridadeTransacao;
+  situation: SituacaoOcorrencia;
+  cents: number;
+  installment: { number: number; total: number } | null;
+  remove: "entry" | "occurrence" | null;
+  synced: boolean;
+};
+
+export type BaseResposta = {
+  year: number;
+  month: number | null;
+  day: number | null;
+  years: number[];
+  months: number[];
+  days: number[];
+  groups: { id: string; name: string }[];
+  rows: LinhaBase[];
+  totalCents: number;
+};
+
+export type LinhaGeral = {
+  id: string;
+  sessionName: string;
+  summary: string;
+  cents: Array<number | null>;
+  endsIn: number | null;
+  totalCents: number;
+};
+
+export type GrupoGeral = {
+  id: string;
+  name: string;
+  cents: number[];
+  totalCents: number;
+  entries: LinhaGeral[];
+};
+
+export type GeralResposta = {
+  year: number;
+  months: number[];
+  groups: GrupoGeral[];
+  totals: {
+    inflows: number[];
+    outflows: number[];
+    surplus: number[];
+    inflowsCents: number;
+    outflowsCents: number;
+    surplusCents: number;
+  };
 };
 
 export function colunasDoAno(workflow: Workflow, year: number) {
@@ -805,6 +916,7 @@ export type LancamentoDoMes = {
   groupName: string;
   sessionName: string;
   cents: number;
+  situation: SituacaoOcorrencia;
 };
 
 export type Vinculo = {
@@ -812,6 +924,12 @@ export type Vinculo = {
   groupName: string;
   sessionName: string;
   cents: number;
+  situation: SituacaoOcorrencia;
+};
+
+export type MovimentoCompromisso = {
+  appointment: Compromisso;
+  series: boolean;
 };
 
 export type Calendario = {

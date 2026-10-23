@@ -1,12 +1,33 @@
 import { Injectable } from "@nestjs/common";
-import type { Grupo, Sessao, ViradaGrupo, ViradaResposta } from "@finnagent/contracts";
+import type { Grupo, Sessao, TipoSessao, ViradaGrupo, ViradaResposta } from "@finnagent/contracts";
 import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { hojeNoFuso } from "../dominio/sessao.js";
+import { aceitaLancamento, categoriasDaSessao, hojeNoFuso, resumoDaSessao } from "../dominio/sessao.js";
 import { montarVirada, sessoesEncerradas } from "../dominio/virada.js";
 import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
+
+const sessaoCompleta = {
+  id: true,
+  groupId: true,
+  name: true,
+  description: true,
+  justification: true,
+  startedAt: true,
+  endedAt: true,
+  cents: true,
+  kind: true,
+  entries: {
+    select: {
+      id: true,
+      position: true,
+      status: true,
+      cents: true,
+      amounts: { select: { cents: true } },
+    },
+  },
+};
 
 class DecisaoConcorrente extends Error {}
 
@@ -24,16 +45,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     const sessions = await db.session.findMany({
       where: { tenantId },
       orderBy: { name: "asc" },
-      select: {
-        id: true,
-        groupId: true,
-        name: true,
-        description: true,
-        justification: true,
-        startedAt: true,
-        endedAt: true,
-        cents: true,
-      },
+      select: sessaoCompleta,
     });
     return { groups, sessions: sessions.map(sessaoDe) };
   }
@@ -121,14 +133,15 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     tenantId: string,
     id: string,
     dados: DadosDaSessao,
+    kind: TipoSessao,
     cents: number,
     startedAt: string,
   ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
-      const atual = await tx.session.findFirst({ where: { id, tenantId } });
+      const atual = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
       if (atual) {
-        if (sessaoIgual(atual, dados, cents)) return sessaoDe(atual);
+        if (sessaoIgual(atual, dados, kind, cents)) return sessaoDe(atual);
         return "identificador" as const;
       }
       if (!(await grupoDoTenant(tx, tenantId, dados.groupId))) {
@@ -137,10 +150,11 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       if (await nomeDeSessaoOcupado(tx, tenantId, dados.groupId, dados.name)) {
         return "nome" as const;
       }
-      const criada = await tx.session.create({
+      await tx.session.create({
         data: {
           id,
           tenantId,
+          kind,
           cents,
           startedAt: dataPrisma(startedAt),
           endedAt: null,
@@ -149,11 +163,14 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       });
       await gravarOutbox(tx, tenantId, "criar-sessao", id, {
         id,
+        kind,
         cents,
         startedAt,
         endedAt: null,
         ...dados,
       });
+      const criada = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
+      if (!criada) return "identificador" as const;
       return sessaoDe(criada);
     });
   }
@@ -174,7 +191,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
         data: gravacao(dados),
       });
       if (gravadas.count !== 1) return "ausente" as const;
-      const salva = await tx.session.findFirst({ where: { id, tenantId } });
+      const salva = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
       if (!salva) return "ausente" as const;
       const payload = { id, ...dados };
       await gravarOutbox(tx, tenantId, "atualizar-sessao", id, payload, marcaDe(payload));
@@ -310,7 +327,20 @@ function sessaoDe(row: {
   startedAt: Date | null;
   endedAt: Date | null;
   cents: number;
+  kind: string;
+  entries: { id: string; position: number; status: string; cents: number; amounts: { cents: number }[] }[];
 }): Sessao {
+  const kind: TipoSessao = row.kind === "valor" ? "valor" : "acumulo";
+  const resumo = resumoDaSessao(
+    kind,
+    row.entries.map((item) => ({
+      id: item.id,
+      position: item.position,
+      status: item.status,
+      cents: item.cents,
+      months: item.amounts.map((mes) => mes.cents),
+    })),
+  );
   return {
     id: row.id,
     groupId: row.groupId,
@@ -319,7 +349,12 @@ function sessaoDe(row: {
     justification: row.justification,
     startedAt: dataIso(row.startedAt),
     endedAt: dataIso(row.endedAt),
-    cents: row.cents,
+    kind,
+    categories: categoriasDaSessao(kind),
+    available: aceitaLancamento(kind, row.entries),
+    cents: resumo.cents,
+    additions: resumo.additions,
+    totalCents: resumo.totalCents,
   };
 }
 
@@ -338,9 +373,11 @@ function sessaoIgual(
     name: string;
     description: string;
     justification: string;
+    kind: string;
     cents: number;
   },
   dados: DadosDaSessao,
+  kind: TipoSessao,
   cents: number,
 ) {
   return (
@@ -348,6 +385,7 @@ function sessaoIgual(
     atual.name === dados.name &&
     atual.description === dados.description &&
     atual.justification === dados.justification &&
+    atual.kind === kind &&
     atual.cents === cents
   );
 }

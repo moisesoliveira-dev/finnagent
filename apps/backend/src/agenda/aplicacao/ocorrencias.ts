@@ -37,6 +37,26 @@ export function mensagemDaCategoria(
   return null;
 }
 
+type Validade = { endYear: number | null; endMonth: number | null; endDay: number | null };
+
+export function comValidade<T extends Validade & { category: CategoriaCompromisso }>(pedido: T): T {
+  if (pedido.category === "time") return pedido;
+  return { ...pedido, endYear: null, endMonth: null, endDay: null };
+}
+
+export function validadeAoMover(
+  atual: Validade & { category: CategoriaCompromisso },
+  destino: { year: number; month: number; day: number },
+): Validade {
+  if (atual.category !== "time" || atual.endYear == null || atual.endMonth == null || atual.endDay == null) {
+    return { endYear: null, endMonth: null, endDay: null };
+  }
+  if (numero(atual.endYear, atual.endMonth, atual.endDay) < numero(destino.year, destino.month, destino.day)) {
+    return { endYear: destino.year, endMonth: destino.month, endDay: destino.day };
+  }
+  return { endYear: atual.endYear, endMonth: atual.endMonth, endDay: atual.endDay };
+}
+
 export function ocorrenciasNoMes(definicao: Compromisso, year: number, month: number) {
   const ultimo = new Date(year, month, 0).getDate();
   if (definicao.category === "fixed") {

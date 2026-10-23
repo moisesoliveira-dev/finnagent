@@ -13,6 +13,7 @@ import {
   Post,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { TIPOS_SESSAO } from "@finnagent/contracts";
 import { z } from "zod";
 import { GruposService } from "./aplicacao/grupos.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "./dominio/erros.js";
@@ -20,7 +21,6 @@ import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "./do
 const tenantId = z.uuid();
 const nome = z.string().trim().min(1).max(80);
 const descricao = z.string().trim().max(160);
-const centavos = z.number().int().gte(-2_147_483_648).lte(2_147_483_647);
 const criarGrupo = z.object({
   id: z.uuid(),
   name: nome,
@@ -34,7 +34,7 @@ const criarSessao = z.object({
   name: nome,
   description: descricao.optional().default(""),
   justification: justificativa.optional().default(""),
-  cents: centavos.optional().default(0),
+  kind: z.enum(TIPOS_SESSAO),
 });
 const permanecerAno = z.object({
   year: z.number().int(),
@@ -131,7 +131,7 @@ export class GruposController {
           description: pedido.description,
           justification: pedido.justification,
         },
-        pedido.cents,
+        pedido.kind,
       ),
     );
   }
@@ -200,7 +200,7 @@ export class GruposController {
       if (campo === "justification") {
         throw new BadRequestException("A justificativa passa de 160 caracteres.");
       }
-      if (campo === "cents") throw new BadRequestException("Informe o valor da sessão.");
+      if (campo === "kind") throw new BadRequestException("Escolha o tipo da sessão.");
       throw new BadRequestException("Não foi possível salvar a sessão.");
     }
     return parsed.data;
