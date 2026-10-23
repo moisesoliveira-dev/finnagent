@@ -1,11 +1,36 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type {
-  EfeitoTransacao,
-  FinancasResposta,
-  Lancamento,
-  StatusTransacao,
+import {
+  ocorrenciasDoLancamento,
+  termosTravados,
+  type BaseResposta,
+  type EfeitoTransacao,
+  type FinancasResposta,
+  type FinancasVista,
+  type GeralResposta,
+  type Lancamento,
+  type StatusTransacao,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
+import {
+  CONFIGURACOES_REPOSITORIO,
+  type ConfiguracoesRepositorio,
+} from "../../configuracoes/portas/configuracoes-repositorio.js";
+import { mensagemDaCategoria } from "../../grupos/dominio/sessao.js";
+import { PedidoInvalido } from "../dominio/erros.js";
+import {
+  erroDoPedido,
+  normalizarPedido,
+  novoLancamento,
+  pedidoDaEdicao,
+  type PedidoLancamento,
+} from "../dominio/pedido.js";
+import {
+  diaNoFuso,
+  montarBase,
+  montarGeral,
+  montarVista,
+  type FiltroBase,
+} from "../dominio/vista.js";
 import {
   FINANCAS_REPOSITORIO,
   type FinancasRepositorio,
@@ -15,11 +40,57 @@ import {
 
 @Injectable()
 export class FinancasService {
-  constructor(@Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio) {}
+  constructor(
+    @Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio,
+    @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
+  ) {}
 
   async listar(tenantId: string, incluirEncerradas = false): Promise<FinancasResposta> {
     await this.financas.garantirWorkflow(tenantId);
     return this.financas.listar(tenantId, incluirEncerradas);
+  }
+
+  async hoje(tenantId: string) {
+    const preferencias = await this.configuracoes.obter(tenantId);
+    return diaNoFuso(preferencias.timezone);
+  }
+
+  async vista(tenantId: string): Promise<FinancasVista> {
+    const base = await this.listar(tenantId);
+    return montarVista(base, await this.hoje(tenantId));
+  }
+
+  async base(tenantId: string, filtro: FiltroBase): Promise<BaseResposta> {
+    const base = await this.listar(tenantId);
+    return montarBase(base, await this.hoje(tenantId), filtro);
+  }
+
+  async geral(tenantId: string, year: number): Promise<GeralResposta> {
+    return montarGeral(await this.listar(tenantId), year);
+  }
+
+  registrar(tenantId: string, pedido: PedidoLancamento) {
+    return this.criar(tenantId, this.validado(pedido));
+  }
+
+  async editar(tenantId: string, pedido: PedidoLancamento) {
+    const atual = await this.financas.obter(tenantId, pedido.id);
+    if (!atual) throw new NaoEncontrado("Lançamento não encontrado.");
+    const travado = termosTravados(ocorrenciasDoLancamento(atual), atual.synced);
+    return this.atualizar(tenantId, this.validado(pedidoDaEdicao(atual, pedido, travado)));
+  }
+
+  async excluirOcorrencia(tenantId: string, id: string, number: number) {
+    const resultado = await this.financas.excluirOcorrencia(tenantId, id, number);
+    if (resultado !== "entry" && resultado !== "occurrence") this.falha(resultado);
+    return { removed: resultado };
+  }
+
+  private validado(pedido: PedidoLancamento) {
+    const normal = normalizarPedido(pedido);
+    const erro = erroDoPedido(normal);
+    if (erro) throw new PedidoInvalido(erro);
+    return novoLancamento(normal);
   }
 
   async criar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
@@ -33,6 +104,12 @@ export class FinancasService {
     if (resultado === "sessao-encerrada") {
       throw new Conflito("Essa sessão já foi encerrada.");
     }
+    if (resultado === "tipo-valor" || resultado === "tipo-acumulo") {
+      throw new PedidoInvalido(mensagemDaCategoria(resultado === "tipo-valor" ? "valor" : "acumulo"));
+    }
+    if (resultado === "valor-lancada") {
+      throw new PedidoInvalido("Esta sessão de valor único já foi lançada.");
+    }
     if (typeof resultado === "string") {
       throw new Conflito("Não foi possível salvar o lançamento.");
     }
@@ -44,6 +121,15 @@ export class FinancasService {
     if (resultado === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
     if (resultado === "sessao-ausente") throw new NaoEncontrado("Sessão não encontrada.");
     if (resultado === "sessao-encerrada") throw new Conflito("Essa sessão já foi encerrada.");
+    if (resultado === "tipo-valor" || resultado === "tipo-acumulo") {
+      throw new PedidoInvalido(mensagemDaCategoria(resultado === "tipo-valor" ? "valor" : "acumulo"));
+    }
+    if (resultado === "valor-base") {
+      throw new PedidoInvalido("O acréscimo não altera o valor base.");
+    }
+    if (resultado === "valor-lancada") {
+      throw new PedidoInvalido("Esta sessão de valor único já foi lançada.");
+    }
     if (resultado === "base") {
       throw new Conflito("Movimento e categoria não podem ser alterados.");
     }

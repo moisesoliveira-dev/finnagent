@@ -8,21 +8,14 @@ import {
   RECORRENCIAS,
   STATUS_TRANSACAO,
   TIPOS_TRANSACAO,
-  ajustarTransacao,
-  centavosComSinal,
-  categoriaDeCompromisso,
-  ocorrenciasDoLancamento,
-  termosTravados,
-  categoriaSempreEntrada,
-  categoriaSempreSaida,
-  prioridadeAplicavel,
   type CategoriaTransacao,
-  type FinancasResposta,
+  type FinancasVista,
   type GruposResposta,
-  type Lancamento,
+  type LancamentoVista,
   type ModoTransacao,
   type PrioridadeTransacao,
   type Recorrencia,
+  type RegraCategoria,
   type StatusTransacao,
   type TipoTransacao,
   type Workflow,
@@ -36,7 +29,7 @@ import { Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { campo, cn, focusRing } from "../../components/ui/cn";
+import { campo, cn } from "../../components/ui/cn";
 import { AcoesTransacao, ControleExclusao } from "./acoes";
 import { OcorrenciasDoLancamento } from "./ocorrencias";
 import { TabelaLancamentos } from "./tabela";
@@ -77,26 +70,30 @@ type Rascunho = {
   nextDueDate: string;
   recurrence: Recorrencia;
   recurrenceInterval: string;
+  commitmentId: string;
 };
 
 const field = cn(campo, "w-full");
 
 export default function Financas() {
   const toast = useToast();
-  const [data, setData] = useState<FinancasResposta | null>(null);
+  const [data, setData] = useState<FinancasVista | null>(null);
+  const [versao, setVersao] = useState(0);
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
   const [visao, setVisao] = useState<Visao>("geral");
   const [deslize, setDeslize] = useState(0);
   const [year, setYear] = useState<number | null>(null);
   const [draft, setDraft] = useState<Rascunho | null>(null);
+  const [foco, setFoco] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
   const [saving, setSaving] = useState(false);
 
   function carregar() {
-    return api<FinancasResposta>("/api/financas")
+    return api<FinancasVista>("/api/financas")
       .then((resposta) => {
         setData(resposta);
+        setVersao((atual) => atual + 1);
         setFalhou(false);
         return resposta;
       })
@@ -109,7 +106,7 @@ export default function Financas() {
 
   useEffect(() => {
     let active = true;
-    api<FinancasResposta>("/api/financas")
+    api<FinancasVista>("/api/financas")
       .then((resposta) => {
         if (!active) return;
         setData(resposta);
@@ -129,18 +126,21 @@ export default function Financas() {
 
   const workflow = data?.workflow;
   const ano = year ?? workflow?.year ?? 2026;
-  const vista = draft ? ajustarTransacao(draft) : null;
+  const regra = draft && data ? data.rules[draft.category] : null;
+  const vista = draft && regra
+    ? {
+        mode: regra.mode ?? draft.mode,
+        transactionType: regra.transactionType ?? draft.transactionType,
+      }
+    : null;
+  const comPrioridade = Boolean(
+    regra && vista && (regra.priority === "sempre" || (regra.priority === "saida" && vista.mode === "outflows")),
+  );
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
-  const travado = entrada
-    ? termosTravados(ocorrenciasDoLancamento(entrada), entrada.synced)
-    : false;
+  const travado = entrada?.termsLocked ?? false;
 
-  async function excluir(entry: Lancamento) {
-    if (entry.synced) {
-      toast.erro("Esse lançamento foi sincronizado com o extrato e não pode ser apagado.");
-      throw new Error("sincronizado");
-    }
+  async function excluir(entry: LancamentoVista) {
     try {
       await api(`/api/lancamentos/${entry.id}`, { method: "DELETE" });
     } catch (error) {
@@ -152,7 +152,12 @@ export default function Financas() {
     await carregar();
   }
 
-  async function abrirEdicao(entry: Lancamento) {
+  function abrirPorId(entryId: string, numero: number) {
+    const entry = data?.entries.find((item) => item.id === entryId);
+    if (entry) void abrirEdicao(entry, numero);
+  }
+
+  async function abrirEdicao(entry: LancamentoVista, numero?: number) {
     try {
       const opcoes = await sessoesAbertas();
       if (!opcoes.some((session) => session.id === entry.sessionId)) {
@@ -164,11 +169,17 @@ export default function Financas() {
           justification: "",
           startedAt: null,
           endedAt: null,
+          kind: "acumulo",
+          categories: [...CATEGORIAS_TRANSACAO],
+          available: true,
           cents: 0,
+          additions: [],
+          totalCents: 0,
           groupName: entry.groupName,
         });
       }
       setSessions(opcoes);
+      setFoco(numero ?? null);
       setDraft(rascunhoDe(entry));
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
@@ -185,9 +196,14 @@ export default function Financas() {
 
   async function abrirLancamento() {
     try {
-      const opcoes = await sessoesAbertas();
+      const abertas = await sessoesAbertas();
+      const opcoes = abertas.filter((session) => session.available);
       if (opcoes.length === 0) {
-        toast.alerta("Crie um grupo e uma sessão antes do lançamento.");
+        toast.alerta(
+          abertas.length === 0
+            ? "Crie um grupo e uma sessão antes do lançamento."
+            : "As sessões de valor único já foram lançadas.",
+        );
         return;
       }
       const inicio = workflow ?? { year: ano, month: 3, day: 1 };
@@ -203,7 +219,7 @@ export default function Financas() {
         mode: "outflows",
         status: "pending",
         transactionType: "unusual",
-        category: "fixed",
+        category: categoriaDaSessao(opcoes[0]?.categories),
         priority: "normal",
         amount: "",
         installments: "2",
@@ -213,6 +229,7 @@ export default function Financas() {
         nextDueDate: date,
         recurrence: "monthly",
         recurrenceInterval: "1",
+        commitmentId: "",
       });
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
@@ -223,60 +240,12 @@ export default function Financas() {
     event.preventDefault();
     if (!draft || saving) return;
     const absoluto = reaisParaCentavos(draft.amount.replace(/^[-−]/, ""));
-    const parcelado = draft.category === "installment" || draft.category === "loan";
-    const installments = parcelado ? Number(draft.installments) : null;
-    const installmentNumber = parcelado ? Number(draft.installmentNumber) : null;
-    const juros = draft.category === "loan" ? Number(draft.interestRate.replace(",", ".")) : null;
-    if (!draft.sessionId) {
-      toast.erro("Escolha uma sessão.");
-      return;
-    }
-    if (!draft.name.trim()) {
-      toast.erro("Dê um nome à transação.");
-      return;
-    }
-    if (!draft.justification.trim()) {
-      toast.erro("Informe a justificativa.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) {
-      toast.erro("Informe a data.");
-      return;
-    }
     if (absoluto == null) {
       toast.erro("Informe o valor.");
       return;
     }
-    if (parcelado && (!Number.isInteger(installments) || (installments ?? 0) < 1)) {
-      toast.erro("Informe o número de parcelas.");
-      return;
-    }
-    if (
-      parcelado &&
-      !editando &&
-      (!Number.isInteger(installmentNumber) ||
-        (installmentNumber ?? 0) < 1 ||
-        (installmentNumber ?? 0) > (installments ?? 0))
-    ) {
-      toast.erro("Informe a parcela atual.");
-      return;
-    }
-    if (draft.category === "loan" && (!draft.dueDate || draft.interestRate.trim() === "" || juros == null || Number.isNaN(juros))) {
-      toast.erro("Informe o vencimento e a taxa de juros.");
-      return;
-    }
-    const intervalo = Number(draft.recurrenceInterval);
-    if (draft.category === "fixed" && !draft.nextDueDate) {
-      toast.erro("Informe o próximo vencimento.");
-      return;
-    }
-    if (draft.category === "fixed" && (!Number.isInteger(intervalo) || intervalo < 1)) {
-      toast.erro("Informe a recorrência.");
-      return;
-    }
-    const pedido = ajustarTransacao(draft);
-    const cents = centavosComSinal(absoluto, pedido.mode);
     setSaving(true);
+    let gravou = false;
     try {
       await api(editando ? `/api/lancamentos/${draft.id}` : "/api/lancamentos", {
         method: editando ? "PATCH" : "POST",
@@ -287,31 +256,46 @@ export default function Financas() {
           description: draft.description.trim(),
           justification: draft.justification.trim(),
           date: draft.date,
-          mode: entrada?.mode ?? pedido.mode,
+          mode: draft.mode,
           status: draft.status,
-          transactionType: entrada?.transactionType ?? pedido.transactionType,
-          category: entrada?.category ?? draft.category,
-          priority: pedido.priority,
-          cents,
-          // Fora da trava, os termos vêm do formulário; travados, ficam os gravados.
-          installments: travado && entrada ? entrada.installments : installments,
-          installmentNumber,
-          dueDate: travado && entrada ? entrada.dueDate : draft.category === "loan" ? draft.dueDate : null,
-          interestRate: travado && entrada ? entrada.interestRate : draft.category === "loan" ? juros : null,
-          nextDueDate: draft.category === "fixed" ? draft.nextDueDate : null,
-          recurrence: travado && entrada ? entrada.recurrence : draft.category === "fixed" ? draft.recurrence : null,
-          recurrenceInterval: travado && entrada
-            ? entrada.recurrenceInterval
-            : draft.category === "fixed"
-              ? intervalo
-              : null,
+          transactionType: draft.transactionType,
+          category: draft.category,
+          priority: draft.priority,
+          cents: Math.abs(absoluto),
+          installments: numeroDoCampo(draft.installments),
+          installmentNumber: numeroDoCampo(draft.installmentNumber),
+          dueDate: draft.dueDate || null,
+          interestRate: numeroDoCampo(draft.interestRate.replace(",", ".")),
+          nextDueDate: draft.nextDueDate || null,
+          recurrence: draft.recurrence,
+          recurrenceInterval: numeroDoCampo(draft.recurrenceInterval),
         }),
       });
+      gravou = true;
+      if (editando && entrada) {
+        if (draft.status !== entrada.status) {
+          await api(`/api/lancamentos/${draft.id}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: draft.status }),
+          });
+        }
+        if (draft.commitmentId && draft.commitmentId !== (entrada.commitmentId ?? "")) {
+          await api(`/api/lancamentos/${draft.id}/compromisso`, {
+            method: "POST",
+            body: JSON.stringify({ commitmentId: draft.commitmentId }),
+          });
+        }
+      }
       setDraft(null);
       toast.sucesso(editando ? "Lançamento atualizado." : "Lançamento criado.");
       await carregar();
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o lançamento.");
+      if (gravou && editando) {
+        const resposta = await carregar();
+        const atual = resposta?.entries.find((item) => item.id === draft.id);
+        if (atual) setDraft(rascunhoDe(atual));
+      }
     } finally {
       setSaving(false);
     }
@@ -365,15 +349,16 @@ export default function Financas() {
                       setYear(ano + 1);
                     }}
                   />
-                  <VisaoGeral entries={data.entries} workflow={workflow} year={ano} />
+                  <VisaoGeral year={ano} versao={versao} />
                 </>
               ) : (
                 <TabelaLancamentos
-                  entries={data.entries}
-                  workflow={workflow}
                   year={ano}
-                  onEditar={(entry) => void abrirEdicao(entry)}
-                  onExcluir={excluir}
+                  versao={versao}
+                  onEditar={abrirPorId}
+                  onAtualizar={async () => {
+                    await carregar();
+                  }}
                 />
               )}
             </Troca>
@@ -395,13 +380,23 @@ export default function Financas() {
                 id="lancamento-sessao"
                 value={draft?.sessionId ?? ""}
                 onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, sessionId: event.target.value } : current,
-                  )
+                  setDraft((current) => {
+                    if (!current) return current;
+                    const escolhida = sessions.find((session) => session.id === event.target.value);
+                    return {
+                      ...current,
+                      sessionId: event.target.value,
+                      category: editando
+                        ? current.category
+                        : categoriaDaSessao(escolhida?.categories, current.category),
+                    };
+                  })
                 }
                 className={field}
               >
-                {sessions.map((session) => (
+                {sessions
+                  .filter((session) => session.available || session.id === draft?.sessionId)
+                  .map((session) => (
                   <option key={session.id} value={session.id}>
                     {session.groupName} · {session.name}
                   </option>
@@ -437,7 +432,7 @@ export default function Financas() {
                     current ? { ...current, description: event.target.value } : current,
                   )
                 }
-                className={cn(field, "min-h-16 py-2")}
+                className={cn(field, "resize-y py-2")}
               />
             </div>
             <div className="grid gap-1">
@@ -455,13 +450,13 @@ export default function Financas() {
                     current ? { ...current, justification: event.target.value } : current,
                   )
                 }
-                className={cn(field, "min-h-16 py-2")}
+                className={cn(field, "resize-y py-2")}
               />
             </div>
             {editando && travado && draft && entrada ? (
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2">
                 <time dateTime={draft.date}>{dataBr(draft.date)}</time>
-                <Money cents={centavosDoContrato(entrada)} />
+                <Money cents={entrada.contractCents} />
               </p>
             ) : (
             <div className="dialog-par">
@@ -496,17 +491,19 @@ export default function Financas() {
               </div>
             </div>
             )}
-            {editando && vista && draft ? (
-              <p className="text-sm text-ink-2">{resumoDaBase(draft, vista)}</p>
+            {editando && vista && regra && draft ? (
+              <p className="text-sm text-ink-2">{resumoDaBase(draft, vista, regra)}</p>
             ) : null}
             {editando ? null : (
               <div className="dialog-par">
                 <CampoSelect
                   id="lancamento-categoria"
                   label="Categoria"
-                  dica="Extra, parcela, empréstimo, fixa ou única."
+                  dica="Os tipos que esta sessão aceita."
                   value={draft?.category ?? "fixed"}
-                  options={CATEGORIAS_TRANSACAO.map((item) => ({
+                  options={(sessions.find((session) => session.id === draft?.sessionId)?.categories ??
+                    CATEGORIAS_TRANSACAO
+                  ).map((item) => ({
                     value: item,
                     label: ROTULO_CATEGORIA[item],
                   }))}
@@ -516,7 +513,7 @@ export default function Financas() {
                     )
                   }
                 />
-                {vista && !categoriaSempreEntrada(vista.category) && !categoriaSempreSaida(vista.category) ? (
+                {vista && regra?.mode === null ? (
                   <CampoSelect
                     id="lancamento-movimento"
                     label="Movimento"
@@ -530,7 +527,7 @@ export default function Financas() {
                     }
                   />
                 ) : null}
-                {vista && !categoriaDeCompromisso(vista.category) ? (
+                {vista && regra?.transactionType === null ? (
                   <CampoSelect
                     id="lancamento-tipo"
                     label="Tipo"
@@ -563,12 +560,12 @@ export default function Financas() {
                 }
               />
               )}
-              {vista && prioridadeAplicavel(vista.category, vista.mode) ? (
+              {draft && comPrioridade ? (
                 <CampoSelect
                   id="lancamento-prioridade"
                   label="Prioridade"
                   dica="Baixa, normal ou alta. Só aparece quando a categoria permite."
-                  value={vista.priority === "nopriority" ? "normal" : vista.priority}
+                  value={draft.priority === "nopriority" ? "normal" : draft.priority}
                   options={PRIORIDADES_TRANSACAO.filter((item) => item !== "nopriority").map((item) => ({
                     value: item,
                     label: ROTULO_PRIORIDADE[item],
@@ -581,7 +578,7 @@ export default function Financas() {
                 />
               ) : null}
             </div>
-            {draft && (draft.category === "installment" || draft.category === "loan") && (!editando || !travado) ? (
+            {draft && regra?.installments && (!editando || !travado) ? (
               <div className="dialog-par">
                 {editando ? null : (
                 <div className="grid gap-1">
@@ -621,7 +618,7 @@ export default function Financas() {
                 )}
               </div>
             ) : null}
-            {(!editando || !travado) && draft?.category === "loan" ? (
+            {draft && regra?.loan && (!editando || !travado) ? (
               <div className="dialog-par">
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-vencimento" dica="O dia em que o empréstimo vence.">
@@ -657,7 +654,7 @@ export default function Financas() {
                 </div>
               </div>
             ) : null}
-            {draft?.category === "fixed" ? (
+            {draft && regra?.recurrence ? (
               <div className="grid gap-4">
                 {!editando || !travado ? (
                   <div className="dialog-par">
@@ -720,6 +717,7 @@ export default function Financas() {
             {entrada ? (
               <OcorrenciasDoLancamento
                 entry={entrada}
+                foco={foco}
                 onAtualizar={async () => {
                   const resposta = await carregar();
                   const atual = resposta?.entries.find((item) => item.id === entrada.id);
@@ -734,6 +732,14 @@ export default function Financas() {
                 entries={data?.entries ?? []}
                 year={entrada.startYear}
                 month={entrada.startMonth}
+                status={draft?.status}
+                commitmentId={draft?.commitmentId ?? ""}
+                onStatus={(status) =>
+                  setDraft((current) => (current ? { ...current, status } : current))
+                }
+                onCommitment={(commitmentId) =>
+                  setDraft((current) => (current ? { ...current, commitmentId } : current))
+                }
                 onClose={() => setDraft(null)}
                 onAtualizar={async () => {
                   const resposta = await carregar();
@@ -746,7 +752,7 @@ export default function Financas() {
             <div className="dialog-acoes">
               {entrada ? (
                 <div className="mr-auto">
-                  <ControleExclusao synced={entrada.synced} onExcluir={() => excluir(entrada)} />
+                  <ControleExclusao removivel={entrada.actions.remove} onExcluir={() => excluir(entrada)} />
                 </div>
               ) : null}
               <Button
@@ -806,15 +812,14 @@ function subtitulo(workflow: Workflow) {
   return `Workflow de ${workflow.year} · iniciado em ${doisDigitos(workflow.day)}/${doisDigitos(workflow.month)}`;
 }
 
-function centavosDoContrato(entry: Lancamento) {
-  const doMes = entry.months.find(
-    (mes) => mes.year === entry.startYear && mes.month === entry.startMonth,
-  );
-  return entry.cents !== 0 ? entry.cents : (doMes?.cents ?? entry.cents);
+function numeroDoCampo(texto: string) {
+  if (texto.trim() === "") return null;
+  const numero = Number(texto);
+  return Number.isFinite(numero) ? numero : null;
 }
 
-function rascunhoDe(entry: Lancamento): Rascunho {
-  const valor = centavosDoContrato(entry);
+function rascunhoDe(entry: LancamentoVista): Rascunho {
+  const valor = entry.contractCents;
   return {
     id: entry.id,
     sessionId: entry.sessionId,
@@ -827,7 +832,7 @@ function rascunhoDe(entry: Lancamento): Rascunho {
     transactionType: entry.transactionType,
     category: entry.category,
     priority: entry.priority,
-    amount: centavosParaReais(valor),
+    amount: centavosParaReais(Math.abs(valor)),
     installments: String(entry.installments ?? 2),
     installmentNumber: String(entry.installmentNumber ?? 1),
     dueDate: entry.dueDate ?? entry.date,
@@ -835,7 +840,17 @@ function rascunhoDe(entry: Lancamento): Rascunho {
     nextDueDate: entry.nextDueDate ?? entry.date,
     recurrence: entry.recurrence ?? "monthly",
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),
+    commitmentId: entry.commitmentId ?? "",
   };
+}
+
+function categoriaDaSessao(
+  categories: CategoriaTransacao[] | undefined,
+  atual?: CategoriaTransacao,
+): CategoriaTransacao {
+  if (atual && categories?.includes(atual)) return atual;
+  if (categories?.includes("fixed")) return "fixed";
+  return categories?.[0] ?? "unique";
 }
 
 function dataIso(year: number, month: number, day: number) {
@@ -845,21 +860,22 @@ function dataIso(year: number, month: number, day: number) {
 function resumoDaBase(
   draft: Rascunho,
   vista: { mode: ModoTransacao; transactionType: TipoTransacao },
+  regra: RegraCategoria,
 ) {
   const partes = [
     ROTULO_CATEGORIA[draft.category],
     ROTULO_MODO[vista.mode],
     ROTULO_TIPO[vista.transactionType],
   ];
-  if (draft.category === "fixed") {
+  if (regra.recurrence) {
     partes.push(
       `${ROTULO_RECORRENCIA[draft.recurrence]}, a cada ${draft.recurrenceInterval} ${unidadeDaRecorrencia(draft.recurrence)}`,
     );
   }
-  if (draft.category === "installment" || draft.category === "loan") {
+  if (regra.installments) {
     partes.push(`${draft.installments} parcelas`);
   }
-  if (draft.category === "loan") {
+  if (regra.loan) {
     partes.push(`vence em ${dataBr(draft.dueDate)}`);
     if (draft.interestRate) partes.push(`juros ${draft.interestRate}%`);
   }

@@ -59,6 +59,14 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     return rows.map((row) => compromissoDe(row, fusos.get(row.calendar) ?? FUSO_PADRAO));
   }
 
+  async obter(tenantId: string, id: string) {
+    const db = this.banco();
+    const row = await db.appointment.findFirst({ where: { id, tenantId } });
+    if (!row) return null;
+    const fusos = await this.mapaDeFusos(db, tenantId);
+    return compromissoDe(row, fusos.get(row.calendar) ?? FUSO_PADRAO);
+  }
+
   async criar(tenantId: string, pedido: NovoCompromisso) {
     const db = this.banco();
     return db.$transaction(async (tx) => {

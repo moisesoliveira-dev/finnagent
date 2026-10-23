@@ -13,6 +13,7 @@ import {
   type Configuracoes,
   type EstadoGoogle,
   type FusoAgenda,
+  type MovimentoCompromisso,
   type NomeAgenda,
   type StatusCompromisso,
 } from "@finnagent/contracts";
@@ -289,21 +290,11 @@ export default function Agenda() {
     });
   }
 
-  function pedidoDoRascunho(draftAtual: Rascunho, dataAlvo?: { year: number; month: number; day: number }) {
-    const [anoTexto, mesTexto, diaTexto] = draftAtual.date.split("-");
-    const year = dataAlvo?.year ?? Number(anoTexto);
-    const month = dataAlvo?.month ?? Number(mesTexto);
-    const day = dataAlvo?.day ?? Number(diaTexto);
-    const fim = fimDoRascunho({ ...draftAtual, date: dataIso(year, month, day) });
-    const inicio = year * 10000 + month * 100 + day;
-    const termino =
-      fim.endYear == null || fim.endMonth == null || fim.endDay == null
-        ? null
-        : fim.endYear * 10000 + fim.endMonth * 100 + fim.endDay;
-    const validade =
-      termino != null && termino < inicio
-        ? { endYear: year, endMonth: month, endDay: day }
-        : fim;
+  function pedidoDoRascunho(draftAtual: Rascunho) {
+    const [year, month, day] = draftAtual.date.split("-").map(Number);
+    const [endYear, endMonth, endDay] = /^\d{4}-\d{2}-\d{2}$/.test(draftAtual.endDate)
+      ? draftAtual.endDate.split("-").map(Number)
+      : [];
     return {
       title: draftAtual.title,
       description: draftAtual.description,
@@ -317,7 +308,9 @@ export default function Agenda() {
       calendar: draftAtual.calendar,
       timezone: fusoDaAgenda(data, draftAtual.calendar),
       category: draftAtual.category,
-      ...validade,
+      endYear: endYear ?? null,
+      endMonth: endMonth ?? null,
+      endDay: endDay ?? null,
       entryId: draftAtual.entryId || null,
     };
   }
@@ -382,43 +375,21 @@ export default function Agenda() {
   async function moverCompromisso(id: string, day: number) {
     const item = data?.appointments.find((atual) => atual.id === id);
     if (!item || saving || item.day === day) return;
-    const ano = item.anchorYear ?? item.year;
-    const mes = item.anchorMonth ?? item.month;
-    const dia = item.anchorDay ?? item.day;
-    const rascunho: Rascunho = {
-      id: item.id,
-      title: item.title,
-      description: item.description,
-      location: item.location,
-      date: dataIso(ano, mes, dia),
-      endDate:
-        item.endYear && item.endMonth && item.endDay
-          ? dataIso(item.endYear, item.endMonth, item.endDay)
-          : dataIso(ano, mes, dia),
-      allDay: item.allDay,
-      time: item.time ?? "",
-      endTime: item.endTime ?? "",
-      calendar: item.calendar,
-      category: item.category,
-      entryId: item.entryId ?? "",
-      existente: true,
-    };
     setSaving(true);
     try {
-      const pedido = pedidoDoRascunho(rascunho, { year: anoVisivel, month: mesVisivel, day });
-      const response = await fetch(`/api/compromissos/${id}`, {
-        method: "PATCH",
+      const response = await fetch(`/api/compromissos/${id}/mover`, {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(pedido),
+        body: JSON.stringify({ year: anoVisivel, month: mesVisivel, day }),
       });
-      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      const body = (await response.json().catch(() => ({}))) as Partial<MovimentoCompromisso> & {
+        message?: string;
+      };
       if (!response.ok) throw new Error(body.message || "Não foi possível mover o compromisso.");
       const resposta = await carregar(anoVisivel, mesVisivel);
       setData(resposta);
       setCarregado({ year: anoVisivel, month: mesVisivel });
-      toast.sucesso(
-        item.category === "fixed" ? "Compromisso movido." : "A repetição passou a começar neste dia.",
-      );
+      toast.sucesso(body.series ? "A repetição passou a começar neste dia." : "Compromisso movido.");
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível mover o compromisso.");
     } finally {
@@ -618,7 +589,7 @@ export default function Agenda() {
           ref={menuRef}
           role="menu"
           aria-label="Ações do dia"
-          className="fixed z-20 grid min-w-60 rounded-md border border-line bg-surface p-1"
+          className="fixed z-20 grid w-max rounded-md border border-line bg-surface p-1"
           style={posicaoDoMenu(menu)}
           onKeyDown={(event) => {
             const botoes = [...(menuRef.current?.querySelectorAll("button") ?? [])];
@@ -634,25 +605,27 @@ export default function Agenda() {
             }
           }}
         >
-          <button
+          <Button
             type="button"
             role="menuitem"
-            className={`min-h-10 rounded-sm px-3 text-left font-medium ${focusRing} hover:bg-brand-soft hover:text-brand`}
+            variant="quiet"
+            className="w-full justify-start px-3"
             onClick={() => {
               setMenu(null);
               setDiaAberto(true);
             }}
           >
             Abrir
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             role="menuitem"
-            className={`min-h-10 rounded-sm px-3 text-left font-medium ${focusRing} hover:bg-brand-soft hover:text-brand`}
+            variant="quiet"
+            className="w-full justify-start px-3"
             onClick={novoCompromisso}
           >
             Novo compromisso neste dia
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -694,9 +667,6 @@ export default function Agenda() {
         </div>
         <div className="dialog-corpo">
           <PainelDoDia
-            year={anoVisivel}
-            month={mesVisivel}
-            day={selecaoGrade}
             itens={doDia}
             onStatus={(id, status) => void atualizarStatus(id, status)}
             onEdit={abrirCompromisso}
@@ -989,19 +959,13 @@ function dataIso(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function fimDoRascunho(draft: Rascunho) {
-  if (draft.category !== "time") return { endYear: null, endMonth: null, endDay: null };
-  const [anoTexto, mesTexto, diaTexto] = draft.endDate.split("-");
-  return { endYear: Number(anoTexto), endMonth: Number(mesTexto), endDay: Number(diaTexto) };
-}
-
 function fusoDaAgenda(data: AgendaResposta | null, nome: NomeAgenda): FusoAgenda {
   return data?.calendars.find((calendario) => calendario.name === nome)?.timezone ?? FUSO_PADRAO;
 }
 
 function posicaoDoMenu(menu: Menu) {
   const margem = 8;
-  const largura = 240;
+  const largura = 280;
   const altura = 88;
   const x = Math.max(margem, Math.min(menu.x, window.innerWidth - largura - margem));
   const y = Math.max(margem, Math.min(menu.y, window.innerHeight - altura - margem));

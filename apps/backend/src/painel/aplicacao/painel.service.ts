@@ -15,6 +15,7 @@ import {
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
+import { diaNoFuso, situacaoNoMes } from "../../financas/dominio/vista.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 
 @Injectable()
@@ -39,14 +40,15 @@ export class PainelService {
       }
     }
     const base = await this.financas.listar(tenantId);
+    const preferencias = await this.configuracoes.obter(tenantId);
+    const hoje = diaNoFuso(preferencias.timezone);
     const meses = scope === "ano" ? Array.from({ length: 12 }, (_, indice) => indice + 1) : [month ?? 1];
     const compromissos = [];
     for (const mes of meses) {
       const ocorrencias = await this.agenda.ocorrencias(tenantId, year, mes);
-      compromissos.push(...ocorrencias.map((item) => comValor(item, base.entries, base.workflow)));
+      compromissos.push(...ocorrencias.map((item) => comValor(item, base.entries, base.workflow, hoje)));
     }
     const painel = montarPainel(scope, year, month, day, base.workflow, base.entries, compromissos);
-    const preferencias = await this.configuracoes.obter(tenantId);
     return {
       ...painel,
       avisos: avisosDe(preferencias, compromissos, base.entries),
@@ -54,7 +56,7 @@ export class PainelService {
   }
 }
 
-function comValor(compromisso: Compromisso, entries: Lancamento[], workflow: Workflow) {
+function comValor(compromisso: Compromisso, entries: Lancamento[], workflow: Workflow, hoje: string) {
   const entry = entries.find((item) => item.id === compromisso.entryId);
   if (!entry) return compromisso;
   const cents = centavosNoMes(entry, workflow, compromisso.year, compromisso.month - 1);
@@ -65,6 +67,7 @@ function comValor(compromisso: Compromisso, entries: Lancamento[], workflow: Wor
       groupName: entry.groupName,
       sessionName: entry.sessionName,
       cents: cents ?? entry.cents,
+      situation: situacaoNoMes(entry, compromisso.year, compromisso.month, hoje),
     },
   };
 }

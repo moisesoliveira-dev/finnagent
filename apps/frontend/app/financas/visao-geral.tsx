@@ -1,35 +1,49 @@
 "use client";
 
-import { useState } from "react";
-import {
-  NOME_MES,
-  centavosNoMes,
-  colunasDoAno,
-  encerraNoMes,
-  somaDosCentavos,
-  textoDaLinha,
-  totaisDoMes,
-  type Lancamento,
-  type Workflow,
-} from "@finnagent/contracts";
+import { useEffect, useState } from "react";
+import { NOME_MES, type GeralResposta } from "@finnagent/contracts";
 import { List } from "../../components/ui/list";
 import { Vazio } from "../../components/ui/vazio";
 import { Money } from "../../components/ui/money";
 import { Expandir, Seta } from "../../components/ui/movimento";
 import { Stat } from "../../components/ui/stat";
+import { useToast } from "../../components/ui/toast";
 import { cn, focusRing } from "../../components/ui/cn";
+import { api } from "./api";
 
-export function VisaoGeral({
-  entries,
-  workflow,
-  year,
-}: {
-  entries: Lancamento[];
-  workflow: Workflow;
-  year: number;
-}) {
+export function VisaoGeral({ year, versao }: { year: number; versao: number }) {
+  const toast = useToast();
   const [closed, setClosed] = useState<Record<string, boolean>>({});
-  const colunas = colunasDoAno(workflow, year);
+  const [dados, setDados] = useState<GeralResposta | null>(null);
+  const [falhou, setFalhou] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    api<GeralResposta>(`/api/financas/geral?year=${year}`)
+      .then((resposta) => {
+        if (!ativo) return;
+        setDados(resposta);
+        setFalhou(false);
+      })
+      .catch((error: Error) => {
+        if (!ativo) return;
+        setFalhou(true);
+        toast.erro(error.message);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [year, versao, toast]);
+
+  if (!dados) {
+    return falhou ? null : (
+      <p role="status" className="max-w-prose text-sm text-ink-2">
+        Carregando a visão geral.
+      </p>
+    );
+  }
+
+  const colunas = dados.months;
   if (colunas.length === 0) {
     return (
       <p className="max-w-prose text-sm text-ink-2">
@@ -38,15 +52,8 @@ export function VisaoGeral({
     );
   }
 
-  const grupos = agrupar(
-    entries.filter((entry) =>
-      colunas.some((month) => centavosNoMes(entry, workflow, year, month) !== undefined),
-    ),
-  );
-  const porMes = colunas.map((month) => totaisDoMes(entries, workflow, year, month));
-  const entradas = porMes.reduce((total, mes) => total + mes.entradas, 0);
-  const saidas = porMes.reduce((total, mes) => total + mes.saidas, 0);
-  const sobra = entradas + saidas;
+  const grupos = dados.groups;
+  const totais = dados.totals;
 
   return (
     <div className="grid min-w-0 gap-6">
@@ -56,13 +63,13 @@ export function VisaoGeral({
           aria-label="Totais do período"
         >
           <Stat label="Entradas">
-            <Money cents={entradas} acumulado />
+            <Money cents={totais.inflowsCents} acumulado />
           </Stat>
           <Stat label="Saídas">
-            <Money cents={saidas} acumulado />
+            <Money cents={totais.outflowsCents} acumulado />
           </Stat>
           <Stat label="Soma das sobras">
-            <Money cents={sobra} acumulado />
+            <Money cents={totais.surplusCents} acumulado />
           </Stat>
         </dl>
       ) : null}
@@ -75,11 +82,7 @@ export function VisaoGeral({
       <div className="grid min-w-0 gap-4 tab:hidden">
         {grupos.map((grupo) => {
           const aberto = !closed[grupo.id];
-          const somas = colunas.map((month) =>
-            somaDosCentavos(
-              grupo.entries.map((entry) => centavosNoMes(entry, workflow, year, month)),
-            ),
-          );
+          const somas = grupo.cents;
           return (
             <section key={grupo.id} className="min-w-0 rounded-lg border border-line bg-surface">
               <h2 className="rounded-t-lg bg-surface-2">
@@ -92,7 +95,7 @@ export function VisaoGeral({
                   <Seta aberto={aberto} />
                   <span className="min-w-0 flex-1 wrap-break-word">{grupo.name}</span>
                   <span className="shrink-0 font-sans leading-normal tracking-normal">
-                    <Money cents={somaDosCentavos(somas)} acumulado />
+                    <Money cents={grupo.totalCents} acumulado />
                   </span>
                 </button>
               </h2>
@@ -103,11 +106,11 @@ export function VisaoGeral({
                 )}
               >
                 {somas.map((valor, index) => {
-                  const month = colunas[index] ?? 0;
+                  const month = colunas[index] ?? 1;
                   return (
                     <LinhaMes
                       key={month}
-                      mes={NOME_MES[month] ?? ""}
+                      mes={NOME_MES[month - 1] ?? ""}
                       valor={valor}
                       traco={valor === 0}
                       acumulado
@@ -117,43 +120,40 @@ export function VisaoGeral({
               </dl>
               <Expandir aberto={aberto}>
                 <ul className="min-w-0">
-                  {grupo.entries.map((entry) => {
-                    const valores = colunas.map((month) => centavosNoMes(entry, workflow, year, month));
-                    return (
+                  {grupo.entries.map((entry) => (
                       <li key={entry.id} className="grid min-w-0 gap-3 border-t border-line px-4 py-3">
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="font-medium wrap-break-word">{entry.sessionName}</div>
-                            <div className="max-w-prose text-xs wrap-break-word text-ink-2">{textoDaLinha(entry)}</div>
+                            <div className="max-w-prose text-xs wrap-break-word text-ink-2">{entry.summary}</div>
                           </div>
                           <span className="shrink-0">
-                            <Money cents={somaDosCentavos(valores)} acumulado />
+                            <Money cents={entry.totalCents} acumulado />
                           </span>
                         </div>
                         <dl className="grid min-w-0 gap-2">
-                          {valores.map((valor, index) => {
-                            if (valor === undefined) return null;
-                            const month = colunas[index] ?? 0;
+                          {entry.cents.map((valor, index) => {
+                            if (valor === null) return null;
+                            const month = colunas[index] ?? 1;
                             return (
                               <LinhaMes
                                 key={month}
-                                mes={NOME_MES[month] ?? ""}
+                                mes={NOME_MES[month - 1] ?? ""}
                                 valor={valor}
-                                fim={encerraNoMes(entry, year, month)}
+                                fim={entry.endsIn === month}
                               />
                             );
                           })}
                         </dl>
                       </li>
-                    );
-                  })}
+                  ))}
                 </ul>
               </Expandir>
             </section>
           );
         })}
       </div>
-      <TotaisNoCelular colunas={colunas} porMes={porMes} />
+      <TotaisNoCelular colunas={colunas} totais={totais} />
       <div className="hidden min-w-0 overflow-x-auto rounded-lg border border-line bg-surface tab:block">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Visão geral por mês</caption>
@@ -164,7 +164,7 @@ export function VisaoGeral({
               </th>
               {colunas.map((month) => (
                 <th key={month} scope="col" className={cn(cabeca(), "min-w-0 text-right")}>
-                  {NOME_MES[month]}
+                  {NOME_MES[month - 1]}
                 </th>
               ))}
               <th scope="col" className={cabeca("sticky right-0 z-20 min-w-0 border-l text-right")}>
@@ -185,11 +185,6 @@ export function VisaoGeral({
           ) : null}
           {grupos.map((grupo) => {
             const aberto = !closed[grupo.id];
-            const somas = colunas.map((month) =>
-              somaDosCentavos(
-                grupo.entries.map((entry) => centavosNoMes(entry, workflow, year, month)),
-              ),
-            );
             return (
               <tbody key={grupo.id}>
                 <tr>
@@ -206,61 +201,50 @@ export function VisaoGeral({
                       {grupo.name}
                     </button>
                   </th>
-                  {somas.map((valor, index) => (
+                  {grupo.cents.map((valor, index) => (
                     <td key={colunas[index]} className={numero("bg-surface-2 font-semibold")}>
                       {valor === 0 ? <Traco /> : <Money cents={valor} acumulado />}
                     </td>
                   ))}
                   <td className={total("bg-surface-2")}>
-                    <Money cents={somaDosCentavos(somas)} acumulado />
+                    <Money cents={grupo.totalCents} acumulado />
                   </td>
                 </tr>
-                {grupo.entries.map((entry) => {
-                  const valores = colunas.map((month) =>
-                    centavosNoMes(entry, workflow, year, month),
-                  );
-                  return (
+                {grupo.entries.map((entry) => (
                     <tr key={entry.id} hidden={!aberto}>
                       <th scope="row" className={fixa("bg-surface pl-8 font-medium")}>
                         <div className="grid gap-1">
                           <div>{entry.sessionName}</div>
-                          <div className="text-xs font-normal text-ink-2">{textoDaLinha(entry)}</div>
+                          <div className="text-xs font-normal text-ink-2">{entry.summary}</div>
                         </div>
                       </th>
-                      {valores.map((valor, index) => {
-                        const month = colunas[index] ?? 0;
-                        const fim =
-                          valor !== undefined && encerraNoMes(entry, year, month);
+                      {entry.cents.map((valor, index) => {
+                        const month = colunas[index] ?? 1;
+                        const fim = valor !== null && entry.endsIn === month;
                         return (
                           <td
                             key={month}
                             className={cn(numero("bg-surface"), fim && "border-r-4 border-r-ink-2")}
                           >
-                            {valor === undefined ? <Traco /> : <Money cents={valor} />}
+                            {valor === null ? <Traco /> : <Money cents={valor} />}
                           </td>
                         );
                       })}
                       <td className={total("bg-surface")}>
-                        <Money cents={somaDosCentavos(valores)} acumulado />
+                        <Money cents={entry.totalCents} acumulado />
                       </td>
                     </tr>
-                  );
-                })}
+                ))}
               </tbody>
             );
           })}
           {grupos.length > 0 ? (
             <tfoot>
               <tr>
-                <LinhaRodape rotulo="Entradas" valores={porMes.map((mes) => mes.entradas)} />
-              </tr>
-              <tr>
-                <LinhaRodape rotulo="Saídas" valores={porMes.map((mes) => mes.saidas)} />
-              </tr>
-              <tr>
                 <LinhaRodape
                   rotulo="Sobra do mês"
-                  valores={porMes.map((mes) => mes.sobra)}
+                  valores={totais.surplus}
+                  total={totais.surplusCents}
                   destaque
                   nota="soma das sobras"
                 />
@@ -284,11 +268,13 @@ export function VisaoGeral({
 function LinhaRodape({
   rotulo,
   valores,
+  total: soma,
   destaque = false,
   nota,
 }: {
   rotulo: string;
   valores: number[];
+  total: number;
   destaque?: boolean;
   nota?: string;
 }) {
@@ -304,7 +290,7 @@ function LinhaRodape({
         </td>
       ))}
       <td className={cn(total(fundo), "border-b-0")}>
-        <Money cents={somaDosCentavos(valores)} acumulado />
+        <Money cents={soma} acumulado />
         {nota ? <small className="block text-xs font-normal text-ink-2">{nota}</small> : null}
       </td>
     </>
@@ -341,17 +327,16 @@ function LinhaMes({
 
 function TotaisNoCelular({
   colunas,
-  porMes,
+  totais,
 }: {
   colunas: number[];
-  porMes: { entradas: number; saidas: number; sobra: number }[];
+  totais: GeralResposta["totals"];
 }) {
-  const linhas: { rotulo: string; valores: number[]; destaque?: boolean; nota?: string }[] = [
-    { rotulo: "Entradas", valores: porMes.map((mes) => mes.entradas) },
-    { rotulo: "Saídas", valores: porMes.map((mes) => mes.saidas) },
+  const linhas: { rotulo: string; valores: number[]; total: number; destaque?: boolean; nota?: string }[] = [
     {
       rotulo: "Sobra do mês",
-      valores: porMes.map((mes) => mes.sobra),
+      valores: totais.surplus,
+      total: totais.surplusCents,
       destaque: true,
       nota: "soma das sobras",
     },
@@ -375,7 +360,7 @@ function TotaisNoCelular({
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <span className="min-w-0 font-semibold">{linha.rotulo}</span>
                 <span className="shrink-0 text-right">
-                  <Money cents={somaDosCentavos(linha.valores)} acumulado />
+                  <Money cents={linha.total} acumulado />
                   {linha.nota ? (
                     <small className="block max-w-prose text-xs font-normal text-ink-2">{linha.nota}</small>
                   ) : null}
@@ -383,11 +368,11 @@ function TotaisNoCelular({
               </div>
               <dl className="grid min-w-0 gap-2">
                 {linha.valores.map((valor, index) => {
-                  const month = colunas[index] ?? 0;
+                  const month = colunas[index] ?? 1;
                   return (
                     <LinhaMes
                       key={month}
-                      mes={NOME_MES[month] ?? ""}
+                      mes={NOME_MES[month - 1] ?? ""}
                       valor={valor}
                       acumulado
                     />
@@ -400,16 +385,6 @@ function TotaisNoCelular({
       </div>
     </section>
   );
-}
-
-function agrupar(entries: Lancamento[]) {
-  const groups: { id: string; name: string; entries: Lancamento[] }[] = [];
-  for (const entry of entries) {
-    const current = groups.find((group) => group.id === entry.groupId);
-    if (current) current.entries.push(entry);
-    else groups.push({ id: entry.groupId, name: entry.groupName, entries: [entry] });
-  }
-  return groups;
 }
 
 function cabeca(extra = "") {

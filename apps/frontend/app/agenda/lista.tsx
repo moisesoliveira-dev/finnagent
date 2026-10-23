@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { StatusCompromisso } from "@finnagent/contracts";
+import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { Icone } from "../../components/ui/icone";
 import { cn, focusRing } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
-import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, statusDoDia, type ItemDia } from "./itens";
+import { rotuloDaSituacao, tomDaSituacao } from "../financas/rotulos";
+import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, type ItemDia } from "./itens";
 
 export function ListaMes({
   year,
@@ -41,7 +43,7 @@ export function ListaMes({
               </Chip>
             ) : null}
           </h2>
-          <ListaDoDia year={year} month={month} day={day} itens={itensNoDia(itens, day)} onStatus={onStatus} onEdit={onEdit} />
+          <ListaDoDia itens={itensNoDia(itens, day)} onStatus={onStatus} onEdit={onEdit} />
         </section>
       ))}
     </div>
@@ -54,17 +56,11 @@ export function resumoDoDia(itens: ItemDia[]) {
 }
 
 export function PainelDoDia({
-  year,
-  month,
-  day,
   itens,
   onStatus,
   onEdit,
   onDelete,
 }: {
-  year: number;
-  month: number;
-  day: number;
   itens: ItemDia[];
   onStatus: (id: string, status: StatusCompromisso) => void;
   onEdit: (id: string) => void;
@@ -79,9 +75,6 @@ export function PainelDoDia({
       {itens.map((item) => (
         <ItemDoDia
           key={item.id}
-          year={year}
-          month={month}
-          day={day}
           item={item}
           onStatus={onStatus}
           onEdit={onEdit}
@@ -102,25 +95,19 @@ export function PainelDoDia({
 }
 
 function ItemDoDia({
-  year,
-  month,
-  day,
   item,
   onStatus,
   onEdit,
   confirmar,
   onExcluir,
 }: {
-  year: number;
-  month: number;
-  day: number;
   item: ItemDia;
   onStatus: (id: string, status: StatusCompromisso) => void;
   onEdit: (id: string) => void;
   confirmar: boolean;
   onExcluir: () => void;
 }) {
-  const pagamento = item.link ? statusDoDia(year, month, day) : null;
+  const pagamento = item.link?.situation ?? null;
   const meta = metaDoItem(item);
   const proximo = item.status === "done" ? "undone" : "done";
   return (
@@ -134,26 +121,24 @@ function ItemDoDia({
             <span className="flex shrink-0 items-center gap-1">
               {item.kind === "compromisso" ? (
                 <>
-                  <button
+                  <Button
                     type="button"
+                    variant="quiet"
+                    className="size-10 px-0"
                     aria-label="Editar"
-                    className={cn("grid size-10 place-items-center text-ink-2 hover:bg-surface-2 hover:text-ink", focusRing)}
                     onClick={() => onEdit(item.id)}
                   >
                     <Icone name="edit" />
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant={confirmar ? "danger" : "quiet"}
+                    className="size-10 px-0"
                     aria-label={confirmar ? "Confirmar exclusão" : "Excluir"}
-                    className={cn(
-                      "grid size-10 place-items-center hover:bg-surface-2",
-                      focusRing,
-                      confirmar ? "text-neg" : "text-ink-2 hover:text-neg",
-                    )}
                     onClick={onExcluir}
                   >
                     <Icone name="remove" />
-                  </button>
+                  </Button>
                 </>
               ) : null}
               {item.link ? <Money cents={item.link.cents} strong /> : null}
@@ -172,11 +157,7 @@ function ItemDoDia({
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
-              {pagamento ? (
-                <Chip tone={pagamento === "pago" ? "ok" : "default"}>
-                  {pagamento === "pago" ? "Pago" : "Pendente"}
-                </Chip>
-              ) : null}
+              {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
               {item.status ? (
                 <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
               ) : null}
@@ -197,7 +178,7 @@ function OkCompromisso({ feito, onChange }: { feito: boolean; onChange: () => vo
         checked={feito}
         onChange={onChange}
         aria-label={feito ? "Desmarcar cumprido" : "Marcar como cumprido"}
-        className="size-4 accent-brand"
+        className={cn("size-4 accent-brand", focusRing)}
       />
       <span className={cn("font-semibold", feito ? "text-brand" : "text-ink-2")}>OK!</span>
     </label>
@@ -225,16 +206,10 @@ function metaDoItem(item: ItemDia) {
 }
 
 export function ListaDoDia({
-  year,
-  month,
-  day,
   itens,
   onStatus,
   onEdit,
 }: {
-  year: number;
-  month: number;
-  day: number;
   itens: ItemDia[];
   onStatus: (id: string, status: StatusCompromisso) => void;
   onEdit: (id: string) => void;
@@ -247,28 +222,22 @@ export function ListaDoDia({
   return (
     <List>
       {itens.map((item) => (
-        <Linha key={item.id} year={year} month={month} day={day} item={item} onStatus={onStatus} onEdit={onEdit} />
+        <Linha key={item.id} item={item} onStatus={onStatus} onEdit={onEdit} />
       ))}
     </List>
   );
 }
 
 function Linha({
-  year,
-  month,
-  day,
   item,
   onStatus,
   onEdit,
 }: {
-  year: number;
-  month: number;
-  day: number;
   item: ItemDia;
   onStatus: (id: string, status: StatusCompromisso) => void;
   onEdit: (id: string) => void;
 }) {
-  const status = item.link ? statusDoDia(year, month, day) : null;
+  const pagamento = item.link?.situation ?? null;
   const proximo = item.status === "done" ? "undone" : "done";
   return (
     <li
@@ -300,7 +269,7 @@ function Linha({
               {item.link.groupName} › {item.link.sessionName}
             </Chip>
           ) : null}
-          {status ? <Chip tone={status === "pago" ? "ok" : "default"}>{status}</Chip> : null}
+          {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
         </div>
       </div>
       <div className="col-start-2 flex flex-wrap items-center justify-end gap-2 tab:col-start-auto">
