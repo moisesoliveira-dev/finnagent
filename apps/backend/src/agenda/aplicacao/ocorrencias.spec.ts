@@ -1,5 +1,5 @@
 import type { Compromisso } from "@finnagent/contracts";
-import { mensagemDaCategoria, ocorrenciasNoMes } from "./ocorrencias.js";
+import { comValidade, mensagemDaCategoria, ocorrenciasNoMes, validadeAoMover } from "./ocorrencias.js";
 
 function definicao(parcial: Partial<Compromisso> = {}): Compromisso {
   return {
@@ -83,5 +83,34 @@ describe("ocorrências do compromisso", () => {
     expect(
       mensagemDaCategoria(definicao({ category: "periodical", endYear: 2026, endMonth: 12, endDay: 1 })),
     ).toBe("O periódico não tem validade.");
+  });
+
+  it("descarta a validade de quem não é com validade", () => {
+    const fim = { endYear: 2026, endMonth: 12, endDay: 1 };
+    expect(comValidade(definicao({ category: "periodical", ...fim }))).toMatchObject({
+      endYear: null,
+      endMonth: null,
+      endDay: null,
+    });
+    expect(comValidade(definicao({ category: "time", ...fim }))).toMatchObject(fim);
+  });
+
+  it("empurra a validade quando o compromisso é movido para depois do fim", () => {
+    const serie = definicao({ category: "time", endYear: 2026, endMonth: 11, endDay: 2 });
+    expect(validadeAoMover(serie, { year: 2026, month: 11, day: 20 })).toEqual({
+      endYear: 2026,
+      endMonth: 11,
+      endDay: 20,
+    });
+    expect(validadeAoMover(serie, { year: 2026, month: 10, day: 9 })).toEqual({
+      endYear: 2026,
+      endMonth: 11,
+      endDay: 2,
+    });
+    expect(validadeAoMover(definicao(), { year: 2026, month: 10, day: 9 })).toEqual({
+      endYear: null,
+      endMonth: null,
+      endDay: null,
+    });
   });
 });
