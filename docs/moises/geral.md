@@ -403,3 +403,147 @@ Arquivos:
 - `apps/frontend/app`
 - `apps/frontend/components/ui`
 - `packages/contracts`
+
+## Ocorrências na base
+
+O que foi feito: a visão Base de Finanças deixa de mostrar um lançamento repetido como uma linha só. Cada mês replicado vira uma linha, com a data, o status e o valor daquela ocorrência. O lápis abre a edição nessa ocorrência. A lixeira de um mês apaga só esse mês; a do diálogo continua apagando o lançamento inteiro. Um lançamento de um mês só continua sendo apagado pela lixeira da linha. A visão Geral não mudou.
+
+Motivo: a pessoa viu na Base um único lançamento quando cada mês replicado pode ser editado.
+
+Arquivos:
+
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/ocorrencias.tsx`
+
+## Regras de finanças e agenda no backend
+
+O que foi feito: o backend passou a entregar as decisões de negócio já calculadas. A tela só mostra o que recebe e envia o formulário cru. `GET /financas` devolve a vista `FinancasVista`. Cada lançamento traz a situação, os termos travados, o próximo vencimento, o valor do contrato, o total suspenso e as ações permitidas: excluir, a série de parcela ou empréstimo e o mês do fixo. Cada ocorrência traz a situação, o valor exibido, as transições permitidas e se é editável. A resposta traz a regra de cada categoria: modo, tipo, prioridade e os campos de parcelas, empréstimo e recorrência. A rota `GET /financas/base` normaliza ano, mês e dia, filtra grupo, categoria e busca, aplica o corte do fluxo e ordena. Ela soma o total só com pendentes e pagas e diz, por linha, se excluir apaga o lançamento ou só o mês. A rota `GET /financas/geral?year` monta a grade por grupo e linha, os totais do mês e o mês em que a linha encerra. A rota `DELETE /lancamentos/:id/ocorrencias/:numero` apaga o lançamento quando ele tem um mês só; senão, cancela aquele mês pendente. O outbox é gravado na mesma transação. Ao criar e editar lançamento, o backend aplica a regra da categoria, descarta os campos que ela não usa, aplica o sinal pelo modo e valida, com mensagens como "Informe as parcelas.". A edição mantém categoria, modo, tipo, status, parcela atual e próximo vencimento gravados. Com termos travados, mantém também data, valor e termos. "Hoje" vem do fuso das preferências do tenant. Na agenda, o vínculo com o lançamento traz a situação do pagamento calculada no backend; antes a tela decidia pago ou previsto pela data. A rota `POST /compromissos/:id/mover` empurra a validade quando o destino passa do fim e avisa se é série. O backend descarta a validade de quem não é "com validade". O painel também usa a situação do mês. O Next ganhou as rotas BFF de base, geral, exclusão do mês e mover compromisso. Entraram specs da vista, do pedido e casos novos nas ocorrências da agenda. São 95 testes passando.
+
+Motivo: as regras de compromissos e tipos de transação pertencem ao backend, e a tela não deve recalculá-las.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/financas/dominio/vista.ts`
+- `apps/backend/src/financas/dominio/vista.spec.ts`
+- `apps/backend/src/financas/dominio/pedido.ts`
+- `apps/backend/src/financas/dominio/pedido.spec.ts`
+- `apps/backend/src/financas/dominio/erros.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/financas/financas.controller.ts`
+- `apps/backend/src/financas/financas.module.ts`
+- `apps/backend/src/financas/portas/financas-repositorio.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/agenda/aplicacao/ocorrencias.ts`
+- `apps/backend/src/agenda/aplicacao/ocorrencias.spec.ts`
+- `apps/backend/src/agenda/aplicacao/agenda.service.ts`
+- `apps/backend/src/agenda/agenda.controller.ts`
+- `apps/backend/src/agenda/portas/agenda-repositorio.ts`
+- `apps/backend/src/agenda/adaptadores/prisma-agenda-repositorio.ts`
+- `apps/backend/src/painel/aplicacao/painel.service.ts`
+- `apps/frontend/app/api/financas/base/route.ts`
+- `apps/frontend/app/api/financas/geral/route.ts`
+- `apps/frontend/app/api/compromissos/[id]/mover/route.ts`
+- `apps/frontend/app/api/lancamentos/[id]/ocorrencias/[numero]/route.ts`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/financas/visao-geral.tsx`
+- `apps/frontend/app/financas/ocorrencias.tsx`
+- `apps/frontend/app/financas/acoes.tsx`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/agenda/lista.tsx`
+- `apps/frontend/app/agenda/itens.ts`
+
+## Só a sobra na tabela
+
+O que foi feito: na Visão geral de Finanças, a tabela deixou de ter as linhas Entradas e Saídas. O rodapé ficou só com Sobra do mês. A lista do celular, Totais por mês, também ficou só com essa linha. Os totais Entradas, Saídas e Soma das sobras continuam acima da tabela.
+
+Motivo: a pessoa pediu para a tabela mostrar só a sobra do mês.
+
+Arquivos:
+
+- `apps/frontend/app/financas/visao-geral.tsx`
+
+## Tipos da sessão
+
+O que foi feito: a sessão passou a ter dois tipos, decididos no backend. Valor único guarda uma base com sinal. O acréscimo soma por cima e a base não muda. Acúmulo não tem base: o total é a soma das transações da sessão, e a cancelada fica de fora. Sessão já gravada com valor vira valor único; as outras viram acúmulo. A edição não troca o tipo nem a base. A tela de Grupos pede o tipo ao criar, mostra base, acréscimos e total, e o botão Acréscimo só na de valor único.
+
+Motivo: a sessão de um valor só e a que acumula transações são regras diferentes, e o acréscimo não pode reescrever a base.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/backend/src/grupos/aplicacao/grupos.service.ts`
+- `apps/backend/src/grupos/grupos.controller.ts`
+- `apps/backend/src/grupos/portas/grupos-repositorio.ts`
+- `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261023180000_tipo_da_sessao/migration.sql`
+- `apps/frontend/app/api/sessoes/[id]/acrescimos/route.ts`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/financas/page.tsx`
+
+## Valor na transação
+
+O que foi feito: a sessão deixou de guardar entrada, saída e valor. O tipo da sessão só escolhe a categoria de transação permitida, e a regra da categoria continua decidindo os campos do lançamento. Valor único aceita só a transação única. A primeira transação não cancelada é a base. As seguintes são acréscimos e não reescrevem o valor nem o movimento da base. Acúmulo aceita extra, parcela, empréstimo e fixa. O total é a soma das transações. A tela de Grupos não pede mais entrada, saída, valor nem acréscimo. O formulário de Finanças mostra só as categorias que a sessão aceita. O backend recusa categoria fora da lista e recusa alterar o valor base depois que existe acréscimo. A rota de acréscimo na sessão saiu. A tabela `session_additions` ficou no banco, sem uso novo.
+
+Motivo: entrada, saída e valor pertencem à transação; o tipo da sessão só define a transação permitida e, por ela, os campos.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/backend/src/grupos/`
+- `apps/backend/src/financas/`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/api/sessoes/[id]/acrescimos/route.ts` (removida)
+
+## Linha da sessão
+
+O que foi feito: a sessão de valor único aceita um lançamento só. Depois de lançada, `available` fica falso, ela sai das opções de novo lançamento em Finanças, e o backend recusa um segundo lançamento. A sessão de acúmulo continua aceitando vários lançamentos. Na visão geral eles ocupam a mesma linha da sessão: o valor soma no mês indicado, sem abrir outra linha no grupo.
+
+Motivo: o valor único já foi definido pela transação, e o acúmulo soma no mês em vez de repetir a sessão.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+- `apps/backend/src/financas/dominio/vista.ts`
+- `apps/backend/src/financas/dominio/vista.spec.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/financas/portas/financas-repositorio.ts`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+
+## Status e compromisso no salvar
+
+O que foi feito: no formulário de edição do lançamento, os botões Atualizar status e Associar compromisso saíram. O status e o compromisso escolhidos passam a ser gravados quando a pessoa aperta Salvar. O backend continua decidindo a troca de status e a associação do compromisso.
+
+Motivo: status e compromisso fazem parte da edição e não têm ação separada.
+
+Arquivos:
+
+- `apps/frontend/app/financas/acoes.tsx`
+- `apps/frontend/app/financas/page.tsx`
+
+## Escala dos controles
+
+O que foi feito: no lançamento, descrição e justificativa saíram de `min-h-16` e ficaram `resize-y py-2`. A lista de ocorrências saiu de `max-h-96` e rola no corpo do diálogo. O editar no celular ficou no mesmo botão quadrado de ícone da tabela. Na agenda, editar e excluir do dia passaram a ser `Button` e o OK ganhou anel de foco. O menu do dia saiu de `min-w-60` e os itens passaram a ser `Button`.
+
+Motivo: alinhar esses controles à escala e aos componentes do Prumo.
+
+Arquivos:
+
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/ocorrencias.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/agenda/lista.tsx`
+- `apps/frontend/app/agenda/page.tsx`
