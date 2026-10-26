@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConferenciaResposta, GruposResposta, LinhaConferencia } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
@@ -76,6 +76,8 @@ export default function Conferencia() {
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(1);
   const pedido = `${year}-${month}`;
+  const aberta = useRef(false);
+  const carregado = useRef("");
 
   function carregar(alvoAno: number, alvoMes: number) {
     setDados(null);
@@ -91,10 +93,16 @@ export default function Conferencia() {
   }
 
   useEffect(() => {
+    if (carregado.current === pedido) return;
     let ativo = true;
-    api<ConferenciaResposta>(`/api/extratos/conferencia?year=${year}&month=${month}`)
+    const abrir = aberta.current ? "" : "&abrir=pendente";
+    api<ConferenciaResposta>(`/api/extratos/conferencia?year=${year}&month=${month}${abrir}`)
       .then((resposta) => {
         if (!ativo) return;
+        aberta.current = true;
+        carregado.current = `${resposta.year}-${resposta.month}`;
+        setYear(resposta.year);
+        setMonth(resposta.month);
         setDados(resposta);
         setFalha("");
       })

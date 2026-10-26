@@ -151,6 +151,11 @@ export class ExtratosService {
     return resultado;
   }
 
+  async abrirConferencia(tenantId: string, year: number, month: number) {
+    const pendente = await this.extratos.ultimoMesPendente(tenantId);
+    return this.conferencia(tenantId, pendente?.year ?? year, pendente?.month ?? month);
+  }
+
   async conferencia(tenantId: string, year: number, month: number): Promise<ConferenciaResposta> {
     const abertas = await this.financas.listar(tenantId);
     const base = await this.financas.listar(tenantId, true);

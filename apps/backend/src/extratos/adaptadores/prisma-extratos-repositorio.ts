@@ -179,6 +179,17 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     });
   }
 
+  async ultimoMesPendente(tenantId: string) {
+    const db = this.banco();
+    const row = await db.statementLine.findFirst({
+      where: { tenantId, entryId: null, error: "", cents: { not: null }, postedOn: { not: null } },
+      orderBy: { postedOn: "desc" },
+      select: { postedOn: true },
+    });
+    if (!row?.postedOn) return null;
+    return { year: row.postedOn.getUTCFullYear(), month: row.postedOn.getUTCMonth() + 1 };
+  }
+
   async obterLinha(tenantId: string, statementId: string, line: number) {
     const db = this.banco();
     const row = await db.statementLine.findFirst({
