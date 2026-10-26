@@ -602,3 +602,17 @@ Arquivos:
 - `apps/frontend/app/extratos/conferencia/page.tsx`
 - `apps/frontend/app/api/_lib/backend.ts`
 - `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+
+## Lançamento em lote na Conferência
+
+O que foi feito: a Conferência ganhou filtros além da busca: situação (todas, sem lançamento, cruzadas, com proposta), movimento (entradas e saídas, só entradas, só saídas), conta quando há mais de uma e arquivo quando há mais de um. Cada linha sem lançamento tem uma caixa de seleção. "Selecionar sem lançamento" marca as linhas filtradas que ainda estão abertas. O botão Lançar envia todas as marcadas para a sessão escolhida nessa barra, de uma vez. O Acumular de cada linha continua. O backend recebe o lote em `POST /extratos/acumular-lote`, no máximo 500 linhas. Cada linha segue o mesmo Acumular de uma: cria o lançamento Única, cruza, lembra o nome e paga a ocorrência. Uma linha que falha não desfaz as outras. A resposta traz quantas entraram e a mensagem de cada falha.
+
+Motivo: lançar linha por linha não cabe num extrato com muitas transações.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/frontend/app/api/extratos/acumular-lote/route.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
