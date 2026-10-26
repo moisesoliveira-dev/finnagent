@@ -11,6 +11,7 @@ import { Troca } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
 import { PendingAction } from "../../../components/ui/pending-action";
 import { useToast } from "../../../components/ui/toast";
+import { BuscaSessao } from "./busca-sessao";
 
 const field = campo;
 const caixa = `size-4 accent-brand ${focusRing}`;
@@ -422,19 +423,12 @@ export default function Conferencia() {
                 />
                 Selecionar sem lançamento
               </label>
-              <select
-                className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
-                aria-label="Sessão das selecionadas"
-                value={sessaoLote}
-                onChange={(event) => setSessaoLote(event.target.value)}
-              >
-                <option value="">Escolha a sessão</option>
-                {sessoes.map((sessao) => (
-                  <option key={sessao.id} value={sessao.id}>
-                    {sessao.rotulo}
-                  </option>
-                ))}
-              </select>
+              <BuscaSessao
+                sessoes={sessoes}
+                valor={sessaoLote}
+                rotulo="Sessão das selecionadas"
+                onEscolher={setSessaoLote}
+              />
               <Button
                 variant="primary"
                 disabled={ocupado !== "" || selecionadas === 0 || !sessaoLote}
@@ -444,7 +438,7 @@ export default function Conferencia() {
               </Button>
             </div>
           ) : null}
-          <ul className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface">
+          <ul className="min-w-0 overflow-visible rounded-lg border border-line bg-surface">
             {visiveis.length ? (
               visiveis.map((linha) => (
                 <li key={`${linha.statementId}-${linha.line}`} className="grid grid-cols-[minmax(0,1fr)] gap-3 border-b border-line p-4 last:border-b-0">
@@ -519,21 +513,14 @@ export default function Conferencia() {
                             {linha.candidates.length ? "Ou lance numa sessão" : "Lance numa sessão"}
                           </span>
                           <div className="flex flex-wrap items-center gap-2">
-                            <select
-                              className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
-                              aria-label={`Sessão para ${linha.description || "a linha"}`}
-                              value={sessaoDa(linha)}
-                              onChange={(event) =>
-                                setEscolha((atual) => ({ ...atual, [chaveDa(linha)]: event.target.value }))
+                            <BuscaSessao
+                              sessoes={sessoes}
+                              valor={sessaoDa(linha)}
+                              rotulo={`Sessão para ${linha.description || "a linha"}`}
+                              onEscolher={(id) =>
+                                setEscolha((atual) => ({ ...atual, [chaveDa(linha)]: id }))
                               }
-                            >
-                              <option value="">Escolha a sessão</option>
-                              {sessoes.map((sessao) => (
-                                <option key={sessao.id} value={sessao.id}>
-                                  {sessao.rotulo}
-                                </option>
-                              ))}
-                            </select>
+                            />
                             <Button
                               variant="quiet"
                               disabled={ocupado !== "" || !sessaoDa(linha)}

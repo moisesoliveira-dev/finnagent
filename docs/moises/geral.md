@@ -616,3 +616,14 @@ Arquivos:
 - `apps/backend/src/extratos/extratos.controller.ts`
 - `apps/frontend/app/api/extratos/acumular-lote/route.ts`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Busca da sessão na Conferência
+
+O que foi feito: a escolha da sessão na Conferência deixou de ser uma lista fechada e passou a ser um campo de pesquisa. Vale para a sessão do lançamento em lote e para o Acumular de cada linha. Digitar filtra pelo nome do grupo e da sessão, sem diferenciar acento. A lista abre ao focar, as setas percorrem as opções e Enter escolhe.
+
+Motivo: com muitas sessões, achar a certa numa lista fechada fica lento.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
