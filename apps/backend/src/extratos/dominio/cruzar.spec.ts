@@ -4,6 +4,7 @@ import {
   candidatosDaLinha,
   cruzaveisDoMes,
   propostaDaLinha,
+  valorDoMes,
   type LancamentoCruzavel,
 } from "./cruzar.js";
 
@@ -15,6 +16,7 @@ const aluguel: LancamentoCruzavel = {
   sessionId: "moradia",
   day: 1,
   cents: -180000,
+  category: "fixed",
   vagas: 1,
 };
 
@@ -30,6 +32,7 @@ function lancamento(id: string, occurrences: Ocorrencia[]) {
     groupName: "Casa",
     sessionName: "Moradia",
     sessionId: "moradia",
+    category: "unique",
     occurrences,
   } as unknown as Lancamento;
 }
@@ -55,7 +58,23 @@ describe("candidatos do cruzamento", () => {
     ];
     const lista = cruzaveisDoMes(entries, ["mercado", null], 2026, 8);
     expect(lista).toHaveLength(1);
-    expect(lista[0]).toMatchObject({ entryId: "mercado", vagas: 1, day: 5, cents: -5000 });
+    expect(lista[0]).toMatchObject({ entryId: "mercado", vagas: 1, day: 5, cents: -5000, category: "unique" });
+  });
+
+  it("mantém fixo, parcela e empréstimo mesmo quando o valor diverge", () => {
+    const parcela = { ...aluguel, entryId: "parcela", category: "installment" as const, cents: -9000 };
+    const emprestimo = { ...aluguel, entryId: "emprestimo", category: "loan" as const, cents: -4000, day: 15 };
+    const lista = candidatosDaLinha({ date: "2026-08-02", cents: -180000 }, [parcela, emprestimo, aluguel]);
+    expect(lista.map((item) => item.entryId)).toEqual(["aluguel", "parcela", "emprestimo"]);
+  });
+
+  it("não associa extra a saída, nem extra negativa a entrada", () => {
+    const extra = { ...aluguel, entryId: "extra", category: "additional" as const, cents: 1500 };
+    const extraNegativa = { ...aluguel, entryId: "extra-neg", category: "additional" as const, cents: -1500 };
+    expect(candidatosDaLinha({ date: "2026-08-02", cents: -180000 }, [extra, extraNegativa])).toEqual([]);
+    expect(candidatosDaLinha({ date: "2026-08-02", cents: 180000 }, [extra, extraNegativa]).map((item) => item.entryId)).toEqual([
+      "extra",
+    ]);
   });
 });
 
@@ -87,5 +106,38 @@ describe("proposta do cruzamento", () => {
       sessionId: "moradia",
     });
     expect(proposta?.source).toBe("valor");
+  });
+
+  it("não propõe extra lembrada numa saída", () => {
+    const extra = { ...aluguel, entryId: "extra", category: "additional" as const, cents: 1500 };
+    const linha = { date: "2026-08-01", cents: -100 };
+    const candidatos = candidatosDaLinha(linha, [extra]);
+    expect(propostaDaLinha(linha, candidatos, { entryId: "extra", sessionId: "moradia" })).toBeNull();
+  });
+});
+
+describe("valor do mês no cruzamento", () => {
+  it("usa o extrato na única, mesmo quando o valor diverge", () => {
+    expect(valorDoMes("unique", -10000, -18000)).toBe(-18000);
+  });
+
+  it("usa o valor comum quando fixo, parcela ou empréstimo batem com o extrato", () => {
+    expect(valorDoMes("fixed", -180000, -180000)).toBe(-180000);
+    expect(valorDoMes("installment", -9000, -9000)).toBe(-9000);
+    expect(valorDoMes("loan", -4000, -4000)).toBe(-4000);
+  });
+
+  it("pede a escolha quando fixo, parcela ou empréstimo divergem", () => {
+    expect(valorDoMes("fixed", -180000, -170000)).toBe("escolha");
+    expect(valorDoMes("installment", -9000, -8500)).toBe("escolha");
+    expect(valorDoMes("loan", -4000, -5000)).toBe("escolha");
+    expect(valorDoMes("fixed", -180000, -170000, "extrato")).toBe(-170000);
+    expect(valorDoMes("installment", -9000, -8500, "lancamento")).toBe(-9000);
+  });
+
+  it("recusa extra em valor negativo", () => {
+    expect(valorDoMes("additional", 1500, -1500)).toBe("extra");
+    expect(valorDoMes("additional", -1500, 1500)).toBe("extra");
+    expect(valorDoMes("additional", 1500, 2000)).toBe(2000);
   });
 });
