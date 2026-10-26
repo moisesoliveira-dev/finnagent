@@ -1076,6 +1076,17 @@ export type ConferenciaResposta = {
   lines: LinhaConferencia[];
 };
 
+export type FalhaDeAcumulo = {
+  statementId: string;
+  line: number;
+  message: string;
+};
+
+export type AcumuloEmLote = {
+  launched: number;
+  failed: FalhaDeAcumulo[];
+};
+
 export type Meta = {
   id: string;
   name: string;

@@ -83,6 +83,20 @@ export class ExtratosController {
     );
   }
 
+  @Post("extratos/acumular-lote")
+  acumularLote(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z
+      .object({
+        items: z
+          .array(z.object({ statementId: z.uuid(), line: z.number().int().min(1), sessionId: z.uuid() }))
+          .min(1)
+          .max(500),
+      })
+      .safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha as linhas e a sessão para lançar.");
+    return this.executar(() => this.extratos.acumularVarias(this.tenant(tenant), pedido.data.items));
+  }
+
   @Post("extratos/acumular")
   acumular(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = z
