@@ -8,6 +8,7 @@ import type {
   LinhasExtrato,
   MapeamentoExtrato,
   PreviaExtrato,
+  ValorDoMes,
   VinculoCruzado,
 } from "@finnagent/contracts";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
@@ -16,7 +17,7 @@ import {
   CONFIGURACOES_REPOSITORIO,
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
-import { candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, vinculoDoCruzavel } from "../dominio/cruzar.js";
+import { candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, valorDoMes, vinculoDoCruzavel } from "../dominio/cruzar.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
@@ -189,7 +190,7 @@ export class ExtratosService {
     return { year, month, pending: lines.filter((linha) => !linha.entryId).length, lines };
   }
 
-  async confirmar(tenantId: string, statementId: string, line: number, entryId: string) {
+  async confirmar(tenantId: string, statementId: string, line: number, entryId: string, valor?: ValorDoMes) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     const [year, month] = gravada.date.split("-").map(Number);
@@ -198,11 +199,15 @@ export class ExtratosService {
     if (!linha) throw new NaoEncontrado("Linha não encontrada.");
     if (linha.entryId === entryId) return atual;
     if (linha.entryId) throw new Conflito("Essa linha já foi cruzada.");
-    if (!linha.candidates.some((item) => item.entryId === entryId)) {
-      throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
+    const candidato = linha.candidates.find((item) => item.entryId === entryId);
+    if (!candidato) throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
+    const centavos = valorDoMes(candidato.category, candidato.cents, gravada.cents, valor);
+    if (centavos === "extra") throw new PedidoInvalido("Extra só cruza com entrada.");
+    if (centavos === "escolha") {
+      throw new PedidoInvalido("Escolha o valor deste mês: o do extrato ou o do lançamento.");
     }
     await this.cruzar(tenantId, statementId, line, entryId, gravada.description);
-    await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, gravada.cents);
+    await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, centavos);
     return this.conferencia(tenantId, year, month);
   }
 
@@ -327,5 +332,6 @@ function vinculoDe(entryId: string | null, entries: Lancamento[]): VinculoCruzad
     sessionName: entry.sessionName,
     day: entry.day,
     cents: entry.cents,
+    category: entry.category,
   };
 }
