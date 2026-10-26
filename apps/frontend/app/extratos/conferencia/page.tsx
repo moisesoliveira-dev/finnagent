@@ -170,6 +170,7 @@ export default function Conferencia() {
     setDeslize(delta > 0 ? 1 : -1);
     setPagina(1);
     setMarcadas({});
+    setEscolha({});
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -228,7 +229,52 @@ export default function Conferencia() {
     }
   }
 
-  async function lancarSelecionadas() {
+  function avisarLote(resultado: AcumuloEmLote) {
+    if (resultado.failed.length === 0) {
+      toast.sucesso(
+        resultado.launched === 1 ? "1 linha lançada na sessão." : `${resultado.launched} linhas lançadas na sessão.`,
+      );
+      return;
+    }
+    if (resultado.launched === 0) {
+      toast.erro(resultado.failed[0]?.message || "Não foi possível lançar as linhas.");
+      return;
+    }
+    toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
+  }
+
+  async function lancarItens(itens: { statementId: string; line: number; sessionId: string }[]) {
+    const preenchidos = itens.filter((item) => item.sessionId);
+    if (!preenchidos.length) {
+      toast.erro("Preencha a sessão das linhas para lançar.");
+      return;
+    }
+    setOcupado("lote");
+    try {
+      const resultado = await api<AcumuloEmLote>("/api/extratos/acumular-lote", {
+        method: "POST",
+        body: JSON.stringify({ items: preenchidos }),
+      });
+      const falhas = new Set(resultado.failed.map((falha) => `${falha.statementId}:${falha.line}`));
+      setEscolha((atual) => {
+        const proximo = { ...atual };
+        for (const item of preenchidos) {
+          if (!falhas.has(`${item.statementId}:${item.line}`)) delete proximo[`${item.statementId}:${item.line}`];
+        }
+        return proximo;
+      });
+      setMarcadas({});
+      setPar({});
+      avisarLote(resultado);
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível lançar as linhas.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
+  function lancarSelecionadas() {
     const escolhidas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link);
     if (!escolhidas.length) {
       toast.erro("Selecione as linhas para lançar.");
@@ -238,37 +284,20 @@ export default function Conferencia() {
       toast.erro("Escolha a sessão para lançar as selecionadas.");
       return;
     }
-    setOcupado("lote");
-    try {
-      const resultado = await api<AcumuloEmLote>("/api/extratos/acumular-lote", {
-        method: "POST",
-        body: JSON.stringify({
-          items: escolhidas.map((linha) => ({
-            statementId: linha.statementId,
-            line: linha.line,
-            sessionId: sessaoLote,
-          })),
-        }),
-      });
-      setMarcadas({});
-      setPar({});
-      if (resultado.failed.length === 0) {
-        toast.sucesso(
-          resultado.launched === 1
-            ? "1 linha lançada na sessão."
-            : `${resultado.launched} linhas lançadas na sessão.`,
-        );
-      } else if (resultado.launched === 0) {
-        toast.erro(resultado.failed[0]?.message || "Não foi possível lançar as linhas.");
-      } else {
-        toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
-      }
-      await carregar(year, month);
-    } catch (error) {
-      toast.erro(error instanceof Error ? error.message : "Não foi possível lançar as linhas.");
-    } finally {
-      setOcupado("");
-    }
+    return lancarItens(
+      escolhidas.map((linha) => ({ statementId: linha.statementId, line: linha.line, sessionId: sessaoLote })),
+    );
+  }
+
+  function lancarAlteradas() {
+    return lancarItens(
+      linhas.flatMap((linha) => {
+        if (linha.link) return [];
+        const sessionId = escolha[chaveDa(linha)] ?? "";
+        if (!sessionId) return [];
+        return [{ statementId: linha.statementId, line: linha.line, sessionId }];
+      }),
+    );
   }
 
   const falhou = falha === pedido;
@@ -292,6 +321,7 @@ export default function Conferencia() {
   const abertasFiltradas = filtradas.filter((linha) => !linha.link);
   const todasMarcadas = abertasFiltradas.length > 0 && abertasFiltradas.every((linha) => marcadas[chaveDa(linha)]);
   const selecionadas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link).length;
+  const alteradas = linhas.filter((linha) => !linha.link && Boolean(escolha[chaveDa(linha)])).length;
   const paginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
   const paginaAtual = Math.min(pagina, paginas);
   const inicio = filtradas.length === 0 ? 0 : (paginaAtual - 1) * POR_PAGINA;
@@ -435,6 +465,9 @@ export default function Conferencia() {
                 onClick={() => void lancarSelecionadas()}
               >
                 {selecionadas > 0 ? `Lançar ${selecionadas}` : "Lançar selecionadas"}
+              </Button>
+              <Button disabled={ocupado !== "" || alteradas === 0} onClick={() => void lancarAlteradas()}>
+                {alteradas > 0 ? `Lançar ${alteradas} alteradas` : "Lançar alteradas"}
               </Button>
             </div>
           ) : null}

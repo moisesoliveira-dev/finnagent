@@ -627,3 +627,13 @@ Arquivos:
 
 - `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Lançamento das linhas alteradas na Conferência
+
+O que foi feito: na Conferência, ao lado de "Lançar selecionadas", entrou o botão "Lançar alteradas". Ele lança cada linha sem vínculo em que a pessoa escolheu uma sessão no campo da própria linha. Cada linha vai para a sessão que ela recebeu, pelo mesmo `POST /extratos/acumular-lote`. Campo de sessão vazio fica de fora. Isso inclui a linha em que a pessoa apagou a sessão e a linha que só mostra a sessão lembrada, sem a pessoa ter escolhido de novo. O botão "Lançar selecionadas" continua: ele usa uma sessão só para as linhas marcadas.
+
+Motivo: lançar de uma vez só as linhas cuja sessão a pessoa preencheu, sem mandar as vazias.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/page.tsx`
