@@ -637,3 +637,18 @@ Motivo: lançar de uma vez as linhas que já têm sessão, inclusive as lembrada
 Arquivos:
 
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Valor do mês no cruzamento
+
+O que foi feito: o cruzamento da Conferência passa a conhecer a categoria do lançamento. Extra só aparece em linha positiva. Fixo, parcela e empréstimo continuam na lista mesmo com valor diferente; quando o valor do extrato diverge do planejado, a pessoa escolhe qual vale naquele mês antes de confirmar. A única usa o valor do extrato. O valor escolhido paga a ocorrência do mês e não altera o planejado dos meses seguintes.
+
+Motivo: cada categoria entra no extrato de um jeito, e a divergência de fixo, parcela e empréstimo não pode escolher o valor sozinha.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/extratos/dominio/cruzar.ts`
+- `apps/backend/src/extratos/dominio/cruzar.spec.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
