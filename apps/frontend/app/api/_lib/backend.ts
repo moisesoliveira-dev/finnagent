@@ -25,6 +25,7 @@ export async function callBackend(path: string, init?: RequestInit) {
       status: response.status,
       headers: {
         "content-type": response.headers.get("content-type") ?? "application/json",
+        "cache-control": "no-store",
       },
     });
   } catch {

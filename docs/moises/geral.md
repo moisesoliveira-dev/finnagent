@@ -590,3 +590,15 @@ Arquivos:
 - `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
 - `apps/frontend/app/api/extratos/conferencia/route.ts`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Volta do mês na Conferência
+
+O que foi feito: ao trocar o mês, a Conferência deixa de mostrar a lista do mês anterior enquanto a nova resposta não chega. Antes, o cabeçalho já dizia o mês novo e a lista ainda era a anterior: voltar para setembro depois de um outubro vazio mostrava "Nenhuma linha lida neste mês" até a resposta, e no servidor essa espera era longa o bastante para parecer que os dados sumiram. A busca do mês é sempre refeita quando a pessoa volta para ele. A resposta só entra na tela se ainda for a do mês selecionado. O BFF passa a responder com `Cache-Control: no-store`, e a tela pede a conferência com cache `no-store`, para o navegador não reutilizar uma lista vazia. A consulta das linhas do mês usa o intervalo [primeiro dia, primeiro dia do mês seguinte), para o último dia do mês entrar na lista.
+
+Motivo: no servidor, trocar o mês e voltar fazia as linhas de setembro sumirem da Conferência.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/frontend/app/api/_lib/backend.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
