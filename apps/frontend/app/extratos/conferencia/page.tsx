@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AcumuloEmLote, ConferenciaResposta, GruposResposta, LinhaConferencia } from "@finnagent/contracts";
+import {
+  categoriaDeCompromisso,
+  tipoDaCategoria,
+  type AcumuloEmLote,
+  type ConferenciaResposta,
+  type GruposResposta,
+  type LinhaConferencia,
+  type ValorDoMes,
+} from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
 import { campo, cn, focusRing } from "../../../components/ui/cn";
@@ -67,7 +75,11 @@ function textoDoVinculo(vinculo: NonNullable<LinhaConferencia["link"]>) {
 const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function rotuloDoCandidato(vinculo: NonNullable<LinhaConferencia["link"]>) {
-  return `${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais.format(vinculo.cents / 100)}`;
+  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais.format(vinculo.cents / 100)}`;
+}
+
+function pedeValorDoMes(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
+  return categoriaDeCompromisso(candidato.category) && candidato.cents !== cents;
 }
 
 function chaveDa(linha: LinhaConferencia) {
@@ -86,6 +98,7 @@ export default function Conferencia() {
   const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string }>>([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
+  const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
   const [busca, setBusca] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("todas");
   const [movimento, setMovimento] = useState<Movimento>("todos");
@@ -167,6 +180,7 @@ export default function Conferencia() {
     setDeslize(delta > 0 ? 1 : -1);
     setMarcadas({});
     setEscolha({});
+    setValorMes({});
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -182,18 +196,30 @@ export default function Conferencia() {
 
   async function confirmar(linha: LinhaConferencia, entryId: string) {
     const chave = chaveDa(linha);
+    const candidato = linha.candidates.find((item) => item.entryId === entryId);
+    const valor = valorMes[chave];
     if (!entryId) {
       toast.erro("Escolha o lançamento desta linha.");
+      return;
+    }
+    if (candidato && pedeValorDoMes(candidato, linha.cents) && !valor) {
+      toast.erro("Escolha o valor deste mês: o do extrato ou o do lançamento.");
       return;
     }
     setOcupado(chave);
     try {
       await api("/api/extratos/cruzamentos", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, entryId }),
+        body: JSON.stringify({
+          statementId: linha.statementId,
+          line: linha.line,
+          entryId,
+          ...(valor ? { valor } : {}),
+        }),
       });
       toast.sucesso("Cruzamento confirmado. A ocorrência do mês ficou paga.");
       setPar({});
+      setValorMes({});
       await carregar(year, month);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
@@ -540,7 +566,11 @@ export default function Conferencia() {
                                 className={cn(field, "w-full min-w-0 flex-1 desk:w-auto")}
                                 aria-label={`Lançamento para ${linha.description || "a linha"}`}
                                 value={lancamentoDa(linha)}
-                                onChange={(event) => setPar((atual) => ({ ...atual, [chaveDa(linha)]: event.target.value }))}
+                                onChange={(event) => {
+                                  const chave = chaveDa(linha);
+                                  setPar((atual) => ({ ...atual, [chave]: event.target.value }));
+                                  setValorMes((atual) => ({ ...atual, [chave]: "" }));
+                                }}
                               >
                                 <option value="">Escolha o lançamento</option>
                                 {linha.candidates.map((candidato) => (
@@ -549,9 +579,40 @@ export default function Conferencia() {
                                   </option>
                                 ))}
                               </select>
+                              {(() => {
+                                const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
+                                if (!candidato || !pedeValorDoMes(candidato, linha.cents)) return null;
+                                const escolha = valorMes[chaveDa(linha)] || "";
+                                return (
+                                  <span className="flex w-full flex-wrap items-center gap-2">
+                                    <span className="text-sm text-ink-2">Os valores divergem. Qual vale neste mês?</span>
+                                    <Segmentado<"" | ValorDoMes>
+                                      aria-label="Valor deste mês"
+                                      opcoes={[
+                                        { id: "extrato", label: `Extrato ${reais.format(linha.cents / 100)}` },
+                                        { id: "lancamento", label: `Lançamento ${reais.format(candidato.cents / 100)}` },
+                                      ]}
+                                      valor={escolha}
+                                      onEscolher={(id) => {
+                                        if (!id) return;
+                                        setValorMes((atual) => ({ ...atual, [chaveDa(linha)]: id }));
+                                      }}
+                                    />
+                                  </span>
+                                );
+                              })()}
                               <Button
                                 variant="default"
-                                disabled={ocupado !== "" || !lancamentoDa(linha)}
+                                disabled={
+                                  ocupado !== "" ||
+                                  !lancamentoDa(linha) ||
+                                  linha.candidates.some(
+                                    (item) =>
+                                      item.entryId === lancamentoDa(linha) &&
+                                      pedeValorDoMes(item, linha.cents) &&
+                                      !valorMes[chaveDa(linha)],
+                                  )
+                                }
                                 onClick={() => void confirmar(linha, lancamentoDa(linha))}
                               >
                                 Confirmar

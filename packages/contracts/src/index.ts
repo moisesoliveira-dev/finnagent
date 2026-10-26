@@ -1042,6 +1042,8 @@ export type LinhasExtrato = {
   matched: number;
 };
 
+export type ValorDoMes = "extrato" | "lancamento";
+
 export type VinculoCruzado = {
   entryId: string;
   description: string;
@@ -1049,6 +1051,7 @@ export type VinculoCruzado = {
   sessionName: string;
   day: number;
   cents: number;
+  category: CategoriaTransacao;
 };
 
 export type LinhaConferencia = {

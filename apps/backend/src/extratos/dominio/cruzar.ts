@@ -1,4 +1,11 @@
-import type { Lancamento, OrigemDaProposta, VinculoCruzado } from "@finnagent/contracts";
+import {
+  categoriaDeCompromisso,
+  type CategoriaTransacao,
+  type Lancamento,
+  type OrigemDaProposta,
+  type ValorDoMes,
+  type VinculoCruzado,
+} from "@finnagent/contracts";
 
 export type LancamentoCruzavel = VinculoCruzado & { sessionId: string; vagas: number };
 
@@ -30,16 +37,36 @@ export function cruzaveisDoMes(
         sessionId: entry.sessionId,
         day: Number(alvo.dueDate.slice(8, 10)),
         cents: alvo.plannedCents,
+        category: entry.category,
         vagas: doMes.length - (usadas.get(entry.id) ?? 0),
       },
     ];
   });
 }
 
+export function cabeNaLinha(linha: LinhaParaCruzar, item: LancamentoCruzavel) {
+  if (item.vagas <= 0 || item.cents === 0 || linha.cents === 0) return false;
+  if (item.category === "additional") return linha.cents > 0 && item.cents > 0;
+  return Math.sign(item.cents) === Math.sign(linha.cents);
+}
+
+export function valorDoMes(
+  category: CategoriaTransacao,
+  planejado: number,
+  extrato: number,
+  escolha?: ValorDoMes,
+): number | "escolha" | "extra" {
+  if (category === "additional" && (extrato < 0 || planejado < 0)) return "extra";
+  if (!categoriaDeCompromisso(category) || planejado === extrato) return extrato;
+  if (escolha === "extrato") return extrato;
+  if (escolha === "lancamento") return planejado;
+  return "escolha";
+}
+
 export function candidatosDaLinha(linha: LinhaParaCruzar, lancamentos: LancamentoCruzavel[]) {
   const dia = Number(linha.date.slice(8, 10));
   return lancamentos
-    .filter((item) => item.vagas > 0 && item.cents !== 0 && Math.sign(item.cents) === Math.sign(linha.cents))
+    .filter((item) => cabeNaLinha(linha, item))
     .sort(
       (a, b) =>
         Number(b.cents === linha.cents) - Number(a.cents === linha.cents) ||
