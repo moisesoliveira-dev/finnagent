@@ -547,3 +547,31 @@ Arquivos:
 - `apps/frontend/app/financas/tabela.tsx`
 - `apps/frontend/app/agenda/lista.tsx`
 - `apps/frontend/app/agenda/page.tsx`
+
+## Conferência do extrato
+
+O que foi feito: a pessoa escolhe o lançamento de cada linha do extrato. `POST /extratos/cruzamentos` passa a exigir `entryId`. Cada linha sem lançamento mostra os candidatos do mês: mesmo sinal e com ocorrência pendente ou paga ainda livre no mês. Um lançamento que já ocupou as ocorrências do mês sai da lista das outras linhas. A lista vem com o valor exato primeiro e depois o dia mais perto, e o melhor candidato vem pré-selecionado. Um lançamento fora da lista é recusado com 400. Saíram o cruzamento automático do modo "aplicar", a validade da proposta (pendingHours) e o acúmulo automático pelo nome na importação e depois de acumular. Nada é cruzado sem confirmação. `statement_aliases` ganhou `entry_id`, com chave estrangeira para `entries` e `ON DELETE SET NULL`. Cada cruzamento confirmado e cada acúmulo gravam o nome do extrato com o lançamento e a sessão, na mesma transação do vínculo, com o outbox associar-nome-extrato. Na importação seguinte, a linha com o mesmo nome vem proposta para esse lançamento (origem "nome") se ele estiver livre no mês; senão, cai na proposta por valor. A sessão lembrada vem pré-selecionada para acumular. Confirmar o cruzamento ou acumular marca a ocorrência do mês como paga: status completed, `paidCents` com o valor da linha e `paidOn` com a data da linha. Vale a pendente do mês mais perto da data; sem pendente, a paga do mês. O outbox é pagar-pelo-extrato. A sessão de acúmulo passa a aceitar Única, então acumular sempre cria um lançamento Única. A sessão de valor único continua aceitando um lançamento só. A Conferência mostra quantas linhas do mês ainda estão sem lançamento (campo `pending` na resposta). Cada linha tem a lista de lançamentos com Confirmar e a lista de sessões com Acumular, e o chip diz se a proposta veio pelo nome ou pelo valor. Em Configurações saíram os campos "Categorizar lançamentos" e "Validade das ações pendentes"; eles continuam no banco e no contrato.
+
+Motivo: toda transação do extrato precisa estar associada a um lançamento escolhido pela pessoa, e o nome do extrato fica gravado para as próximas importações.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261026120000_nome_do_extrato_no_lancamento/migration.sql`
+- `apps/backend/src/extratos/dominio/cruzar.ts`
+- `apps/backend/src/extratos/dominio/cruzar.spec.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/financas/dominio/pagamento.ts`
+- `apps/backend/src/financas/dominio/pagamento.spec.ts`
+- `apps/backend/src/financas/portas/financas-repositorio.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/frontend/app/configuracoes/painel.tsx`
+- `apps/frontend/app/grupos/page.tsx`
