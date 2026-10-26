@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ConferenciaResposta, GruposResposta, LinhaConferencia } from "@finnagent/contracts";
+import type { AcumuloEmLote, ConferenciaResposta, GruposResposta, LinhaConferencia } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
-import { campo, cn } from "../../../components/ui/cn";
+import { campo, cn, focusRing } from "../../../components/ui/cn";
+import { Segmentado } from "../../../components/ui/segmentado";
 import { Money } from "../../../components/ui/money";
 import { Troca } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
@@ -12,7 +13,18 @@ import { PendingAction } from "../../../components/ui/pending-action";
 import { useToast } from "../../../components/ui/toast";
 
 const field = campo;
+const caixa = `size-4 accent-brand ${focusRing}`;
 const POR_PAGINA = 20;
+
+type Situacao = "todas" | "abertas" | "cruzadas" | "propostas";
+type Movimento = "todos" | "entradas" | "saidas";
+
+const situacoes: { id: Situacao; label: string }[] = [
+  { id: "todas", label: "Todas" },
+  { id: "abertas", label: "Sem lançamento" },
+  { id: "cruzadas", label: "Cruzadas" },
+  { id: "propostas", label: "Com proposta" },
+];
 
 const meses = [
   "Janeiro",
@@ -75,6 +87,12 @@ export default function Conferencia() {
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [busca, setBusca] = useState("");
+  const [situacao, setSituacao] = useState<Situacao>("todas");
+  const [movimento, setMovimento] = useState<Movimento>("todos");
+  const [conta, setConta] = useState("");
+  const [arquivo, setArquivo] = useState("");
+  const [marcadas, setMarcadas] = useState<Record<string, boolean>>({});
+  const [sessaoLote, setSessaoLote] = useState("");
   const [pagina, setPagina] = useState(1);
   const pedido = `${year}-${month}`;
   const manual = useRef(false);
@@ -150,6 +168,7 @@ export default function Conferencia() {
     manual.current = true;
     setDeslize(delta > 0 ? 1 : -1);
     setPagina(1);
+    setMarcadas({});
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -208,13 +227,70 @@ export default function Conferencia() {
     }
   }
 
+  async function lancarSelecionadas() {
+    const escolhidas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link);
+    if (!escolhidas.length) {
+      toast.erro("Selecione as linhas para lançar.");
+      return;
+    }
+    if (!sessaoLote) {
+      toast.erro("Escolha a sessão para lançar as selecionadas.");
+      return;
+    }
+    setOcupado("lote");
+    try {
+      const resultado = await api<AcumuloEmLote>("/api/extratos/acumular-lote", {
+        method: "POST",
+        body: JSON.stringify({
+          items: escolhidas.map((linha) => ({
+            statementId: linha.statementId,
+            line: linha.line,
+            sessionId: sessaoLote,
+          })),
+        }),
+      });
+      setMarcadas({});
+      setPar({});
+      if (resultado.failed.length === 0) {
+        toast.sucesso(
+          resultado.launched === 1
+            ? "1 linha lançada na sessão."
+            : `${resultado.launched} linhas lançadas na sessão.`,
+        );
+      } else if (resultado.launched === 0) {
+        toast.erro(resultado.failed[0]?.message || "Não foi possível lançar as linhas.");
+      } else {
+        toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
+      }
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível lançar as linhas.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
   const falhou = falha === pedido;
   const linhas = dados?.lines ?? [];
   const termo = busca.trim().toLowerCase();
+  const contas = [...new Set(linhas.map((linha) => linha.accountName))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const arquivos = [...new Set(linhas.map((linha) => linha.filename))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const filtradas = linhas.filter((linha) => {
-    if (!termo) return true;
-    return [linha.description, linha.accountName, linha.filename].some((valor) => valor.toLowerCase().includes(termo));
+    if (termo && ![linha.description, linha.accountName, linha.filename].some((valor) => valor.toLowerCase().includes(termo))) {
+      return false;
+    }
+    if (situacao === "abertas" && linha.link) return false;
+    if (situacao === "cruzadas" && !linha.link) return false;
+    if (situacao === "propostas" && !linha.suggestion) return false;
+    if (movimento === "entradas" && linha.cents <= 0) return false;
+    if (movimento === "saidas" && linha.cents >= 0) return false;
+    if (conta && linha.accountName !== conta) return false;
+    if (arquivo && linha.filename !== arquivo) return false;
+    return true;
   });
+  const abertasFiltradas = filtradas.filter((linha) => !linha.link);
+  const todasMarcadas = abertasFiltradas.length > 0 && abertasFiltradas.every((linha) => marcadas[chaveDa(linha)]);
+  const selecionadas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link).length;
   const paginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
   const paginaAtual = Math.min(pagina, paginas);
   const inicio = filtradas.length === 0 ? 0 : (paginaAtual - 1) * POR_PAGINA;
@@ -265,12 +341,128 @@ export default function Conferencia() {
               setPagina(1);
             }}
           />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmentado
+              opcoes={situacoes}
+              valor={situacao}
+              aria-label="Situação"
+              onEscolher={(valor) => {
+                setSituacao(valor);
+                setPagina(1);
+              }}
+            />
+            <select
+              className={cn(field, "w-auto")}
+              aria-label="Movimento"
+              value={movimento}
+              onChange={(event) => {
+                setMovimento(event.target.value as Movimento);
+                setPagina(1);
+              }}
+            >
+              <option value="todos">Entradas e saídas</option>
+              <option value="entradas">Entradas</option>
+              <option value="saidas">Saídas</option>
+            </select>
+            {contas.length > 1 ? (
+              <select
+                className={cn(field, "w-auto")}
+                aria-label="Conta"
+                value={conta}
+                onChange={(event) => {
+                  setConta(event.target.value);
+                  setPagina(1);
+                }}
+              >
+                <option value="">Todas as contas</option>
+                {contas.map((nome) => (
+                  <option key={nome} value={nome}>
+                    {nome}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {arquivos.length > 1 ? (
+              <select
+                className={cn(field, "w-auto max-w-full")}
+                aria-label="Arquivo"
+                value={arquivo}
+                onChange={(event) => {
+                  setArquivo(event.target.value);
+                  setPagina(1);
+                }}
+              >
+                <option value="">Todos os arquivos</option>
+                {arquivos.map((nome) => (
+                  <option key={nome} value={nome}>
+                    {nome}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+          {abertasFiltradas.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex min-h-10 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className={caixa}
+                  checked={todasMarcadas}
+                  onChange={(event) => {
+                    const marcado = event.target.checked;
+                    setMarcadas((atual) => {
+                      const proximo = { ...atual };
+                      for (const linha of abertasFiltradas) {
+                        if (marcado) proximo[chaveDa(linha)] = true;
+                        else delete proximo[chaveDa(linha)];
+                      }
+                      return proximo;
+                    });
+                  }}
+                />
+                Selecionar sem lançamento
+              </label>
+              <select
+                className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
+                aria-label="Sessão das selecionadas"
+                value={sessaoLote}
+                onChange={(event) => setSessaoLote(event.target.value)}
+              >
+                <option value="">Escolha a sessão</option>
+                {sessoes.map((sessao) => (
+                  <option key={sessao.id} value={sessao.id}>
+                    {sessao.rotulo}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="primary"
+                disabled={ocupado !== "" || selecionadas === 0 || !sessaoLote}
+                onClick={() => void lancarSelecionadas()}
+              >
+                {selecionadas > 0 ? `Lançar ${selecionadas}` : "Lançar selecionadas"}
+              </Button>
+            </div>
+          ) : null}
           <ul className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface">
             {visiveis.length ? (
               visiveis.map((linha) => (
                 <li key={`${linha.statementId}-${linha.line}`} className="grid grid-cols-[minmax(0,1fr)] gap-3 border-b border-line p-4 last:border-b-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{linha.description || "—"}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      {linha.link ? null : (
+                        <input
+                          type="checkbox"
+                          className={caixa}
+                          aria-label={`Selecionar ${linha.description || "a linha"}`}
+                          checked={marcadas[chaveDa(linha)] === true}
+                          onChange={(event) =>
+                            setMarcadas((atual) => ({ ...atual, [chaveDa(linha)]: event.target.checked }))
+                          }
+                        />
+                      )}
+                      <span className="font-medium">{linha.description || "—"}</span>
+                    </span>
                     <Money cents={linha.cents} strong />
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-ink-2">
@@ -313,7 +505,7 @@ export default function Conferencia() {
                             </select>
                             <Button
                               variant="default"
-                              disabled={ocupado === chaveDa(linha) || !lancamentoDa(linha)}
+                              disabled={ocupado !== "" || !lancamentoDa(linha)}
                               onClick={() => void confirmar(linha, lancamentoDa(linha))}
                             >
                               Confirmar
@@ -344,7 +536,7 @@ export default function Conferencia() {
                             </select>
                             <Button
                               variant="quiet"
-                              disabled={ocupado === chaveDa(linha) || !sessaoDa(linha)}
+                              disabled={ocupado !== "" || !sessaoDa(linha)}
                               onClick={() => void acumular(linha)}
                             >
                               Acumular
@@ -361,7 +553,7 @@ export default function Conferencia() {
             ) : (
               <li className="px-6 py-6 text-center text-ink-2">
                 {linhas.length
-                  ? "Nenhuma linha com essa busca."
+                  ? "Nenhuma linha com esses filtros."
                   : "Nenhuma linha lida neste mês. Importe um extrato em Importações."}
               </li>
             )}
@@ -397,7 +589,7 @@ export default function Conferencia() {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="default"
-                          disabled={ocupado === chaveDa(linha)}
+                          disabled={ocupado !== ""}
                           onClick={() => void confirmar(linha, linha.suggestion?.entryId ?? "")}
                         >
                           Confirmar

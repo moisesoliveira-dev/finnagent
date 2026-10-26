@@ -248,6 +248,24 @@ export class ExtratosService {
     return this.conferencia(tenantId, year, month);
   }
 
+  async acumularVarias(
+    tenantId: string,
+    itens: { statementId: string; line: number; sessionId: string }[],
+  ) {
+    const failed: { statementId: string; line: number; message: string }[] = [];
+    let launched = 0;
+    for (const item of itens) {
+      try {
+        await this.acumular(tenantId, item.statementId, item.line, item.sessionId);
+        launched += 1;
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : "Não foi possível lançar a linha.";
+        failed.push({ statementId: item.statementId, line: item.line, message });
+      }
+    }
+    return { launched, failed };
+  }
+
   private async cruzar(tenantId: string, statementId: string, line: number, entryId: string, description: string) {
     const resultado = await this.extratos.confirmarCruzamento(
       tenantId,
