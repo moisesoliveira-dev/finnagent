@@ -547,7 +547,7 @@ export default function Grupos() {
               <p className="text-xs text-ink-2">
                 {sessionDraft?.kind === "valor"
                   ? "Aceita uma transação única. Ela define a entrada ou a saída e o valor. Depois de lançada, sai das opções."
-                  : "Aceita extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
+                  : "Aceita única, extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
               </p>
             </div>
           )}

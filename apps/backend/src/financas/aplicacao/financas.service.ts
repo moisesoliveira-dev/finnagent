@@ -159,6 +159,10 @@ export class FinancasService {
     return this.um(this.financas.associarCompromisso(tenantId, id, commitmentId));
   }
 
+  pagarPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+    return this.um(this.financas.pagarPeloExtrato(tenantId, id, date, cents));
+  }
+
   adiantar(tenantId: string, id: string, category: "installment" | "loan") {
     return this.um(this.financas.adiantar(tenantId, id, category));
   }

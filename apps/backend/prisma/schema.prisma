@@ -105,6 +105,7 @@ model Entry {
   occurrences       EntryOccurrence[]
   appointments      Appointment[]
   statementLines    StatementLine[]
+  statementAliases  StatementAlias[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -254,7 +255,9 @@ model StatementAlias {
   tenantId  String  @map("tenant_id")
   name      String
   sessionId String  @map("session_id")
+  entryId   String? @map("entry_id")
   session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  entry     Entry?  @relation(fields: [entryId], references: [id], onDelete: SetNull)
 
   @@id([tenantId, name])
   @@index([tenantId])

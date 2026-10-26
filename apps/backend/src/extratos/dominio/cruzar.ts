@@ -1,37 +1,67 @@
-export type LancamentoCruzavel = {
-  id: string;
-  description: string;
-  groupName: string;
-  sessionName: string;
-  day: number;
-  cents: number;
-};
+import type { Lancamento, OrigemDaProposta, VinculoCruzado } from "@finnagent/contracts";
 
-export type PropostaCruzamento = {
-  entryId: string;
-  description: string;
-  groupName: string;
-  sessionName: string;
-  day: number;
-  cents: number;
-};
+export type LancamentoCruzavel = VinculoCruzado & { sessionId: string; vagas: number };
 
-export function sugerirCruzamento(
-  linha: { date: string; cents: number },
-  lancamentos: LancamentoCruzavel[],
-): PropostaCruzamento | null {
+export type LinhaParaCruzar = { date: string; cents: number };
+
+export type NomeLembrado = { entryId: string | null; sessionId: string };
+
+export function cruzaveisDoMes(
+  entries: Lancamento[],
+  vinculadas: (string | null)[],
+  year: number,
+  month: number,
+): LancamentoCruzavel[] {
+  const mes = `${year}-${String(month).padStart(2, "0")}`;
+  const usadas = new Map<string, number>();
+  for (const id of vinculadas) if (id) usadas.set(id, (usadas.get(id) ?? 0) + 1);
+  return entries.flatMap((entry) => {
+    const doMes = (entry.occurrences ?? []).filter(
+      (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
+    );
+    if (doMes.length === 0) return [];
+    const alvo = doMes.find((item) => item.status === "pending") ?? doMes[0];
+    return [
+      {
+        entryId: entry.id,
+        description: entry.name || entry.description,
+        groupName: entry.groupName,
+        sessionName: entry.sessionName,
+        sessionId: entry.sessionId,
+        day: Number(alvo.dueDate.slice(8, 10)),
+        cents: alvo.plannedCents,
+        vagas: doMes.length - (usadas.get(entry.id) ?? 0),
+      },
+    ];
+  });
+}
+
+export function candidatosDaLinha(linha: LinhaParaCruzar, lancamentos: LancamentoCruzavel[]) {
   const dia = Number(linha.date.slice(8, 10));
-  const proximos = lancamentos.filter(
-    (item) => item.cents === linha.cents && Math.abs(item.day - dia) <= 3,
-  );
-  if (proximos.length !== 1) return null;
-  const escolhido = proximos[0];
-  return {
-    entryId: escolhido.id,
-    description: escolhido.description,
-    groupName: escolhido.groupName,
-    sessionName: escolhido.sessionName,
-    day: escolhido.day,
-    cents: escolhido.cents,
-  };
+  return lancamentos
+    .filter((item) => item.vagas > 0 && item.cents !== 0 && Math.sign(item.cents) === Math.sign(linha.cents))
+    .sort(
+      (a, b) =>
+        Number(b.cents === linha.cents) - Number(a.cents === linha.cents) ||
+        Math.abs(a.day - dia) - Math.abs(b.day - dia) ||
+        Math.abs(a.cents - linha.cents) - Math.abs(b.cents - linha.cents) ||
+        a.description.localeCompare(b.description, "pt-BR"),
+    );
+}
+
+export function propostaDaLinha(
+  linha: LinhaParaCruzar,
+  candidatos: LancamentoCruzavel[],
+  lembrado: NomeLembrado | undefined,
+): { suggestion: LancamentoCruzavel; source: OrigemDaProposta } | null {
+  const doNome = lembrado?.entryId ? candidatos.find((item) => item.entryId === lembrado.entryId) : undefined;
+  if (doNome) return { suggestion: doNome, source: "nome" };
+  const dia = Number(linha.date.slice(8, 10));
+  const exatos = candidatos.filter((item) => item.cents === linha.cents && Math.abs(item.day - dia) <= 3);
+  if (exatos.length !== 1) return null;
+  return { suggestion: exatos[0], source: "valor" };
+}
+
+export function vinculoDoCruzavel({ sessionId: _sessionId, vagas: _vagas, ...vinculo }: LancamentoCruzavel): VinculoCruzado {
+  return vinculo;
 }
