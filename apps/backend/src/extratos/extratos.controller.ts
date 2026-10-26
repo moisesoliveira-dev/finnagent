@@ -55,15 +55,21 @@ export class ExtratosController {
     @Headers("x-tenant-id") tenant: string | undefined,
     @Query("year") year: string | undefined,
     @Query("month") month: string | undefined,
+    @Query("abrir") abrir: string | undefined,
   ) {
     const pedido = z
       .object({
         year: z.coerce.number().int().min(2000).max(2100),
         month: z.coerce.number().int().min(1).max(12),
+        abrir: z.enum(["pendente"]).optional(),
       })
-      .safeParse({ year, month });
+      .safeParse({ year, month, abrir });
     if (!pedido.success) throw new BadRequestException("Informe o mês.");
-    return this.executar(() => this.extratos.conferencia(this.tenant(tenant), pedido.data.year, pedido.data.month));
+    const { year: ano, month: mes } = pedido.data;
+    const tenantId = this.tenant(tenant);
+    return this.executar(() =>
+      pedido.data.abrir ? this.extratos.abrirConferencia(tenantId, ano, mes) : this.extratos.conferencia(tenantId, ano, mes),
+    );
   }
 
   @Post("extratos/cruzamentos")

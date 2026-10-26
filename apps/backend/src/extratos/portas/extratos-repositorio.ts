@@ -66,6 +66,7 @@ export type ExtratosRepositorio = {
   marcarProcessando(tenantId: string, id: string): Promise<Extrato | "ausente">;
   falhar(tenantId: string, id: string, message: string): Promise<void>;
   listarLinhasNoMes(tenantId: string, year: number, month: number): Promise<LinhaImportada[]>;
+  ultimoMesPendente(tenantId: string): Promise<{ year: number; month: number } | null>;
   obterLinha(tenantId: string, statementId: string, line: number): Promise<LinhaImportada | "ausente">;
   confirmarCruzamento(
     tenantId: string,

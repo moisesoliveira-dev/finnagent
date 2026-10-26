@@ -575,3 +575,18 @@ Arquivos:
 - `apps/frontend/app/extratos/conferencia/page.tsx`
 - `apps/frontend/app/configuracoes/painel.tsx`
 - `apps/frontend/app/grupos/page.tsx`
+
+## Mês de abertura da Conferência
+
+O que foi feito: a Conferência abre no mês mais recente que ainda tem linha do extrato sem lançamento. Sem nenhuma pendente, abre no mês de hoje. As setas de mês continuam funcionando como antes. Quem decide o mês é o backend: `GET /extratos/conferencia` aceita `abrir=pendente`. O serviço (`abrirConferencia`) busca o mês da linha pendente mais recente pela porta `ultimoMesPendente` (linha sem `entryId`, sem erro, com valor e data) e responde a conferência desse mês. O `year` e o `month` do pedido são o mês de hoje, usado quando não há pendente. A tela só manda `abrir=pendente` na primeira carga e passa a mostrar o `year` e o `month` que vierem na resposta. O BFF repassa o parâmetro `abrir`.
+
+Motivo: um extrato de setembro importado em outubro não aparecia porque a Conferência sempre abria no mês de hoje.
+
+Arquivos:
+
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/frontend/app/api/extratos/conferencia/route.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
