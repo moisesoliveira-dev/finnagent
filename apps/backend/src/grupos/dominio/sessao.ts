@@ -10,7 +10,7 @@ export type LancamentoDaSessao = {
   months: number[];
 };
 
-const ACUMULO: CategoriaTransacao[] = ["additional", "installment", "loan", "fixed"];
+const ACUMULO: CategoriaTransacao[] = ["unique", "additional", "installment", "loan", "fixed"];
 
 export function pedidoDaSessao(kind: TipoSessao) {
   return { kind, cents: 0 };
@@ -32,7 +32,7 @@ export function aceitaLancamento(kind: TipoSessao, lancamentos: { status: string
 
 export function mensagemDaCategoria(kind: TipoSessao) {
   if (kind === "valor") return "Esta sessão só aceita a transação única.";
-  return "Esta sessão acumula extra, parcela, empréstimo e fixa.";
+  return "Esta sessão acumula única, extra, parcela, empréstimo e fixa.";
 }
 
 export function protegeValorBase(

@@ -1,15 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import {
-  centavosNoMes,
-  propostaNoPrazo,
-  type ConferenciaResposta,
-  type ExtratosResposta,
-  type Lancamento,
-  type LinhasExtrato,
-  type MapeamentoExtrato,
-  type PreviaExtrato,
-  type VinculoCruzado,
+import type {
+  ConferenciaResposta,
+  ExtratosResposta,
+  Lancamento,
+  LinhaConferencia,
+  LinhasExtrato,
+  MapeamentoExtrato,
+  PreviaExtrato,
+  VinculoCruzado,
 } from "@finnagent/contracts";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
@@ -17,7 +16,7 @@ import {
   CONFIGURACOES_REPOSITORIO,
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
-import { sugerirCruzamento } from "../dominio/cruzar.js";
+import { candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, vinculoDoCruzavel } from "../dominio/cruzar.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
@@ -94,7 +93,6 @@ export class ExtratosService {
     if (resultado === "duplicado") throw new Conflito("Já existe um extrato desta conta neste período.");
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outro extrato.");
     if (resultado === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
-    await this.aplicarAssociacoes(tenantId);
     return resultado;
   }
 
@@ -123,9 +121,7 @@ export class ExtratosService {
       const resultado = await this.extratos.substituir(tenantId, id, leitura, null, "importar-extrato");
       if (resultado === "duplicado") {
         await this.extratos.falhar(tenantId, id, "Já existe um extrato desta conta neste período.");
-        return;
       }
-      if (resultado !== "ausente") await this.aplicarAssociacoes(tenantId);
     } catch (error) {
       const mensagem = error instanceof Error && error.message ? error.message : "Não foi possível ler o extrato.";
       await this.extratos.falhar(tenantId, id, mensagem);
@@ -152,81 +148,63 @@ export class ExtratosService {
     const resultado = await this.extratos.substituir(tenantId, id, lido.leitura, lido.mapping);
     if (resultado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
     if (resultado === "duplicado") throw new Conflito("Já existe um extrato desta conta neste período.");
-    await this.aplicarAssociacoes(tenantId);
     return resultado;
   }
 
   async conferencia(tenantId: string, year: number, month: number): Promise<ConferenciaResposta> {
     const abertas = await this.financas.listar(tenantId);
     const base = await this.financas.listar(tenantId, true);
-    const doMes = lancamentosDoMes(abertas.entries, abertas.workflow, year, month);
     const linhas = await this.extratos.listarLinhasNoMes(tenantId, year, month);
-    const preferencias = await this.configuracoes.obter(tenantId);
-    if (preferencias.categorize === "aplicar") {
-      for (const linha of linhas) {
-        if (linha.entryId) continue;
-        if (!propostaNoPrazo(linha.importedAt, preferencias.pendingHours)) continue;
-        const suggestion = sugerirCruzamento(linha, doMes);
-        if (!suggestion) continue;
-        const cruzado = await this.extratos.confirmarCruzamento(
-          tenantId,
-          linha.statementId,
-          linha.line,
-          suggestion.entryId,
-        );
-        if (cruzado !== "ausente" && cruzado !== "lancamento-ausente") linha.entryId = suggestion.entryId;
-      }
-    }
-    return {
+    const lembrados = new Map(
+      (await this.extratos.listarAssociacoes(tenantId)).map((item) => [item.name, item]),
+    );
+    const cruzaveis = cruzaveisDoMes(
+      abertas.entries,
+      linhas.map((linha) => linha.entryId),
       year,
       month,
-      lines: linhas.map((linha) => {
-        const { importedAt, ...resto } = linha;
-        const link = vinculoDe(resto.entryId, base.entries);
-        return {
-          ...resto,
-          link,
-          suggestion:
-            link || !propostaNoPrazo(importedAt, preferencias.pendingHours)
-              ? null
-              : sugerirCruzamento(resto, doMes),
-        };
-      }),
-    };
+    );
+    const lines = linhas.map(({ importedAt: _importedAt, ...linha }): LinhaConferencia => {
+      const link = vinculoDe(linha.entryId, base.entries);
+      if (linha.entryId) {
+        return { ...linha, link, suggestion: null, suggestionSource: null, candidates: [], sessionId: null };
+      }
+      const candidatos = candidatosDaLinha(linha, cruzaveis);
+      const lembrado = lembrados.get(chaveDoNome(linha.description));
+      const proposta = propostaDaLinha(linha, candidatos, lembrado);
+      return {
+        ...linha,
+        link: null,
+        suggestion: proposta ? vinculoDoCruzavel(proposta.suggestion) : null,
+        suggestionSource: proposta?.source ?? null,
+        candidates: candidatos.map(vinculoDoCruzavel),
+        sessionId: lembrado?.sessionId ?? null,
+      };
+    });
+    return { year, month, pending: lines.filter((linha) => !linha.entryId).length, lines };
   }
 
-  async confirmar(tenantId: string, statementId: string, line: number) {
+  async confirmar(tenantId: string, statementId: string, line: number, entryId: string) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     const [year, month] = gravada.date.split("-").map(Number);
-    const conferencia = await this.conferencia(tenantId, year, month);
-    const linha = conferencia.lines.find((item) => item.statementId === statementId && item.line === line);
+    const atual = await this.conferencia(tenantId, year, month);
+    const linha = atual.lines.find((item) => item.statementId === statementId && item.line === line);
     if (!linha) throw new NaoEncontrado("Linha não encontrada.");
-    if (linha.link) return linha;
-    if (!linha.suggestion) throw new PedidoInvalido("Não há uma proposta para esta linha.");
-    const resultado = await this.extratos.confirmarCruzamento(tenantId, statementId, line, linha.suggestion.entryId);
-    if (resultado === "ausente") throw new NaoEncontrado("Linha não encontrada.");
-    if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");
-    return { ...linha, entryId: linha.suggestion.entryId, link: linha.suggestion, suggestion: null };
+    if (linha.entryId === entryId) return atual;
+    if (linha.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (!linha.candidates.some((item) => item.entryId === entryId)) {
+      throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
+    }
+    await this.cruzar(tenantId, statementId, line, entryId, gravada.description);
+    await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, gravada.cents);
+    return this.conferencia(tenantId, year, month);
   }
 
   async acumular(tenantId: string, statementId: string, line: number, sessionId: string) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
-    await this.acumularUma(tenantId, statementId, line, sessionId);
-    const chave = chaveDoNome(gravada.description);
-    if (chave) {
-      const falha = await this.extratos.gravarAssociacao(tenantId, chave, sessionId);
-      if (!falha) await this.aplicarNome(tenantId, chave, sessionId);
-    }
-    const [year, month] = gravada.date.split("-").map(Number);
-    return this.conferencia(tenantId, year, month);
-  }
-
-  private async acumularUma(tenantId: string, statementId: string, line: number, sessionId: string) {
-    const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
-    if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
-    if (gravada.entryId) throw new Conflito("Essa linha já foi sincronizada.");
+    if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
     if (!gravada.cents) throw new PedidoInvalido("A linha não tem valor para acumular.");
     const [year, month, day] = gravada.date.split("-").map(Number);
     const nome = (gravada.description.trim() || "Extrato").slice(0, 160);
@@ -255,44 +233,27 @@ export class ExtratosService {
       recurrence: null,
       recurrenceInterval: null,
     });
-    const cruzamento = await this.extratos.confirmarCruzamento(tenantId, statementId, line, criado.id);
-    if (cruzamento) {
-      await this.financas.excluir(tenantId, criado.id);
-      throw new NaoEncontrado("Linha não encontrada.");
-    }
-  }
-
-  private async aplicarNome(tenantId: string, chave: string, sessionId: string) {
-    const abertas = await this.extratos.linhasSemVinculo(tenantId);
-    for (const linha of abertas) {
-      if (chaveDoNome(linha.description) !== chave) continue;
-      try {
-        await this.acumularUma(tenantId, linha.statementId, linha.line, sessionId);
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  private async aplicarAssociacoes(tenantId: string) {
     try {
-      const associacoes = new Map(
-        (await this.extratos.listarAssociacoes(tenantId)).map((item) => [item.name, item.sessionId]),
-      );
-      if (associacoes.size === 0) return;
-      const abertas = await this.extratos.linhasSemVinculo(tenantId);
-      for (const linha of abertas) {
-        const sessionId = associacoes.get(chaveDoNome(linha.description));
-        if (!sessionId) continue;
-        try {
-          await this.acumularUma(tenantId, linha.statementId, linha.line, sessionId);
-        } catch {
-          continue;
-        }
-      }
-    } catch {
-      return;
+      await this.cruzar(tenantId, statementId, line, criado.id, gravada.description);
+    } catch (error) {
+      await this.financas.excluir(tenantId, criado.id);
+      throw error;
     }
+    await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, gravada.cents);
+    return this.conferencia(tenantId, year, month);
+  }
+
+  private async cruzar(tenantId: string, statementId: string, line: number, entryId: string, description: string) {
+    const resultado = await this.extratos.confirmarCruzamento(
+      tenantId,
+      statementId,
+      line,
+      entryId,
+      chaveDoNome(description) || null,
+    );
+    if (resultado === "ausente") throw new NaoEncontrado("Linha não encontrada.");
+    if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (resultado === "cruzada") throw new Conflito("Essa linha já foi cruzada.");
   }
 
   async excluir(tenantId: string, id: string) {
@@ -332,32 +293,13 @@ export class ExtratosService {
   }
 }
 
-function lancamentosDoMes(entries: Lancamento[], workflow: { year: number; month: number; day: number }, year: number, month: number) {
-  const monthIndex = month - 1;
-  const ultimo = new Date(year, month, 0).getDate();
-  const lancamentos = [];
-  for (const entry of entries) {
-    const cents = centavosNoMes(entry, workflow, year, monthIndex);
-    if (cents === undefined) continue;
-    lancamentos.push({
-      id: entry.id,
-      description: entry.description,
-      groupName: entry.groupName,
-      sessionName: entry.sessionName,
-      day: Math.min(entry.day, ultimo),
-      cents,
-    });
-  }
-  return lancamentos;
-}
-
 function vinculoDe(entryId: string | null, entries: Lancamento[]): VinculoCruzado | null {
   if (!entryId) return null;
   const entry = entries.find((item) => item.id === entryId);
   if (!entry) return null;
   return {
     entryId: entry.id,
-    description: entry.description,
+    description: entry.name || entry.description,
     groupName: entry.groupName,
     sessionName: entry.sessionName,
     day: entry.day,

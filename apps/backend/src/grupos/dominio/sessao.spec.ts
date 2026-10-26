@@ -37,9 +37,9 @@ describe("tipos da sessão", () => {
     expect(aceitaLancamento("acumulo", [{ status: "pending" }, { status: "pending" }])).toBe(true);
   });
 
-  it("libera a única no valor e as demais no acúmulo", () => {
+  it("libera só a única no valor e todas no acúmulo", () => {
     expect(categoriasDaSessao("valor")).toEqual(["unique"]);
-    expect(categoriasDaSessao("acumulo")).toEqual(["additional", "installment", "loan", "fixed"]);
+    expect(categoriasDaSessao("acumulo")).toEqual(["unique", "additional", "installment", "loan", "fixed"]);
   });
 
   it("separa a base do acréscimo pela ordem da transação", () => {

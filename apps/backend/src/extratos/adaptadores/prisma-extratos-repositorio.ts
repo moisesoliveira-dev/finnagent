@@ -207,7 +207,13 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     };
   }
 
-  async confirmarCruzamento(tenantId: string, statementId: string, line: number, entryId: string) {
+  async confirmarCruzamento(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    entryId: string,
+    name: string | null,
+  ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const linha = await tx.statementLine.findFirst({
@@ -215,32 +221,26 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         select: { entryId: true },
       });
       if (!linha) return "ausente" as const;
-      const lancamento = await tx.entry.findFirst({ where: { id: entryId, tenantId }, select: { id: true } });
+      const lancamento = await tx.entry.findFirst({
+        where: { id: entryId, tenantId },
+        select: { id: true, sessionId: true },
+      });
       if (!lancamento) return "lancamento-ausente" as const;
       if (linha.entryId === entryId) return;
+      if (linha.entryId) return "cruzada" as const;
       await tx.statementLine.updateMany({
         where: { statementId, line, tenantId },
         data: { entryId },
       });
       await gravarOutbox(tx, tenantId, "cruzar-linha", `${statementId}:${line}`, { statementId, line, entryId }, entryId);
-    });
-  }
-
-  async gravarAssociacao(tenantId: string, name: string, sessionId: string) {
-    const db = this.banco();
-    return db.$transaction(async (tx) => {
-      const sessao = await tx.session.findFirst({
-        where: { id: sessionId, tenantId },
-        select: { id: true, endedAt: true },
-      });
-      if (!sessao) return "sessao-ausente" as const;
-      if (sessao.endedAt) return "sessao-encerrada" as const;
+      if (!name) return;
+      const sessionId = lancamento.sessionId;
       await tx.statementAlias.upsert({
         where: { tenantId_name: { tenantId, name } },
-        create: { tenantId, name, sessionId },
-        update: { sessionId },
+        create: { tenantId, name, sessionId, entryId },
+        update: { sessionId, entryId },
       });
-      const payload = { name, sessionId };
+      const payload = { name, sessionId, entryId };
       await gravarOutbox(tx, tenantId, "associar-nome-extrato", name, payload, marcaDe(payload));
     });
   }
@@ -249,39 +249,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     const db = this.banco();
     return db.statementAlias.findMany({
       where: { tenantId, session: { tenantId, endedAt: null } },
-      select: { name: true, sessionId: true },
-    });
-  }
-
-  async linhasSemVinculo(tenantId: string) {
-    const db = this.banco();
-    const rows = await db.statementLine.findMany({
-      where: { tenantId, entryId: null, error: "", cents: { not: null }, postedOn: { not: null } },
-      orderBy: [{ postedOn: "asc" }, { line: "asc" }],
-      select: {
-        statementId: true,
-        line: true,
-        postedOn: true,
-        description: true,
-        cents: true,
-        entryId: true,
-        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
-      },
-    });
-    return rows.flatMap((row) => {
-      if (row.cents === null || !row.postedOn || !row.cents) return [];
-      const linha: LinhaImportada = {
-        statementId: row.statementId,
-        line: row.line,
-        date: isoDe(row.postedOn) ?? "",
-        description: row.description,
-        cents: row.cents,
-        accountName: row.statement.account.name,
-        filename: row.statement.filename,
-        entryId: row.entryId,
-        importedAt: row.statement.importedAt.toISOString(),
-      };
-      return linha.date ? [linha] : [];
+      select: { name: true, sessionId: true, entryId: true },
     });
   }
 

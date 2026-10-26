@@ -3,7 +3,6 @@
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
-  HORAS_PENDENTE,
   LEMBRETES,
   LIMITE_MODELOS_IA,
   idDeModelo,
@@ -12,7 +11,6 @@ import {
   type Configuracoes,
   type EstadoGoogle,
   type FusoAgenda,
-  type HorasPendente,
   type Lembrete,
   type Preferencias,
   type Retencao,
@@ -837,33 +835,6 @@ export function Painel() {
               <Linha id="compromissos" titulo="Criar compromissos" dica="Esse passo continua pedindo confirmação.">
                 <select id="compromissos" disabled className={field} defaultValue="confirmar" aria-describedby="compromissos-dica">
                   <option value="confirmar">Sempre confirmar</option>
-                </select>
-              </Linha>
-              <Linha id="categorizar" titulo="Categorizar lançamentos" dica="Define o que acontece com a categoria sugerida.">
-                <select
-                  id="categorizar"
-                  value={form.categorize}
-                  aria-describedby="categorizar-dica"
-                  className={field}
-                  onChange={(event) => alterar("categorize", event.target.value === "aplicar" ? "aplicar" : "confirmar")}
-                >
-                  <option value="confirmar">Sugerir e pedir confirmação</option>
-                  <option value="aplicar">Aplicar e avisar</option>
-                </select>
-              </Linha>
-              <Linha id="validade" titulo="Validade das ações pendentes" dica="Depois desse prazo a proposta expira.">
-                <select
-                  id="validade"
-                  value={form.pendingHours}
-                  aria-describedby="validade-dica"
-                  className={field}
-                  onChange={(event) => alterar("pendingHours", Number(event.target.value) as HorasPendente)}
-                >
-                  {HORAS_PENDENTE.map((hora) => (
-                    <option key={hora} value={hora}>
-                      {hora} horas
-                    </option>
-                  ))}
                 </select>
               </Linha>
             </section>

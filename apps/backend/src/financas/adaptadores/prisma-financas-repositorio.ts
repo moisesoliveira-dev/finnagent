@@ -29,6 +29,7 @@ import { categoriaPermitida, protegeValorBase } from "../../grupos/dominio/sessa
 import type { TipoSessao } from "@finnagent/contracts";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
 import type { Prisma } from "@prisma/client";
+import { ocorrenciaDoPagamento, pagarOcorrencia } from "../dominio/pagamento.js";
 import { jurosEmPontos, percentualDeJuros } from "../dominio/transacao.js";
 import { removerDaLinha } from "../dominio/vista.js";
 import type {
@@ -291,6 +292,19 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       await this.resumir(tx, tenantId, atual, lista);
       await this.alinharAjustes(tx, tenantId, atual, lista);
       return { number, status: proxima.status, dueDate: proxima.dueDate, plannedCents: proxima.plannedCents };
+    });
+  }
+
+  async pagarPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+    return this.alterar(tenantId, id, "pagar-pelo-extrato", async (tx, atual) => {
+      const lista = await this.materializar(tx, tenantId, atual);
+      const number = ocorrenciaDoPagamento(lista, date);
+      if (number == null) return "bloqueada" as const;
+      const proxima = lista.map((item) => (item.number === number ? pagarOcorrencia(item, cents, date) : item));
+      await this.substituir(tx, tenantId, id, proxima);
+      await this.resumir(tx, tenantId, atual, proxima);
+      await this.alinharAjustes(tx, tenantId, atual, proxima);
+      return { number, paidCents: cents, paidOn: date };
     });
   }
 

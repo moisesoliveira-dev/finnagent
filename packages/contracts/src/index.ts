@@ -1062,11 +1062,17 @@ export type LinhaConferencia = {
   entryId: string | null;
   link: VinculoCruzado | null;
   suggestion: VinculoCruzado | null;
+  suggestionSource: OrigemDaProposta | null;
+  candidates: VinculoCruzado[];
+  sessionId: string | null;
 };
+
+export type OrigemDaProposta = "nome" | "valor";
 
 export type ConferenciaResposta = {
   year: number;
   month: number;
+  pending: number;
   lines: LinhaConferencia[];
 };
 

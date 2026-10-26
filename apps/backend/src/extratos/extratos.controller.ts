@@ -68,9 +68,13 @@ export class ExtratosController {
 
   @Post("extratos/cruzamentos")
   cruzar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
-    const pedido = z.object({ statementId: z.uuid(), line: z.number().int().min(1) }).safeParse(body);
-    if (!pedido.success) throw new BadRequestException("Não foi possível confirmar o cruzamento.");
-    return this.executar(() => this.extratos.confirmar(this.tenant(tenant), pedido.data.statementId, pedido.data.line));
+    const pedido = z
+      .object({ statementId: z.uuid(), line: z.number().int().min(1), entryId: z.uuid() })
+      .safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha o lançamento desta linha.");
+    return this.executar(() =>
+      this.extratos.confirmar(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.entryId),
+    );
   }
 
   @Post("extratos/acumular")

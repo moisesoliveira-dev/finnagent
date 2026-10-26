@@ -89,6 +89,12 @@ export interface FinancasRepositorio {
     id: string,
     commitmentId: string,
   ): Promise<Lancamento | FalhaDeLancamento>;
+  pagarPeloExtrato(
+    tenantId: string,
+    id: string,
+    date: string,
+    cents: number,
+  ): Promise<Lancamento | FalhaDeLancamento>;
   adiantar(
     tenantId: string,
     id: string,

@@ -72,12 +72,9 @@ export type ExtratosRepositorio = {
     statementId: string,
     line: number,
     entryId: string,
-  ): Promise<void | "ausente" | "lancamento-ausente">;
-  gravarAssociacao(
+    name: string | null,
+  ): Promise<void | "ausente" | "lancamento-ausente" | "cruzada">;
+  listarAssociacoes(
     tenantId: string,
-    name: string,
-    sessionId: string,
-  ): Promise<void | "sessao-ausente" | "sessao-encerrada">;
-  listarAssociacoes(tenantId: string): Promise<Array<{ name: string; sessionId: string }>>;
-  linhasSemVinculo(tenantId: string): Promise<LinhaImportada[]>;
+  ): Promise<Array<{ name: string; sessionId: string; entryId: string | null }>>;
 };

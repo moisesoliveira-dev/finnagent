@@ -51,6 +51,16 @@ function textoDoVinculo(vinculo: NonNullable<LinhaConferencia["link"]>) {
   return `${vinculo.description} · ${vinculo.groupName} / ${vinculo.sessionName}`;
 }
 
+const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
+function rotuloDoCandidato(vinculo: NonNullable<LinhaConferencia["link"]>) {
+  return `${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais.format(vinculo.cents / 100)}`;
+}
+
+function chaveDa(linha: LinhaConferencia) {
+  return `${linha.statementId}:${linha.line}`;
+}
+
 export default function Conferencia() {
   const toast = useToast();
   const hoje = new Date();
@@ -62,6 +72,7 @@ export default function Conferencia() {
   const [ocupado, setOcupado] = useState("");
   const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string }>>([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
+  const [par, setPar] = useState<Record<string, string>>({});
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(1);
   const pedido = `${year}-${month}`;
@@ -128,15 +139,28 @@ export default function Conferencia() {
     setMonth(data.getMonth() + 1);
   }
 
-  async function confirmar(linha: LinhaConferencia) {
-    const chave = `${linha.statementId}:${linha.line}`;
+  function lancamentoDa(linha: LinhaConferencia) {
+    return par[chaveDa(linha)] ?? linha.suggestion?.entryId ?? "";
+  }
+
+  function sessaoDa(linha: LinhaConferencia) {
+    return escolha[chaveDa(linha)] ?? linha.sessionId ?? "";
+  }
+
+  async function confirmar(linha: LinhaConferencia, entryId: string) {
+    const chave = chaveDa(linha);
+    if (!entryId) {
+      toast.erro("Escolha o lançamento desta linha.");
+      return;
+    }
     setOcupado(chave);
     try {
       await api("/api/extratos/cruzamentos", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line }),
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, entryId }),
       });
-      toast.sucesso("Cruzamento confirmado.");
+      toast.sucesso("Cruzamento confirmado. A ocorrência do mês ficou paga.");
+      setPar({});
       await carregar(year, month);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
@@ -146,8 +170,8 @@ export default function Conferencia() {
   }
 
   async function acumular(linha: LinhaConferencia) {
-    const chave = `${linha.statementId}:${linha.line}`;
-    const sessionId = escolha[chave];
+    const chave = chaveDa(linha);
+    const sessionId = sessaoDa(linha);
     if (!sessionId) {
       toast.erro("Escolha a sessão para acumular.");
       return;
@@ -158,7 +182,8 @@ export default function Conferencia() {
         method: "POST",
         body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId }),
       });
-      toast.sucesso("Linha acumulada. O mesmo nome entra direto nessa sessão.");
+      toast.sucesso("Linha lançada na sessão. O nome fica lembrado para a próxima importação.");
+      setPar({});
       await carregar(year, month);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível acumular a linha.");
@@ -184,7 +209,7 @@ export default function Conferencia() {
     <>
       <PageHeader
         title="Conferência"
-        subtitle="Cada linha sem par entra numa sessão. O mesmo nome do extrato volta para essa sessão."
+        subtitle="Cada linha do banco precisa de um lançamento. O nome do extrato fica lembrado para a próxima importação."
         actions={
           <div className="flex items-center gap-1 font-display text-lg font-bold">
             <Button variant="quiet" className="min-w-10 px-0" aria-label="Mês anterior" onClick={() => mudar(-1)}>
@@ -204,6 +229,15 @@ export default function Conferencia() {
       {dados ? (
         <div className="grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_auto]">
           <div className="grid min-w-0 gap-4">
+          {linhas.length ? (
+            <p className="text-sm text-ink-2" aria-live="polite">
+              {dados.pending === 0
+                ? "Todas as linhas do mês têm lançamento."
+                : dados.pending === 1
+                  ? "1 linha do mês ainda sem lançamento."
+                  : `${dados.pending} linhas do mês ainda sem lançamento.`}
+            </p>
+          ) : null}
           <input
             className={cn(field, "w-full")}
             type="search"
@@ -218,7 +252,7 @@ export default function Conferencia() {
           <ul className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface">
             {visiveis.length ? (
               visiveis.map((linha) => (
-                <li key={`${linha.statementId}-${linha.line}`} className="grid gap-3 border-b border-line p-4 last:border-b-0">
+                <li key={`${linha.statementId}-${linha.line}`} className="grid grid-cols-[minmax(0,1fr)] gap-3 border-b border-line p-4 last:border-b-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{linha.description || "—"}</span>
                     <Money cents={linha.cents} strong />
@@ -234,45 +268,75 @@ export default function Conferencia() {
                       <span className="text-sm">{textoDoVinculo(linha.link)}</span>
                     </div>
                   ) : (
-                    <div className="grid gap-2">
+                    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
                       {linha.suggestion ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Chip tone="ai">Proposta</Chip>
-                          <span className="text-sm">{textoDoVinculo(linha.suggestion)}</span>
-                        </div>
+                        <Chip tone="ai" className="justify-self-start">
+                          {linha.suggestionSource === "nome" ? "Proposta pelo nome" : "Proposta pelo valor"}
+                        </Chip>
                       ) : (
-                        <Chip>Sem par</Chip>
+                        <Chip className="justify-self-start">Sem lançamento</Chip>
                       )}
+                      {linha.candidates.length ? (
+                        <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
+                          <span className="text-sm text-ink-2">Lançamento do mês</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
+                              aria-label={`Lançamento para ${linha.description || "a linha"}`}
+                              value={lancamentoDa(linha)}
+                              onChange={(event) =>
+                                setPar((atual) => ({ ...atual, [chaveDa(linha)]: event.target.value }))
+                              }
+                            >
+                              <option value="">Escolha o lançamento</option>
+                              {linha.candidates.map((candidato) => (
+                                <option key={candidato.entryId} value={candidato.entryId}>
+                                  {rotuloDoCandidato(candidato)}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="default"
+                              disabled={ocupado === chaveDa(linha) || !lancamentoDa(linha)}
+                              onClick={() => void confirmar(linha, lancamentoDa(linha))}
+                            >
+                              Confirmar
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                       {sessoes.length ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select
-                            className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
-                            aria-label={`Sessão para ${linha.description || "a linha"}`}
-                            value={escolha[`${linha.statementId}:${linha.line}`] ?? ""}
-                            onChange={(event) =>
-                              setEscolha((atual) => ({
-                                ...atual,
-                                [`${linha.statementId}:${linha.line}`]: event.target.value,
-                              }))
-                            }
-                          >
-                            <option value="">Escolha a sessão</option>
-                            {sessoes.map((sessao) => (
-                              <option key={sessao.id} value={sessao.id}>
-                                {sessao.rotulo}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            variant="default"
-                            disabled={ocupado === `${linha.statementId}:${linha.line}`}
-                            onClick={() => void acumular(linha)}
-                          >
-                            Acumular
-                          </Button>
+                        <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
+                          <span className="text-sm text-ink-2">
+                            {linha.candidates.length ? "Ou lance numa sessão" : "Lance numa sessão"}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              className={cn(field, "w-full min-w-0 flex-1 tab:w-auto")}
+                              aria-label={`Sessão para ${linha.description || "a linha"}`}
+                              value={sessaoDa(linha)}
+                              onChange={(event) =>
+                                setEscolha((atual) => ({ ...atual, [chaveDa(linha)]: event.target.value }))
+                              }
+                            >
+                              <option value="">Escolha a sessão</option>
+                              {sessoes.map((sessao) => (
+                                <option key={sessao.id} value={sessao.id}>
+                                  {sessao.rotulo}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="quiet"
+                              disabled={ocupado === chaveDa(linha) || !sessaoDa(linha)}
+                              onClick={() => void acumular(linha)}
+                            >
+                              Acumular
+                            </Button>
+                          </div>
                         </div>
                       ) : (
-                        <p className="text-sm text-ink-2">Crie uma sessão em Grupos para acumular esta linha.</p>
+                        <p className="text-sm text-ink-2">Crie uma sessão em Grupos para lançar esta linha.</p>
                       )}
                     </div>
                   )}
@@ -302,10 +366,11 @@ export default function Conferencia() {
             </div>
           ) : null}
           </div>
-          <aside aria-label="IA" className="grid min-w-0 gap-4 rounded-lg border border-line bg-surface p-6">
+          <aside aria-label="IA" className="grid min-w-0 gap-4 rounded-lg border border-line bg-surface p-6 desk:max-w-sm">
             <h2 className="font-display text-lg">IA</h2>
             <p className="max-w-prose text-sm text-ink-2">
-              A proposta usa o valor e o dia do lançamento. Confirme para gravar o cruzamento.
+              A proposta usa o nome lembrado do extrato ou o mesmo valor perto do dia. Confirme para gravar o
+              cruzamento e pagar a ocorrência do mês.
             </p>
             {propostas.length ? (
               <ul className="grid gap-4">
@@ -316,8 +381,8 @@ export default function Conferencia() {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="default"
-                          disabled={ocupado === `${linha.statementId}:${linha.line}`}
-                          onClick={() => void confirmar(linha)}
+                          disabled={ocupado === chaveDa(linha)}
+                          onClick={() => void confirmar(linha, linha.suggestion?.entryId ?? "")}
                         >
                           Confirmar
                         </Button>
