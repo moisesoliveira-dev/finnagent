@@ -32,6 +32,7 @@ const meses = [
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
+    cache: "no-store",
     headers: { "content-type": "application/json", ...init?.headers },
   });
   const body = (await response.json().catch(() => ({}))) as { message?: string | string[] };
@@ -76,14 +77,15 @@ export default function Conferencia() {
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(1);
   const pedido = `${year}-${month}`;
-  const aberta = useRef(false);
-  const carregado = useRef("");
+  const manual = useRef(false);
+  const aplicado = useRef("");
 
   function carregar(alvoAno: number, alvoMes: number) {
     setDados(null);
     setFalha("");
     return api<ConferenciaResposta>(`/api/extratos/conferencia?year=${alvoAno}&month=${alvoMes}`)
       .then((resposta) => {
+        aplicado.current = `${resposta.year}-${resposta.month}`;
         setDados(resposta);
       })
       .catch((error: Error) => {
@@ -93,16 +95,21 @@ export default function Conferencia() {
   }
 
   useEffect(() => {
-    if (carregado.current === pedido) return;
+    if (aplicado.current === pedido) return;
     let ativo = true;
-    const abrir = aberta.current ? "" : "&abrir=pendente";
+    const abrir = manual.current ? "" : "&abrir=pendente";
+    setDados(null);
+    setFalha("");
     api<ConferenciaResposta>(`/api/extratos/conferencia?year=${year}&month=${month}${abrir}`)
       .then((resposta) => {
         if (!ativo) return;
-        aberta.current = true;
-        carregado.current = `${resposta.year}-${resposta.month}`;
-        setYear(resposta.year);
-        setMonth(resposta.month);
+        const recebida = `${resposta.year}-${resposta.month}`;
+        aplicado.current = recebida;
+        manual.current = true;
+        if (recebida !== pedido) {
+          setYear(resposta.year);
+          setMonth(resposta.month);
+        }
         setDados(resposta);
         setFalha("");
       })
@@ -140,6 +147,7 @@ export default function Conferencia() {
   }, []);
 
   function mudar(delta: number) {
+    manual.current = true;
     setDeslize(delta > 0 ? 1 : -1);
     setPagina(1);
     const data = new Date(year, month - 1 + delta, 1);

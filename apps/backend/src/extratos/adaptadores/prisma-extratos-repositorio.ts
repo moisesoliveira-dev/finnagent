@@ -143,13 +143,13 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async listarLinhasNoMes(tenantId: string, year: number, month: number) {
     const db = this.banco();
     const inicio = new Date(Date.UTC(year, month - 1, 1));
-    const fim = new Date(Date.UTC(year, month, 0));
+    const fim = new Date(Date.UTC(year, month, 1));
     const rows = await db.statementLine.findMany({
       where: {
         tenantId,
         error: "",
         cents: { not: null },
-        postedOn: { gte: inicio, lte: fim },
+        postedOn: { gte: inicio, lt: fim },
       },
       orderBy: [{ postedOn: "asc" }, { line: "asc" }],
       select: {
