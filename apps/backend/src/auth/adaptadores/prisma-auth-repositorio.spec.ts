@@ -10,6 +10,8 @@ type Estado = {
   sessao?: { tenantId: string; userId: string } | null;
   apagadas?: number;
   vencidas?: number;
+  /** Papel do usuário que `removerMembro` encontra. `null` = não existe. */
+  alvo?: { role: string } | null;
 };
 
 /**
@@ -21,6 +23,8 @@ function montar(estado: Estado = {}) {
   const tx = {
     user: {
       create: vi.fn(async ({ data }) => ({ ...data, name: data.name, failedAttempts: 0, lockedUntil: null })),
+      findFirst: vi.fn(async () => (estado.alvo === undefined ? { role: "membro" } : estado.alvo)),
+      deleteMany: vi.fn(async () => ({ count: 1 })),
       update: vi.fn(async () => ({ tenantId: "t1", failedAttempts: estado.falhas ?? 1 })),
       findUnique: vi.fn(async () => ({
         tenantId: "t1",
@@ -58,6 +62,34 @@ describe("eventos de autenticação no outbox", () => {
     expect(eventos).toHaveLength(1);
     expect(eventos[0]).toMatchObject({ operation: "criar-usuario", tenantId: "tenant-legado", payload: { id: "u1" } });
     expect(JSON.stringify(eventos)).not.toContain("scrypt");
+  });
+
+  it("cria o master já como master, e o membro como membro, cada um com o evento", async () => {
+    const { repositorio, eventos, tx } = montar();
+    await repositorio.criarUsuario({ id: "u1", email: "a@a.com", name: "A", passwordHash: "h", tenantPreferido: null });
+    await repositorio.criarMembro("t1", { id: "u2", email: "b@a.com", name: "B", passwordHash: "h" });
+    expect(tx.user.create.mock.calls[0][0].data.role).toBe("master");
+    expect(tx.user.create.mock.calls[1][0].data).toMatchObject({ role: "membro", tenantId: "t1" });
+    expect(eventos.map((evento) => [evento.operation, evento.payload.role])).toEqual([
+      ["criar-usuario", "master"],
+      ["criar-usuario", "membro"],
+    ]);
+  });
+
+  it("remove o membro da própria conta com o evento, e recusa o master e quem não existe", async () => {
+    const membro = montar({ alvo: { role: "membro" } });
+    expect(await membro.repositorio.removerMembro("t1", "u2")).toBe("removido");
+    expect(membro.tx.user.deleteMany).toHaveBeenCalledWith({ where: { id: "u2", tenantId: "t1" } });
+    expect(membro.eventos.map((evento) => evento.operation)).toEqual(["remover-usuario"]);
+
+    const master = montar({ alvo: { role: "master" } });
+    expect(await master.repositorio.removerMembro("t1", "u1")).toBe("master");
+    expect(master.tx.user.deleteMany).not.toHaveBeenCalled();
+    expect(master.eventos).toHaveLength(0);
+
+    const ausente = montar({ alvo: null });
+    expect(await ausente.repositorio.removerMembro("t1", "x")).toBe("ausente");
+    expect(ausente.eventos).toHaveLength(0);
   });
 
   it("registra cada falha, e só trava quando chega no limite", async () => {
