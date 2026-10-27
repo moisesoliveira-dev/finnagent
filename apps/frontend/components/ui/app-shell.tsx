@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
+import { ContaDoMenu } from "../auth/conta-do-menu";
+import { Marca, PainelDaMarca } from "../auth/painel-da-marca";
+import { SessaoExpirada } from "../auth/sessao-expirada";
 import { Button } from "./button";
 import { Rotulo } from "./rotulo";
 import { campo, cn, focusRing } from "./cn";
@@ -59,6 +62,23 @@ function Item({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  // Login e cadastro têm casca própria, sem menu nem assistente: painel da marca à esquerda
+  // a partir de 1100 px e o formulário à direita.
+  if (pathname === "/login" || pathname === "/cadastro") {
+    return (
+      <div className="grid min-h-dvh grid-cols-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] desk:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <PainelDaMarca />
+        <div className="flex min-w-0 flex-col">
+          <header className="px-4 pt-6 tab:px-8 desk:hidden">
+            <Marca />
+          </header>
+          <main className="grid min-w-0 flex-1 grid-cols-1 place-items-center px-4 py-8 tab:px-8 tab:py-12">
+            {children}
+          </main>
+        </div>
+      </div>
+    );
+  }
   const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios", "/eventos", "/configuracoes"];
   const assistant =
     pathname !== "/" &&
@@ -115,7 +135,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
           <Item href="/configuracoes" label="Configurações" current={pathname === "/configuracoes"} />
         </ul>
+        <ContaDoMenu />
       </nav>
+      <SessaoExpirada />
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
         {children}
       </main>

@@ -1727,3 +1727,19 @@ function sensivel(chave: string) {
     /^(conta|account|cartao|cartão)$/i.test(chave)
   );
 }
+
+export const SENHA_MINIMA = 10;
+export const SENHA_MAXIMA = 128;
+
+export type UsuarioDaConta = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+/** O que o backend devolve ao entrar ou cadastrar. O token para no BFF; o navegador recebe só `{ user }`. */
+export type SessaoAberta = {
+  token: string;
+  expiresAt: string;
+  user: UsuarioDaConta;
+};

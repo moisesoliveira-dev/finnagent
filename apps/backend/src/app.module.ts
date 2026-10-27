@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AgendaModule } from './agenda/agenda.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import { ConfiguracoesModule } from './configuracoes/configuracoes.module.js';
 import { DadosModule } from './dados/dados.module.js';
 import { EventosModule } from './eventos/eventos.module.js';
@@ -16,6 +17,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
 @Module({
   imports: [
     PersistenciaModule,
+    AuthModule,
     GruposModule,
     FinancasModule,
     AgendaModule,
