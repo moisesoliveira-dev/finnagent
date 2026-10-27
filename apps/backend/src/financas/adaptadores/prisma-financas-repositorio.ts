@@ -304,8 +304,47 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       await this.substituir(tx, tenantId, id, proxima);
       await this.resumir(tx, tenantId, atual, proxima);
       await this.alinharAjustes(tx, tenantId, atual, proxima);
+      await this.marcarCompromissos(tx, tenantId, id, date, "done");
       return { number, paidCents: cents, paidOn: date };
     });
+  }
+
+  async reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+    return this.alterar(tenantId, id, "reabrir-pelo-extrato", async (tx, atual) => {
+      const lista = await this.materializar(tx, tenantId, atual);
+      const paga = lista
+        .filter((item) => item.status === "completed" && item.paidOn === date && item.paidCents === cents)
+        .at(-1);
+      if (!paga) return "bloqueada" as const;
+      const proxima = lista.map((item) =>
+        item.number === paga.number ? { ...item, status: "pending" as const, paidCents: null, paidOn: null } : item,
+      );
+      await this.substituir(tx, tenantId, id, proxima);
+      await this.resumir(tx, tenantId, atual, proxima);
+      await this.alinharAjustes(tx, tenantId, atual, proxima);
+      await this.marcarCompromissos(tx, tenantId, id, date, "undone");
+      return { number: paga.number, status: "pending" as const };
+    });
+  }
+
+  // O compromisso ligado ao lançamento acompanha o pagamento do mês dele.
+  private async marcarCompromissos(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    entryId: string,
+    date: string,
+    status: "done" | "undone",
+  ) {
+    const [year, month] = date.split("-").map(Number);
+    const alvos = await tx.appointment.findMany({
+      where: { tenantId, entryId, year, month, status: { not: status } },
+      select: { id: true },
+    });
+    for (const { id } of alvos) {
+      await tx.appointment.updateMany({ where: { id, tenantId }, data: { status } });
+      const payload = { id, status };
+      await gravarOutbox(tx, tenantId, "atualizar-status-compromisso", id, payload, marcaDe({ ...payload, em: Date.now() }));
+    }
   }
 
   async associarCompromisso(tenantId: string, id: string, commitmentId: string) {

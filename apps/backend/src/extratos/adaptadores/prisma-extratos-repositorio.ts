@@ -5,6 +5,7 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
+import { avisoDeRepetidas, descartarRepetidas } from "../dominio/repetidas.js";
 import type { ExtratosRepositorio, GravacaoExtrato, ReservaExtrato, LinhaImportada } from "../portas/extratos-repositorio.js";
 
 const LIMITE_LINHAS = 100;
@@ -37,6 +38,8 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       const conta = await contaDe(tx, tenantId, pedido.accountId, pedido.accountName);
       if (conta === "ausente") return "conta-ausente" as const;
       if (await periodoRepetido(tx, tenantId, conta.id, pedido.id, pedido.leitura)) return "duplicado" as const;
+      if (await arquivoRepetido(tx, tenantId, conta.id, pedido.id, pedido.contentHash)) return "duplicado" as const;
+      const leitura = await semRepetidas(tx, tenantId, conta.id, pedido.id, pedido.leitura);
       const importedAt = new Date();
       await tx.statement.create({
         data: {
@@ -45,12 +48,12 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
           accountId: conta.id,
           filename: pedido.filename,
           format: pedido.format,
-          status: pedido.leitura.status,
-          message: pedido.leitura.message,
-          startDate: dataUtc(pedido.leitura.startDate),
-          endDate: dataUtc(pedido.leitura.endDate),
-          lineCount: pedido.leitura.lines.length,
-          errorCount: pedido.leitura.lines.filter((linha) => linha.error).length,
+          status: leitura.status,
+          message: leitura.message,
+          startDate: dataUtc(leitura.startDate),
+          endDate: dataUtc(leitura.endDate),
+          lineCount: leitura.lines.length,
+          errorCount: leitura.lines.filter((linha) => linha.error).length,
           importedAt,
           content: new Uint8Array(pedido.bytes),
           contentHash: pedido.contentHash,
@@ -59,8 +62,8 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
           amountColumn: pedido.mapping?.amount ?? null,
         },
       });
-      await gravarLinhas(tx, tenantId, pedido.id, pedido.leitura.lines);
-      await gravarOutbox(tx, tenantId, "importar-extrato", pedido.id, resumo(pedido.id, pedido.leitura), pedido.contentHash);
+      await gravarLinhas(tx, tenantId, pedido.id, leitura.lines);
+      await gravarOutbox(tx, tenantId, "importar-extrato", pedido.id, resumo(pedido.id, leitura), pedido.contentHash);
       const criado = await tx.statement.findFirstOrThrow({ where: { id: pedido.id, tenantId }, select: selecao });
       return extratoDe(criado);
     });
@@ -107,7 +110,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async substituir(
     tenantId: string,
     id: string,
-    leitura: LeituraExtrato,
+    bruta: LeituraExtrato,
     mapping: MapeamentoExtrato | null,
     operacao: "importar-extrato" | "reprocessar-extrato" = "reprocessar-extrato",
   ) {
@@ -115,7 +118,8 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     return db.$transaction(async (tx) => {
       const atual = await tx.statement.findFirst({ where: { id, tenantId }, select: { accountId: true } });
       if (!atual) return "ausente" as const;
-      if (await periodoRepetido(tx, tenantId, atual.accountId, id, leitura)) return "duplicado" as const;
+      if (await periodoRepetido(tx, tenantId, atual.accountId, id, bruta)) return "duplicado" as const;
+      const leitura = await semRepetidas(tx, tenantId, atual.accountId, id, bruta);
       await tx.statementLine.deleteMany({ where: { statementId: id, tenantId } });
       await gravarLinhas(tx, tenantId, id, leitura.lines);
       const payload = resumo(id, leitura);
@@ -190,6 +194,21 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     return { year: row.postedOn.getUTCFullYear(), month: row.postedOn.getUTCMonth() + 1 };
   }
 
+  async contarSemLancamento(tenantId: string, year: number, month: number | null) {
+    const db = this.banco();
+    const inicio = new Date(Date.UTC(year, (month ?? 1) - 1, 1));
+    const fim = month === null ? new Date(Date.UTC(year + 1, 0, 1)) : new Date(Date.UTC(year, month, 1));
+    return db.statementLine.count({
+      where: {
+        tenantId,
+        entryId: null,
+        error: "",
+        cents: { not: null },
+        postedOn: { gte: inicio, lt: fim },
+      },
+    });
+  }
+
   async obterLinha(tenantId: string, statementId: string, line: number) {
     const db = this.banco();
     const row = await db.statementLine.findFirst({
@@ -243,7 +262,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         where: { statementId, line, tenantId },
         data: { entryId },
       });
-      await gravarOutbox(tx, tenantId, "cruzar-linha", `${statementId}:${line}`, { statementId, line, entryId }, entryId);
+      await gravarOutbox(tx, tenantId, "cruzar-linha", `${statementId}:${line}`, { statementId, line, entryId }, `${entryId}:${Date.now()}`);
       if (!name) return;
       const sessionId = lancamento.sessionId;
       await tx.statementAlias.upsert({
@@ -254,6 +273,27 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       const payload = { name, sessionId, entryId };
       await gravarOutbox(tx, tenantId, "associar-nome-extrato", name, payload, marcaDe(payload));
     });
+  }
+
+  async desfazerCruzamento(tenantId: string, statementId: string, line: number) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const linha = await tx.statementLine.findFirst({
+        where: { statementId, line, tenantId },
+        select: { entryId: true },
+      });
+      if (!linha) return "ausente" as const;
+      if (!linha.entryId) return "livre" as const;
+      await tx.statementLine.updateMany({ where: { statementId, line, tenantId }, data: { entryId: null } });
+      const payload = { statementId, line, entryId: linha.entryId };
+      await gravarOutbox(tx, tenantId, "desfazer-cruzamento", `${statementId}:${line}`, payload, `${linha.entryId}:${Date.now()}`);
+      return { entryId: linha.entryId };
+    });
+  }
+
+  async contarCruzadas(tenantId: string, id: string) {
+    const db = this.banco();
+    return db.statementLine.count({ where: { tenantId, statementId: id, entryId: { not: null } } });
   }
 
   async listarAssociacoes(tenantId: string) {
@@ -274,6 +314,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       }
       const conta = await contaDe(tx, tenantId, pedido.accountId, pedido.accountName);
       if (conta === "ausente") return "conta-ausente" as const;
+      if (await arquivoRepetido(tx, tenantId, conta.id, pedido.id, pedido.contentHash)) return "duplicado" as const;
       const importedAt = new Date();
       await tx.statement.create({
         data: {
@@ -380,6 +421,59 @@ async function contaDe(
   const existente = await tx.account.findFirst({ where: { tenantId, name }, select: { id: true } });
   if (existente) return existente;
   return tx.account.create({ data: { id: randomUUID(), tenantId, name }, select: { id: true } });
+}
+
+async function arquivoRepetido(
+  tx: ParametroTransacao,
+  tenantId: string,
+  accountId: string,
+  id: string,
+  contentHash: string,
+) {
+  const outro = await tx.statement.findFirst({
+    where: { tenantId, accountId, contentHash, NOT: { id } },
+    select: { id: true },
+  });
+  return Boolean(outro);
+}
+
+// O mesmo extrato pode chegar com outro período ou em outro arquivo. Linha já gravada em outro extrato da conta
+// não entra de novo, para não ser cruzada e paga duas vezes.
+async function semRepetidas(
+  tx: ParametroTransacao,
+  tenantId: string,
+  accountId: string,
+  id: string,
+  leitura: LeituraExtrato,
+): Promise<LeituraExtrato> {
+  const datas = leitura.lines.flatMap((linha) => (linha.date ? [linha.date] : [])).sort();
+  const inicio = dataUtc(datas[0] ?? null);
+  const fim = dataUtc(datas.at(-1) ?? null);
+  if (!inicio || !fim) return leitura;
+  const gravadas = await tx.statementLine.findMany({
+    where: {
+      tenantId,
+      error: "",
+      cents: { not: null },
+      postedOn: { gte: inicio, lte: fim },
+      statement: { accountId, NOT: { id } },
+    },
+    select: { postedOn: true, description: true, cents: true },
+  });
+  const { lines, ignoradas } = descartarRepetidas(
+    leitura.lines,
+    gravadas.flatMap((row) =>
+      row.postedOn && row.cents !== null
+        ? [{ date: isoDe(row.postedOn) ?? "", cents: row.cents, description: row.description }]
+        : [],
+    ),
+  );
+  if (ignoradas === 0) return leitura;
+  return {
+    ...leitura,
+    lines,
+    message: [leitura.message, avisoDeRepetidas(ignoradas)].filter(Boolean).join(" "),
+  };
 }
 
 async function periodoRepetido(

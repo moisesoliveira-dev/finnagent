@@ -62,11 +62,12 @@ export type ExtratosRepositorio = {
   reservar(
     tenantId: string,
     pedido: ReservaExtrato,
-  ): Promise<{ extrato: Extrato; novo: boolean } | "identificador" | "conta-ausente">;
+  ): Promise<{ extrato: Extrato; novo: boolean } | "identificador" | "conta-ausente" | "duplicado">;
   marcarProcessando(tenantId: string, id: string): Promise<Extrato | "ausente">;
   falhar(tenantId: string, id: string, message: string): Promise<void>;
   listarLinhasNoMes(tenantId: string, year: number, month: number): Promise<LinhaImportada[]>;
   ultimoMesPendente(tenantId: string): Promise<{ year: number; month: number } | null>;
+  contarSemLancamento(tenantId: string, year: number, month: number | null): Promise<number>;
   obterLinha(tenantId: string, statementId: string, line: number): Promise<LinhaImportada | "ausente">;
   confirmarCruzamento(
     tenantId: string,
@@ -75,6 +76,12 @@ export type ExtratosRepositorio = {
     entryId: string,
     name: string | null,
   ): Promise<void | "ausente" | "lancamento-ausente" | "cruzada">;
+  desfazerCruzamento(
+    tenantId: string,
+    statementId: string,
+    line: number,
+  ): Promise<{ entryId: string } | "ausente" | "livre">;
+  contarCruzadas(tenantId: string, id: string): Promise<number>;
   listarAssociacoes(
     tenantId: string,
   ): Promise<Array<{ name: string; sessionId: string; entryId: string | null }>>;

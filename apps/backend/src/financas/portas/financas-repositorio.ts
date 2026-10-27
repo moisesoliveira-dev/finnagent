@@ -95,6 +95,12 @@ export interface FinancasRepositorio {
     date: string,
     cents: number,
   ): Promise<Lancamento | FalhaDeLancamento>;
+  reabrirPeloExtrato(
+    tenantId: string,
+    id: string,
+    date: string,
+    cents: number,
+  ): Promise<Lancamento | FalhaDeLancamento>;
   adiantar(
     tenantId: string,
     id: string,

@@ -50,6 +50,7 @@ export function cabeNaLinha(linha: LinhaParaCruzar, item: LancamentoCruzavel) {
   return Math.sign(item.cents) === Math.sign(linha.cents);
 }
 
+// `cabeNaLinha` já barra extra com saída; esta checagem protege quem chamar `valorDoMes` direto.
 export function valorDoMes(
   category: CategoriaTransacao,
   planejado: number,

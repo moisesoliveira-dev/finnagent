@@ -94,6 +94,13 @@ export class ExtratosController {
     );
   }
 
+  @Post("extratos/cruzamentos/desfazer")
+  desfazer(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z.object({ statementId: z.uuid(), line: z.number().int().min(1) }).safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha a linha cruzada.");
+    return this.executar(() => this.extratos.desfazer(this.tenant(tenant), pedido.data.statementId, pedido.data.line));
+  }
+
   @Post("extratos/acumular-lote")
   acumularLote(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = z

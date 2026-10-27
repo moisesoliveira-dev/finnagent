@@ -163,6 +163,10 @@ export class FinancasService {
     return this.um(this.financas.pagarPeloExtrato(tenantId, id, date, cents));
   }
 
+  reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+    return this.um(this.financas.reabrirPeloExtrato(tenantId, id, date, cents));
+  }
+
   adiantar(tenantId: string, id: string, category: "installment" | "loan") {
     return this.um(this.financas.adiantar(tenantId, id, category));
   }
