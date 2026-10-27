@@ -8,9 +8,9 @@ import type {
   Usuario,
   UsuarioComSenha,
 } from "../portas/auth-repositorio.js";
-import { CredenciaisInvalidas, EmailEmUso, TentativasEsgotadas } from "../dominio/erros.js";
+import { CredenciaisInvalidas, EmailEmUso, NaoAutenticado, TentativasEsgotadas } from "../dominio/erros.js";
 import { PedidoInvalido } from "../../grupos/dominio/erros.js";
-import { AuthService, DURACAO_DA_SESSAO_MS, TENANT_LEGADO, hashDoToken } from "./auth.service.js";
+import { AuthService, DURACAO_DA_SESSAO_MS, TENANT_LEGADO, USUARIO_SEM_LOGIN, hashDoToken } from "./auth.service.js";
 
 class Memoria implements AuthRepositorio {
   usuarios = new Map<string, UsuarioComSenha & { falhas: number }>();
@@ -75,6 +75,18 @@ describe("autenticação", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("só devolve o usuário sem login em desenvolvimento", async () => {
+    vi.stubEnv("APP_ENV", "development");
+    vi.stubEnv("RAILWAY_ENVIRONMENT", "");
+    expect(await servico.eu(USUARIO_SEM_LOGIN)).toMatchObject({ id: USUARIO_SEM_LOGIN, semLogin: true });
+    vi.stubEnv("APP_ENV", "");
+    await expect(servico.eu(USUARIO_SEM_LOGIN)).rejects.toBeInstanceOf(NaoAutenticado);
+    vi.stubEnv("APP_ENV", "development");
+    vi.stubEnv("RAILWAY_ENVIRONMENT", "production");
+    await expect(servico.eu(USUARIO_SEM_LOGIN)).rejects.toBeInstanceOf(NaoAutenticado);
   });
 
   it("cadastra, guarda só o hash do token e abre a sessão", async () => {
