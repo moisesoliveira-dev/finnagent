@@ -35,6 +35,7 @@ model Session {
   entries       Entry[]
   additions     SessionAddition[]
   aliases       StatementAlias[]
+  appointments  Appointment[]
 
   @@index([tenantId])
   @@map("sessions")
@@ -175,11 +176,14 @@ model Appointment {
   endMonth      Int?      @map("end_month")
   endDay        Int?      @map("end_day")
   entryId       String?   @map("entry_id")
+  sessionId     String?   @map("session_id")
   googleEventId String?   @map("google_event_id")
   entry         Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  session       Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, googleEventId])
   @@index([tenantId, year, month])
+  @@index([sessionId])
   @@index([tenantId])
   @@map("appointments")
 }
