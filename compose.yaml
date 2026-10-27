@@ -6,6 +6,7 @@ services:
     environment:
       PORT: "3000"
       API_URL: http://backend:3000
+      APP_ENV: ${APP_ENV:-}
       OTEL_SERVICE_NAME: frontend
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-}
@@ -26,6 +27,7 @@ services:
       PORT: "3000"
       REDIS_URL: redis://redis:6379
       AGENTS_URL: http://agents:8000
+      APP_ENV: ${APP_ENV:-}
       OTEL_SERVICE_NAME: backend
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-}
