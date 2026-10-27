@@ -1735,6 +1735,8 @@ export type UsuarioDaConta = {
   id: string;
   name: string;
   email: string;
+  /** Só vem como `true` no ambiente de desenvolvimento, quando o login foi dispensado. */
+  semLogin?: boolean;
 };
 
 /** O que o backend devolve ao entrar ou cadastrar. O token para no BFF; o navegador recebe só `{ user }`. */
@@ -1743,3 +1745,27 @@ export type SessaoAberta = {
   expiresAt: string;
   user: UsuarioDaConta;
 };
+
+export const AMBIENTES = ["production", "development"] as const;
+
+export type Ambiente = (typeof AMBIENTES)[number];
+
+type Variaveis = Record<string, string | undefined>;
+
+/** Só o valor `development` liga o modo de desenvolvimento. A falta da variável vale como produção. */
+export function ambienteDe(env: Variaveis): Ambiente {
+  return env.APP_ENV?.trim().toLowerCase() === "development" ? "development" : "production";
+}
+
+/** O Railway injeta estas variáveis em todo serviço; a máquina local não tem nenhuma delas. */
+export function estaNoRailway(env: Variaveis) {
+  return Boolean(env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID || env.RAILWAY_SERVICE_ID);
+}
+
+/**
+ * O login só é dispensado em desenvolvimento e fora do Railway. Se alguém colocar
+ * `APP_ENV=development` no painel do Railway por engano, o login continua exigido.
+ */
+export function loginDispensado(env: Variaveis) {
+  return ambienteDe(env) === "development" && !estaNoRailway(env);
+}

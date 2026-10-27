@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import type { SessaoAberta, UsuarioDaConta } from "@finnagent/contracts";
+import { loginDispensado, type SessaoAberta, type UsuarioDaConta } from "@finnagent/contracts";
 import { CredenciaisInvalidas, EmailEmUso, NaoAutenticado, TentativasEsgotadas } from "../dominio/erros.js";
 import { Limitador } from "../dominio/limitador.js";
 import { interpretarCadastro, interpretarEntrada } from "../dominio/pedido.js";
@@ -10,6 +10,9 @@ import { AUTH_REPOSITORIO, type AuthRepositorio, type Usuario } from "../portas/
 
 /** Tenant dos dados criados antes de existir login. */
 export const TENANT_LEGADO = "00000000-0000-4000-8000-000000000001";
+
+/** Identidade de quem entra sem login em desenvolvimento. Não existe na tabela de usuários. */
+export const USUARIO_SEM_LOGIN = "sem-login";
 
 export const DURACAO_DA_SESSAO_MS = 7 * 24 * 60 * 60 * 1000;
 const FALHAS_ATE_TRAVAR = 5;
@@ -82,6 +85,9 @@ export class AuthService {
   }
 
   async eu(userId: string): Promise<UsuarioDaConta> {
+    if (userId === USUARIO_SEM_LOGIN && loginDispensado(process.env)) {
+      return { id: USUARIO_SEM_LOGIN, name: "Desenvolvimento", email: "sem-login@local", semLogin: true };
+    }
     const usuario = await this.repositorio.buscarUsuario(userId);
     if (!usuario) throw new NaoAutenticado();
     return { id: usuario.id, name: usuario.name, email: usuario.email };
