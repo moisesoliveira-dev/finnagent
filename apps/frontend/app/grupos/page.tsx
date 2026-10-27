@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { GruposResposta, TipoSessao } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Expandir, Seta } from "../../components/ui/movimento";
 import { Rotulo } from "../../components/ui/rotulo";
@@ -317,9 +318,7 @@ export default function Grupos() {
     >
       <div className="grid min-w-0 gap-6">
         {!ready && !falhou ? (
-          <p role="status" className="min-w-0 max-w-prose text-sm text-ink-2">
-            Carregando grupos.
-          </p>
+          <Carregando texto="Carregando grupos." linhas={3} />
         ) : null}
         {ready && !falhou && groups.length === 0 ? (
           <Vazio>Nenhum grupo ainda.</Vazio>

@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn, focusRing } from "./cn";
+import { PontoDeEspera } from "./esqueleto";
 
 const button = cva(
   `inline-flex min-h-10 items-center justify-center gap-2 rounded-sm border px-4 transition-colors disabled:cursor-default disabled:opacity-50 ${focusRing}`,
@@ -20,17 +21,26 @@ const button = cva(
   },
 );
 
+// `carregando` trava o botão e mostra o ponto de espera; quem chama troca o texto pelo gerúndio ("Cruzando").
 export function Button({
   variant,
   className,
   type = "button",
+  carregando = false,
+  disabled,
+  children,
   ...props
-}: React.ComponentProps<"button"> & VariantProps<typeof button>) {
+}: React.ComponentProps<"button"> & VariantProps<typeof button> & { carregando?: boolean }) {
   return (
     <button
       type={type}
       className={cn(button({ variant }), className)}
+      disabled={disabled || carregando}
+      aria-busy={carregando || undefined}
       {...props}
-    />
+    >
+      {carregando ? <PontoDeEspera /> : null}
+      {children}
+    </button>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { type RelatorioResposta, type TipoLancamento } from "@finnagent/contracts";
 import { doisDigitos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Chip } from "../../components/ui/chip";
 import { List } from "../../components/ui/list";
 import { ListRow } from "../../components/ui/list-row";
@@ -104,9 +105,7 @@ export default function RelatoriosPage() {
         subtitle="Veja para onde foi o dinheiro do ano."
       />
       {!dados && carregando && !falhou ? (
-        <p role="status" className="max-w-prose text-sm text-ink-2">
-          Carregando relatório.
-        </p>
+        <Carregando texto="Carregando relatório." titulo linhas={4} />
       ) : null}
       {dados ? (
         <div className="grid min-w-0 gap-8">

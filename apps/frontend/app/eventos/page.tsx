@@ -14,6 +14,7 @@ import {
   type StatusEvento,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
@@ -123,7 +124,7 @@ export default function EventosPage() {
         }
       />
 
-      {!erro && !dados ? <p className="text-sm text-ink-2">Carregando eventos.</p> : null}
+      {!erro && !dados ? <Carregando texto="Carregando eventos." linhas={4} /> : null}
 
       {dados ? (
         <Troca id={visao} direcao={deslize}>
