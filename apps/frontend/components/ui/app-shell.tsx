@@ -6,9 +6,7 @@ import { usePathname } from "next/navigation";
 import { ContaDoMenu } from "../auth/conta-do-menu";
 import { Marca, PainelDaMarca } from "../auth/painel-da-marca";
 import { SessaoExpirada } from "../auth/sessao-expirada";
-import { Button } from "./button";
-import { Rotulo } from "./rotulo";
-import { campo, cn, focusRing } from "./cn";
+import { cn, focusRing } from "./cn";
 import { useCurva } from "./movimento";
 
 const items = [
@@ -62,7 +60,7 @@ function Item({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // Login e cadastro têm casca própria, sem menu nem assistente: painel da marca à esquerda
+  // Login e cadastro têm casca própria, sem menu: painel da marca à esquerda
   // a partir de 1100 px e o formulário à direita.
   if (pathname === "/login" || pathname === "/cadastro") {
     return (
@@ -79,24 +77,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  const semAssistente = ["/grupos", "/agenda", "/financas", "/extratos", "/metas", "/relatorios", "/eventos", "/configuracoes"];
-  const assistant =
-    pathname !== "/" &&
-    !semAssistente.some((rota) => pathname === rota || pathname.startsWith(`${rota}/`));
-
   return (
-    <div
-      className={cn(
-        "grid min-h-dvh grid-cols-1 content-start pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]",
-        assistant && "desk:grid-cols-[200px_minmax(0,1fr)_340px]",
-      )}
-    >
+    <div className="grid min-h-dvh grid-cols-1 content-start pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]">
       <nav
         aria-label="Principal"
-        className={cn(
-          "pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4",
-          assistant && "desk:row-span-1",
-        )}
+        className="pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4"
       >
         <div className="flex items-center gap-2 px-3 font-display text-lg font-bold tracking-titulo text-ink">
           <span aria-hidden className="size-3 shrink-0 bg-cta" />
@@ -141,36 +126,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
         {children}
       </main>
-      {assistant ? (
-      <aside
-        aria-label="Assistente"
-        className="flex flex-col gap-4 border-t border-line bg-surface p-6 tab:col-start-2 desk:col-start-3 desk:row-start-1 desk:border-t-0 desk:border-l"
-      >
-        <h2 className="font-display text-lg">Assistente</h2>
-        <p className="max-w-prose text-sm text-ink-2">
-          Escreva um gasto ou um compromisso. A proposta aparece aqui para você
-          confirmar.
-        </p>
-        <form
-          className="grid gap-2"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <Rotulo htmlFor="assistant-message" dica="Escreva um gasto ou um compromisso. A proposta aparece para você confirmar.">
-            Mensagem
-          </Rotulo>
-          <div className="flex gap-2">
-            <input
-              id="assistant-message"
-              placeholder="Registre um gasto ou marque um compromisso"
-              className={cn(campo, "flex-1")}
-            />
-            <Button type="submit" variant="primary">
-              Enviar
-            </Button>
-          </div>
-        </form>
-      </aside>
-      ) : null}
     </div>
   );
 }

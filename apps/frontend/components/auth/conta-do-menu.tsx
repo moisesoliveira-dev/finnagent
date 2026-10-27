@@ -49,21 +49,23 @@ export function ContaDoMenu() {
 
   const nome = perfil ? perfil.name || perfil.email : "";
   return (
-    <div className="grid gap-1 tab:mt-auto">
+    // Coluna flex, e não grid: o grid cresce até o tamanho do texto e empurra o nome para fora do menu.
+    <div className="flex min-w-0 flex-col gap-1 tab:mt-auto">
       {perfil?.semLogin ? <p className="etiqueta px-3 text-pending">Dev, sem login</p> : null}
       {perfil ? (
         <Link
           href="/perfil"
+          title={nome}
           aria-label={`Abrir o perfil de ${nome}`}
           aria-current={pathname === "/perfil" ? "page" : undefined}
           className={cn(
-            "flex min-h-10 items-center gap-3 px-3 text-sm transition-colors hover:text-ink",
+            "flex min-h-10 min-w-0 items-center gap-3 px-3 text-sm transition-colors hover:text-ink",
             pathname === "/perfil" ? "text-brand" : "text-ink-2",
             focusRing,
           )}
         >
           <Avatar nome={nome} tom={perfil.avatarTone} className="size-8 text-xs" />
-          <span className="hidden min-w-0 truncate tab:block">{nome}</span>
+          <span className="hidden min-w-0 flex-1 truncate tab:block">{nome}</span>
         </Link>
       ) : null}
       <Button variant="quiet" onClick={() => void sair()} disabled={saindo} className="justify-start">
