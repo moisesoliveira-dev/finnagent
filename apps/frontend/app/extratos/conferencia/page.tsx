@@ -14,7 +14,7 @@ import { Button } from "../../../components/ui/button";
 import { Chip } from "../../../components/ui/chip";
 import { campo, cn, focusRing } from "../../../components/ui/cn";
 import { Segmentado } from "../../../components/ui/segmentado";
-import { Money } from "../../../components/ui/money";
+import { formatarReais, Money } from "../../../components/ui/money";
 import { Troca } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
 import { Stat } from "../../../components/ui/stat";
@@ -72,10 +72,8 @@ function textoDoVinculo(vinculo: NonNullable<LinhaConferencia["link"]>) {
   return `${vinculo.description} · ${vinculo.groupName} / ${vinculo.sessionName}`;
 }
 
-const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-
 function rotuloDoCandidato(vinculo: NonNullable<LinhaConferencia["link"]>) {
-  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais.format(vinculo.cents / 100)}`;
+  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${formatarReais(vinculo.cents)}`;
 }
 
 function pedeValorDoMes(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
@@ -589,8 +587,8 @@ export default function Conferencia() {
                                     <Segmentado<"" | ValorDoMes>
                                       aria-label="Valor deste mês"
                                       opcoes={[
-                                        { id: "extrato", label: `Extrato ${reais.format(linha.cents / 100)}` },
-                                        { id: "lancamento", label: `Lançamento ${reais.format(candidato.cents / 100)}` },
+                                        { id: "extrato", label: `Extrato ${formatarReais(linha.cents)}` },
+                                        { id: "lancamento", label: `Lançamento ${formatarReais(candidato.cents)}` },
                                       ]}
                                       valor={escolha}
                                       onEscolher={(id) => {
