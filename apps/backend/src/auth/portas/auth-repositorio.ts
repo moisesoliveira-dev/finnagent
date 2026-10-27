@@ -1,12 +1,15 @@
+import type { PapelDoUsuario } from "@finnagent/contracts";
+
 export const AUTH_REPOSITORIO = Symbol("AUTH_REPOSITORIO");
 
-export type Usuario = { id: string; tenantId: string; email: string; name: string };
+export type Usuario = { id: string; tenantId: string; email: string; name: string; role: PapelDoUsuario };
 
 export type UsuarioComSenha = Usuario & {
   passwordHash: string;
   lockedUntil: Date | null;
 };
 
+/** Quem se cadastra pela tela vira master de uma conta nova. */
 export type NovoUsuario = {
   id: string;
   email: string;
@@ -14,6 +17,14 @@ export type NovoUsuario = {
   passwordHash: string;
   /** Tenant que o usuário assume, se ainda estiver livre. Sem ele, nasce um tenant novo. */
   tenantPreferido: string | null;
+};
+
+/** Usuário que o master acrescenta à própria conta. */
+export type NovoMembro = {
+  id: string;
+  email: string;
+  name: string;
+  passwordHash: string;
 };
 
 export type NovaSessao = {
@@ -24,14 +35,20 @@ export type NovaSessao = {
   userAgent: string;
 };
 
-export type SessaoGravada = { tenantId: string; userId: string; expiresAt: Date };
+export type SessaoGravada = { tenantId: string; userId: string; role: PapelDoUsuario; expiresAt: Date };
 
 /** Por que a sessão acabou: a pessoa saiu ou o prazo venceu. */
 export type MotivoDoFim = "sair" | "expirada";
 
 /** Cada método que muda estado grava o evento no outbox, na mesma transação. */
 export interface AuthRepositorio {
+  /** Cria o master de uma conta nova. */
   criarUsuario(novo: NovoUsuario): Promise<Usuario | "email-em-uso">;
+  /** Cria um membro na conta existente. */
+  criarMembro(tenantId: string, novo: NovoMembro): Promise<Usuario | "email-em-uso">;
+  listarDoTenant(tenantId: string): Promise<Usuario[]>;
+  /** Nunca remove o master. */
+  removerMembro(tenantId: string, id: string): Promise<"removido" | "ausente" | "master">;
   buscarPorEmail(email: string): Promise<UsuarioComSenha | null>;
   buscarUsuario(id: string): Promise<Usuario | null>;
   /** Soma uma falha. Ao chegar no limite, trava a conta e zera o contador. */

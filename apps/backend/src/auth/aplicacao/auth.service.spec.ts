@@ -3,18 +3,25 @@ import type {
   AuthRepositorio,
   MotivoDoFim,
   NovaSessao,
+  NovoMembro,
   NovoUsuario,
   SessaoGravada,
   Usuario,
   UsuarioComSenha,
 } from "../portas/auth-repositorio.js";
-import { CredenciaisInvalidas, EmailEmUso, NaoAutenticado, TentativasEsgotadas } from "../dominio/erros.js";
-import { PedidoInvalido } from "../../grupos/dominio/erros.js";
+import {
+  CredenciaisInvalidas,
+  EmailEmUso,
+  MasterIntocavel,
+  NaoAutenticado,
+  TentativasEsgotadas,
+} from "../dominio/erros.js";
+import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import { AuthService, DURACAO_DA_SESSAO_MS, TENANT_LEGADO, USUARIO_SEM_LOGIN, hashDoToken } from "./auth.service.js";
 
 class Memoria implements AuthRepositorio {
   usuarios = new Map<string, UsuarioComSenha & { falhas: number }>();
-  sessoes = new Map<string, SessaoGravada & { userId: string }>();
+  sessoes = new Map<string, NovaSessao>();
   novos: NovoUsuario[] = [];
   fins: string[] = [];
 
@@ -22,9 +29,26 @@ class Memoria implements AuthRepositorio {
     if ([...this.usuarios.values()].some((item) => item.email === novo.email)) return "email-em-uso" as const;
     this.novos.push(novo);
     const tenantId = novo.tenantPreferido ?? `tenant-${novo.id}`;
-    const usuario: Usuario = { id: novo.id, tenantId, email: novo.email, name: novo.name };
+    const usuario: Usuario = { id: novo.id, tenantId, email: novo.email, name: novo.name, role: "master" };
     this.usuarios.set(novo.id, { ...usuario, passwordHash: novo.passwordHash, lockedUntil: null, falhas: 0 });
     return usuario;
+  }
+  async criarMembro(tenantId: string, novo: NovoMembro) {
+    if ([...this.usuarios.values()].some((item) => item.email === novo.email)) return "email-em-uso" as const;
+    const usuario: Usuario = { id: novo.id, tenantId, email: novo.email, name: novo.name, role: "membro" };
+    this.usuarios.set(novo.id, { ...usuario, passwordHash: novo.passwordHash, lockedUntil: null, falhas: 0 });
+    return usuario;
+  }
+  async listarDoTenant(tenantId: string) {
+    return [...this.usuarios.values()].filter((item) => item.tenantId === tenantId);
+  }
+  async removerMembro(tenantId: string, id: string) {
+    const alvo = this.usuarios.get(id);
+    if (!alvo || alvo.tenantId !== tenantId) return "ausente" as const;
+    if (alvo.role === "master") return "master" as const;
+    this.usuarios.delete(id);
+    for (const [chave, sessao] of this.sessoes) if (sessao.userId === id) this.sessoes.delete(chave);
+    return "removido" as const;
   }
   async buscarPorEmail(email: string) {
     return [...this.usuarios.values()].find((item) => item.email === email) ?? null;
@@ -51,8 +75,11 @@ class Memoria implements AuthRepositorio {
   async criarSessao(sessao: NovaSessao) {
     this.sessoes.set(sessao.id, sessao);
   }
-  async buscarSessao(id: string) {
-    return this.sessoes.get(id) ?? null;
+  async buscarSessao(id: string): Promise<SessaoGravada | null> {
+    const sessao = this.sessoes.get(id);
+    if (!sessao) return null;
+    const dono = this.usuarios.get(sessao.userId);
+    return { tenantId: sessao.tenantId, userId: sessao.userId, role: dono?.role ?? "membro", expiresAt: sessao.expiresAt };
   }
   async removerSessao(id: string, motivo: MotivoDoFim) {
     this.sessoes.delete(id);
@@ -97,6 +124,61 @@ describe("autenticação", () => {
     expect(repositorio.novos[0].passwordHash).not.toContain(cadastro.password);
     const resolvida = await servico.resolver(aberta.token);
     expect(resolvida?.userId).toBe(aberta.user.id);
+  });
+
+  it("quem se cadastra vira o master de uma conta nova, cada um na sua", async () => {
+    const ana = await servico.cadastrar(cadastro, origem);
+    const bia = await servico.cadastrar({ ...cadastro, name: "Bia", email: "bia@exemplo.com" }, origem);
+    expect(ana.user.role).toBe("master");
+    expect(bia.user.role).toBe("master");
+    const [a, b] = [...repositorio.usuarios.values()];
+    expect(a.tenantId).not.toBe(b.tenantId);
+  });
+
+  it("o master cria membros na própria conta, e o membro entra vendo a mesma conta", async () => {
+    const ana = await servico.cadastrar(cadastro, origem);
+    const tenant = [...repositorio.usuarios.values()][0].tenantId;
+    const membro = await servico.criarMembro(tenant, {
+      name: "Caio",
+      email: "caio@exemplo.com",
+      password: "outra-senha-forte-1",
+    });
+    expect(membro.role).toBe("membro");
+    const entrada = await servico.entrar({ email: "caio@exemplo.com", password: "outra-senha-forte-1" }, origem);
+    expect(entrada.user.role).toBe("membro");
+    expect(await servico.resolver(entrada.token)).toMatchObject({ tenantId: tenant, role: "membro" });
+    expect((await servico.listarUsuarios(tenant)).map((item) => item.role).sort()).toEqual(["master", "membro"]);
+    expect(ana.user.role).toBe("master");
+  });
+
+  it("não cria membro com e-mail já usado nem com senha fraca", async () => {
+    await servico.cadastrar(cadastro, origem);
+    const tenant = [...repositorio.usuarios.values()][0].tenantId;
+    await expect(
+      servico.criarMembro(tenant, { name: "Outra Ana", email: cadastro.email, password: "outra-senha-forte-1" }),
+    ).rejects.toBeInstanceOf(EmailEmUso);
+    await expect(
+      servico.criarMembro(tenant, { name: "Caio", email: "caio@exemplo.com", password: "123" }),
+    ).rejects.toBeInstanceOf(PedidoInvalido);
+  });
+
+  it("remove membro, que perde a sessão, mas nunca o master", async () => {
+    const ana = await servico.cadastrar(cadastro, origem);
+    const tenant = [...repositorio.usuarios.values()][0].tenantId;
+    const membro = await servico.criarMembro(tenant, { name: "Caio", email: "caio@exemplo.com", password: "outra-senha-forte-1" });
+    const sessaoDele = await servico.entrar({ email: "caio@exemplo.com", password: "outra-senha-forte-1" }, origem);
+    await servico.removerUsuario(tenant, membro.id);
+    expect(await servico.resolver(sessaoDele.token)).toBeNull();
+    await expect(servico.removerUsuario(tenant, membro.id)).rejects.toBeInstanceOf(NaoEncontrado);
+    await expect(servico.removerUsuario(tenant, ana.user.id)).rejects.toBeInstanceOf(MasterIntocavel);
+  });
+
+  it("não mexe em usuário de outra conta", async () => {
+    await servico.cadastrar(cadastro, origem);
+    const bia = await servico.cadastrar({ ...cadastro, name: "Bia", email: "bia@exemplo.com" }, origem);
+    const tenantDeAna = [...repositorio.usuarios.values()][0].tenantId;
+    await expect(servico.removerUsuario(tenantDeAna, bia.user.id)).rejects.toBeInstanceOf(NaoEncontrado);
+    expect(await servico.listarUsuarios(tenantDeAna)).toHaveLength(1);
   });
 
   it("recusa e-mail repetido e pedido inválido", async () => {

@@ -1,11 +1,17 @@
-import { UnauthorizedException, type ExecutionContext } from "@nestjs/common";
+import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TENANT_LEGADO, USUARIO_SEM_LOGIN, type AuthService } from "./aplicacao/auth.service.js";
+import { SoMaster } from "./papel.js";
 import { Publico } from "./publico.js";
 import { SessaoGuard, type PedidoAutenticado } from "./sessao.guard.js";
 
 class Fechada {
+  rota() {}
+}
+
+class ApenasMaster {
+  @SoMaster()
   rota() {}
 }
 
@@ -24,7 +30,9 @@ function contexto(alvo: new () => { rota(): void }, headers: Record<string, stri
   return { pedido, execucao };
 }
 
-function guarda(tokens: Record<string, { userId: string; tenantId: string }>) {
+type Identidade = { userId: string; tenantId: string; role: "master" | "membro" };
+
+function guarda(tokens: Record<string, Identidade>) {
   const auth = { resolver: async (token: string) => tokens[token] ?? null } as unknown as AuthService;
   return new SessaoGuard(new Reflector(), auth);
 }
@@ -48,7 +56,7 @@ describe("guarda de sessão", () => {
   });
 
   it("barra rota fechada sem token, com token inventado e com esquema errado", async () => {
-    const dono = guarda({ valido: { userId: "u1", tenantId: "t1" } });
+    const dono = guarda({ valido: { userId: "u1", tenantId: "t1", role: "master" } });
     const tentativas: Record<string, string>[] = [
       {},
       { authorization: "Bearer inventado" },
@@ -62,9 +70,29 @@ describe("guarda de sessão", () => {
 
   it("troca o x-tenant-id que o cliente mandou pelo tenant da sessão", async () => {
     const { pedido, execucao } = contexto(Fechada, { authorization: "Bearer valido", "x-tenant-id": "tenant-de-outro" });
-    expect(await guarda({ valido: { userId: "u1", tenantId: "t1" } }).canActivate(execucao)).toBe(true);
+    expect(await guarda({ valido: { userId: "u1", tenantId: "t1", role: "master" } }).canActivate(execucao)).toBe(true);
     expect(pedido.headers["x-tenant-id"]).toBe("t1");
     expect(pedido.usuarioId).toBe("u1");
+    expect(pedido.papel).toBe("master");
+  });
+
+  it("deixa o master e barra o membro nas rotas só do master", async () => {
+    const tokens: Record<string, Identidade> = {
+      dono: { userId: "u1", tenantId: "t1", role: "master" },
+      colega: { userId: "u2", tenantId: "t1", role: "membro" },
+    };
+    expect(await guarda(tokens).canActivate(contexto(ApenasMaster, { authorization: "Bearer dono" }).execucao)).toBe(true);
+    await expect(
+      guarda(tokens).canActivate(contexto(ApenasMaster, { authorization: "Bearer colega" }).execucao),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("o membro continua passando nas rotas comuns, no tenant da conta", async () => {
+    const { pedido, execucao } = contexto(Fechada, { authorization: "Bearer colega" });
+    const tokens: Record<string, Identidade> = { colega: { userId: "u2", tenantId: "t1", role: "membro" } };
+    expect(await guarda(tokens).canActivate(execucao)).toBe(true);
+    expect(pedido.headers["x-tenant-id"]).toBe("t1");
+    expect(pedido.papel).toBe("membro");
   });
 });
 
@@ -87,9 +115,16 @@ describe("guarda de sessão em desenvolvimento", () => {
   it("deixa a sessão válida ganhar: dá para testar o login de verdade", async () => {
     vi.stubEnv("APP_ENV", "development");
     const { pedido, execucao } = contexto(Fechada, { authorization: "Bearer valido" });
-    expect(await guarda({ valido: { userId: "u1", tenantId: "t1" } }).canActivate(execucao)).toBe(true);
+    expect(await guarda({ valido: { userId: "u1", tenantId: "t1", role: "master" } }).canActivate(execucao)).toBe(true);
     expect(pedido.headers["x-tenant-id"]).toBe("t1");
     expect(pedido.usuarioId).toBe("u1");
+  });
+
+  it("entra como master em desenvolvimento, inclusive nas rotas só do master", async () => {
+    vi.stubEnv("APP_ENV", "development");
+    const { pedido, execucao } = contexto(ApenasMaster, {});
+    expect(await guarda({}).canActivate(execucao)).toBe(true);
+    expect(pedido.papel).toBe("master");
   });
 
   it("não dispensa nada com a variável vazia, em production ou com outro valor", async () => {
