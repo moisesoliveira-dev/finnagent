@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { type Aviso, type EscopoPainel, type ItemPainel, type PainelResposta } from "@finnagent/contracts";
 import { doisDigitos } from "./financas/reais";
 import { Button } from "../components/ui/button";
+import { Carregando } from "../components/ui/esqueleto";
 import { Segmentado } from "../components/ui/segmentado";
 import { Chip } from "../components/ui/chip";
-import { campo } from "../components/ui/cn";
+import Link from "next/link";
+import { campo, cn, focusRing } from "../components/ui/cn";
 import { Vazio } from "../components/ui/vazio";
 import { List } from "../components/ui/list";
 import { ListRow } from "../components/ui/list-row";
@@ -211,9 +213,7 @@ export default function Dashboard() {
 
       <Troca id={`${scope}-${year}-${month}-${day}`} direcao={deslize} className="min-w-0">
       {aguardando ? (
-        <p role="status" className="max-w-prose text-sm text-ink-2">
-          Carregando o dashboard.
-        </p>
+        <Carregando texto="Carregando o dashboard." titulo linhas={4} />
       ) : null}
 
       {painel ? (
@@ -229,6 +229,25 @@ export default function Dashboard() {
               <Money cents={painel.sobra} strong />
             </Stat>
           </dl>
+          {painel.semConferir > 0 ? (
+            <p
+              role="status"
+              className="flex flex-wrap items-center justify-between gap-3 border border-pending-line bg-pending-soft px-4 py-3 text-sm text-pending"
+            >
+              <span>
+                {painel.semConferir === 1
+                  ? "1 linha do extrato ainda não entrou nestes totais."
+                  : `${painel.semConferir} linhas do extrato ainda não entraram nestes totais.`}{" "}
+                Cada uma precisa de um lançamento ou de uma sessão.
+              </span>
+              <Link
+                href="/extratos/conferencia"
+                className={cn("font-medium underline underline-offset-4", focusRing)}
+              >
+                Conferir agora
+              </Link>
+            </p>
+          ) : null}
           <p className="text-sm text-ink-2">{contagem(painel)}</p>
           {painel.avisos.length > 0 ? (
             <section className="grid min-w-0 gap-3" aria-label="Avisos">

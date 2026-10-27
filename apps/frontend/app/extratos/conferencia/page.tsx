@@ -11,13 +11,14 @@ import {
   type ValorDoMes,
 } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
+import { Carregando } from "../../../components/ui/esqueleto";
 import { Chip } from "../../../components/ui/chip";
 import { campo, cn, focusRing } from "../../../components/ui/cn";
 import { Segmentado } from "../../../components/ui/segmentado";
 import { formatarReais, Money } from "../../../components/ui/money";
-import { Troca } from "../../../components/ui/movimento";
+import { AnimatePresence, motion } from "motion/react";
+import { Cascata, curvaSaida, ItemAnimado, ListaAnimada, Passo, Troca, useCurva } from "../../../components/ui/movimento";
 import { PageHeader } from "../../../components/ui/page-header";
-import { Stat } from "../../../components/ui/stat";
 import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
 
@@ -86,6 +87,7 @@ function chaveDa(linha: LinhaConferencia) {
 
 export default function Conferencia() {
   const toast = useToast();
+  const curva = useCurva();
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
@@ -93,6 +95,7 @@ export default function Conferencia() {
   const [dados, setDados] = useState<ConferenciaResposta | null>(null);
   const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
+  const [buscando, setBuscando] = useState(false);
   const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string }>>([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
@@ -107,8 +110,9 @@ export default function Conferencia() {
   const manual = useRef(false);
   const aplicado = useRef("");
 
+  // Recarrega sem apagar a lista: ela fica esmaecida até a resposta chegar, e a rolagem e os filtros se mantêm.
   function carregar(alvoAno: number, alvoMes: number) {
-    setDados(null);
+    setBuscando(true);
     setFalha("");
     return api<ConferenciaResposta>(`/api/extratos/conferencia?year=${alvoAno}&month=${alvoMes}`)
       .then((resposta) => {
@@ -118,14 +122,15 @@ export default function Conferencia() {
       .catch((error: Error) => {
         setFalha(`${alvoAno}-${alvoMes}`);
         toast.erro(error.message);
-      });
+      })
+      .finally(() => setBuscando(false));
   }
 
   useEffect(() => {
     if (aplicado.current === pedido) return;
     let ativo = true;
     const abrir = manual.current ? "" : "&abrir=pendente";
-    setDados(null);
+    setBuscando(true);
     setFalha("");
     api<ConferenciaResposta>(`/api/extratos/conferencia?year=${year}&month=${month}${abrir}`)
       .then((resposta) => {
@@ -142,8 +147,12 @@ export default function Conferencia() {
       })
       .catch((error: Error) => {
         if (!ativo) return;
+        setDados(null);
         setFalha(pedido);
         toast.erro(error.message);
+      })
+      .finally(() => {
+        if (ativo) setBuscando(false);
       });
     return () => {
       ativo = false;
@@ -158,7 +167,7 @@ export default function Conferencia() {
         const nomes = new Map(resposta.groups.map((grupo) => [grupo.id, grupo.name]));
         setSessoes(
           resposta.sessions
-            .filter((sessao) => !sessao.endedAt)
+            .filter((sessao) => !sessao.endedAt && (sessao.kind !== "valor" || sessao.available))
             .map((sessao) => ({
               id: sessao.id,
               rotulo: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}`,
@@ -221,6 +230,22 @@ export default function Conferencia() {
       await carregar(year, month);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
+  async function desfazer(linha: LinhaConferencia) {
+    setOcupado(chaveDa(linha));
+    try {
+      await api("/api/extratos/cruzamentos/desfazer", {
+        method: "POST",
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line }),
+      });
+      toast.sucesso("Cruzamento desfeito. A ocorrência voltou a pendente.");
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível desfazer o cruzamento.");
     } finally {
       setOcupado("");
     }
@@ -373,94 +398,144 @@ export default function Conferencia() {
         }
       />
       <Troca id={`${year}-${month}`} direcao={deslize} className="min-w-0">
-      {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando conferência.</p> : null}
+      {!dados && !falhou ? <Carregando texto="Carregando conferência." titulo linhas={5} /> : null}
       {dados ? (
-        <div className="grid min-w-0 gap-4">
+        <motion.div
+          className="grid min-w-0 gap-6"
+          aria-busy={buscando}
+          inert={buscando}
+          animate={{ opacity: buscando ? 0.5 : 1 }}
+          transition={curva}
+        >
           {linhas.length ? (
-            <dl className="flex flex-wrap gap-x-8 gap-y-4 border-y border-line py-4" aria-label="Resumo do extrato">
-              <Stat label="Entradas">
-                <Money cents={entradas} acumulado />
-              </Stat>
-              <Stat label="Saídas">
-                <Money cents={saidas} acumulado />
-              </Stat>
-              <Stat label="Sobra">
-                <Money cents={entradas + saidas} acumulado />
-              </Stat>
-              <Stat label="Sem lançamento">{dados.pending}</Stat>
-              <Stat label="Com sessão">{alteradas}</Stat>
-              <Stat label="Cruzadas">{cruzadas}</Stat>
-            </dl>
+            <p
+              role="status"
+              className={cn(
+                "border px-4 py-3 text-sm",
+                dados.checked
+                  ? "border-brand bg-brand-soft text-brand"
+                  : "border-pending-line bg-pending-soft text-pending",
+              )}
+            >
+              {dados.checked
+                ? "Mês conferido. Toda linha do extrato tem lançamento."
+                : `${dados.pending} ${dados.pending === 1 ? "linha ainda não tem" : "linhas ainda não têm"} lançamento. Cruze com um lançamento ou escolha uma sessão para lançar: o mês só fica conferido quando não sobrar nenhuma.`}
+            </p>
           ) : null}
-          <input
-            className={cn(field, "w-full")}
-            type="search"
-            placeholder="Buscar por nome, conta ou arquivo"
-            aria-label="Buscar"
-            value={busca}
-            onChange={(event) => {
-              setBusca(event.target.value);
-            }}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmentado
-              opcoes={situacoes}
-              valor={situacao}
-              aria-label="Situação"
-              onEscolher={(valor) => {
-                setSituacao(valor);
+          {linhas.length ? (
+            <Cascata className="grid min-w-0 gap-px border border-line bg-line desk:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <Passo className="grid content-between gap-6 bg-surface p-6">
+                <div className="grid gap-2">
+                  <span className="etiqueta text-ink-2">Sobra do mês</span>
+                  <span className="font-display text-2xl font-bold tracking-titulo">
+                    <Money cents={entradas + saidas} />
+                  </span>
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="etiqueta text-ink-2">Conferido</span>
+                    <span className="etiqueta">
+                      {cruzadas} de {linhas.length}
+                    </span>
+                  </div>
+                  <div className="h-1 w-full overflow-hidden bg-line">
+                    <motion.div
+                      className="h-full origin-left bg-brand"
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: cruzadas / linhas.length }}
+                      transition={{ ...curva, duration: 0.8 }}
+                    />
+                  </div>
+                </div>
+              </Passo>
+              <dl className="grid grid-cols-2 gap-px bg-line tab:grid-cols-3" aria-label="Resumo do extrato">
+                <Celula label="Entradas">
+                  <Money cents={entradas} />
+                </Celula>
+                <Celula label="Saídas">
+                  <Money cents={saidas} />
+                </Celula>
+                <Celula label="Sem lançamento">{dados.pending}</Celula>
+                <Celula label="Com sessão">{alteradas}</Celula>
+                <Celula label="Cruzadas">{cruzadas}</Celula>
+                <Celula label="Linhas">{linhas.length}</Celula>
+              </dl>
+            </Cascata>
+          ) : null}
+          <div className="grid min-w-0 gap-3 border border-line bg-surface p-4">
+            <input
+              className={cn(field, "w-full")}
+              type="search"
+              placeholder="Buscar por nome, conta ou arquivo"
+              aria-label="Buscar"
+              value={busca}
+              onChange={(event) => {
+                setBusca(event.target.value);
               }}
             />
-            <select
-              className={cn(field, "w-auto")}
-              aria-label="Movimento"
-              value={movimento}
-              onChange={(event) => {
-                setMovimento(event.target.value as Movimento);
-              }}
-            >
-              <option value="todos">Entradas e saídas</option>
-              <option value="entradas">Entradas</option>
-              <option value="saidas">Saídas</option>
-            </select>
-            {contas.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmentado
+                opcoes={situacoes}
+                valor={situacao}
+                aria-label="Situação"
+                onEscolher={(valor) => {
+                  setSituacao(valor);
+                }}
+              />
               <select
                 className={cn(field, "w-auto")}
-                aria-label="Conta"
-                value={conta}
+                aria-label="Movimento"
+                value={movimento}
                 onChange={(event) => {
-                  setConta(event.target.value);
+                  setMovimento(event.target.value as Movimento);
                 }}
               >
-                <option value="">Todas as contas</option>
-                {contas.map((nome) => (
-                  <option key={nome} value={nome}>
-                    {nome}
-                  </option>
-                ))}
+                <option value="todos">Entradas e saídas</option>
+                <option value="entradas">Entradas</option>
+                <option value="saidas">Saídas</option>
               </select>
-            ) : null}
-            {arquivos.length > 1 ? (
-              <select
-                className={cn(field, "w-auto max-w-full")}
-                aria-label="Arquivo"
-                value={arquivo}
-                onChange={(event) => {
-                  setArquivo(event.target.value);
-                }}
-              >
-                <option value="">Todos os arquivos</option>
-                {arquivos.map((nome) => (
-                  <option key={nome} value={nome}>
-                    {nome}
-                  </option>
-                ))}
-              </select>
-            ) : null}
+              {contas.length > 1 ? (
+                <select
+                  className={cn(field, "w-auto")}
+                  aria-label="Conta"
+                  value={conta}
+                  onChange={(event) => {
+                    setConta(event.target.value);
+                  }}
+                >
+                  <option value="">Todas as contas</option>
+                  {contas.map((nome) => (
+                    <option key={nome} value={nome}>
+                      {nome}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {arquivos.length > 1 ? (
+                <select
+                  className={cn(field, "w-auto max-w-full")}
+                  aria-label="Arquivo"
+                  value={arquivo}
+                  onChange={(event) => {
+                    setArquivo(event.target.value);
+                  }}
+                >
+                  <option value="">Todos os arquivos</option>
+                  {arquivos.map((nome) => (
+                    <option key={nome} value={nome}>
+                      {nome}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
           </div>
           {abertasFiltradas.length ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex min-h-10 items-center gap-2 text-sm">
+            <motion.div
+              layout
+              className="sticky top-2 z-10 flex flex-wrap items-center gap-2 border border-line bg-surface p-3 tab:top-4"
+            >
+              <label className="etiqueta flex min-h-10 items-center gap-2">
                 <input
                   type="checkbox"
                   className={caixa}
@@ -479,161 +554,225 @@ export default function Conferencia() {
                 />
                 Selecionar sem lançamento
               </label>
-              <Button
-                variant="primary"
-                disabled={ocupado !== "" || selecionadas === 0}
-                onClick={() => void lancarSelecionadas()}
-              >
-                {selecionadas > 0 ? `Lançar ${selecionadas}` : "Lançar selecionadas"}
-              </Button>
-              <Button disabled={ocupado !== "" || alteradas === 0} onClick={() => void lancarAlteradas()}>
-                {alteradas > 0 ? `Lançar ${alteradas} alteradas` : "Lançar alteradas"}
-              </Button>
-            </div>
+              <span className="flex flex-wrap items-center gap-2 tab:ml-auto">
+                <Button
+                  variant="primary"
+                  carregando={ocupado === "lote"}
+                  disabled={ocupado !== "" || selecionadas === 0}
+                  onClick={() => void lancarSelecionadas()}
+                >
+                  {ocupado === "lote" ? "Lançando" : selecionadas > 0 ? `Lançar ${selecionadas}` : "Lançar selecionadas"}
+                </Button>
+                <Button
+                  carregando={ocupado === "lote"}
+                  disabled={ocupado !== "" || alteradas === 0}
+                  onClick={() => void lancarAlteradas()}
+                >
+                  {ocupado === "lote" ? "Lançando" : alteradas > 0 ? `Lançar ${alteradas} alteradas` : "Lançar alteradas"}
+                </Button>
+              </span>
+            </motion.div>
           ) : null}
-          <div className="min-w-0 overflow-visible rounded-lg border border-line bg-surface">
-            {dias.length ? (
-              dias.map((grupo) => {
+          {dias.length ? (
+            <div className="grid min-w-0 gap-8">
+              {dias.map((grupo) => {
+                const [, mesDoDia, numeroDoDia] = grupo.data.split("-");
                 const entradasDia = grupo.itens.reduce((soma, linha) => soma + (linha.cents > 0 ? linha.cents : 0), 0);
                 const saidasDia = grupo.itens.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);
                 return (
-                  <section key={grupo.data} aria-label={dia(grupo.data)}>
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2 px-3 py-2">
-                      <span className="font-display text-sm font-bold">{dia(grupo.data)}</span>
-                      <span className="flex gap-4 text-sm">
-                        <span>{grupo.itens.length === 1 ? "1 linha" : `${grupo.itens.length} linhas`}</span>
-                        <Money cents={entradasDia} />
-                        <Money cents={saidasDia} />
+                  <section
+                    key={grupo.data}
+                    aria-label={dia(grupo.data)}
+                    className="flex min-w-0 flex-col gap-3 tab:flex-row tab:gap-6"
+                  >
+                    <header className="flex items-baseline gap-3 tab:sticky tab:top-12 tab:w-12 tab:shrink-0 tab:flex-col tab:gap-1 tab:self-start">
+                      <span className="font-display text-xl font-bold tracking-titulo">{numeroDoDia}</span>
+                      <span className="etiqueta text-ink-2">{meses[Number(mesDoDia) - 1]?.slice(0, 3)}</span>
+                      <span className="etiqueta ml-auto flex gap-2 text-ink-2 tab:hidden">
+                        {grupo.itens.length === 1 ? "1 linha" : `${grupo.itens.length} linhas`}
+                        <Money cents={entradasDia + saidasDia} />
                       </span>
-                    </div>
-                    <ul>
-                      {grupo.itens.map((linha) => (
-                        <li
-                          key={`${linha.statementId}-${linha.line}`}
-                          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2 last:border-b-0"
-                        >
-                          {linha.link ? (
-                            <span className="size-4" />
-                          ) : (
-                            <input
-                              type="checkbox"
-                              className={caixa}
-                              aria-label={`Selecionar ${linha.description || "a linha"}`}
-                              checked={marcadas[chaveDa(linha)] === true}
-                              onChange={(event) =>
-                                setMarcadas((atual) => ({ ...atual, [chaveDa(linha)]: event.target.checked }))
-                              }
-                            />
-                          )}
-                          <span className="flex min-w-0 flex-wrap items-center gap-2">
-                            <span className="min-w-0 font-medium">{linha.description || "—"}</span>
-                            {linha.link ? <Chip tone="ok">Cruzado</Chip> : null}
-                            {!linha.link && linha.suggestion ? (
-                              <Chip tone="ai">{linha.suggestionSource === "nome" ? "Nome" : "Valor"}</Chip>
-                            ) : null}
-                            {contas.length > 1 ? <span className="text-sm text-ink-2">{linha.accountName}</span> : null}
-                            {arquivos.length > 1 ? <span className="text-sm text-ink-2">{linha.filename}</span> : null}
-                          </span>
-                          {linha.link ? (
-                            <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">{textoDoVinculo(linha.link)}</span>
-                          ) : sessoes.length ? (
-                            <BuscaSessao
-                              className="col-start-2 row-start-2 min-w-0"
-                              sessoes={sessoes}
-                              valor={sessaoDa(linha)}
-                              rotulo={`Sessão para ${linha.description || "a linha"}`}
-                              onEscolher={(id) => setEscolha((atual) => ({ ...atual, [chaveDa(linha)]: id }))}
-                            />
-                          ) : (
-                            <span className="col-start-2 row-start-2 text-sm text-ink-2">Crie uma sessão em Grupos.</span>
-                          )}
-                          <Money cents={linha.cents} strong />
-                          {linha.link ? null : (
-                            <Button
-                              className="col-start-3 row-start-2"
-                              variant="quiet"
-                              disabled={ocupado !== "" || !sessaoDa(linha)}
-                              onClick={() => void acumular(linha)}
+                    </header>
+                    <ListaAnimada className="grid min-w-0 flex-1 gap-2">
+                      <AnimatePresence initial={false}>
+                        {grupo.itens.map((linha) => {
+                          const chave = chaveDa(linha);
+                          const marcada = marcadas[chave] === true && !linha.link;
+                          const lateral = linha.link
+                            ? "border-l-pos"
+                            : linha.suggestion
+                              ? "border-l-pending-line"
+                              : "border-l-line";
+                          return (
+                            <ItemAnimado
+                              key={`${linha.statementId}-${linha.line}`}
+                              layout="position"
+                              exit={{ opacity: 0, transition: curvaSaida }}
+                              whileHover={{ x: 2 }}
+                              className={cn(
+                                "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border border-l-4 border-line px-4 py-3",
+                                lateral,
+                                marcada ? "bg-brand-soft" : "bg-surface",
+                              )}
                             >
-                              Acumular
-                            </Button>
-                          )}
-                          {!linha.link && linha.candidates.length ? (
-                            <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
-                              <select
-                                className={cn(field, "w-full min-w-0 flex-1 desk:w-auto")}
-                                aria-label={`Lançamento para ${linha.description || "a linha"}`}
-                                value={lancamentoDa(linha)}
-                                onChange={(event) => {
-                                  const chave = chaveDa(linha);
-                                  setPar((atual) => ({ ...atual, [chave]: event.target.value }));
-                                  setValorMes((atual) => ({ ...atual, [chave]: "" }));
-                                }}
-                              >
-                                <option value="">Escolha o lançamento</option>
-                                {linha.candidates.map((candidato) => (
-                                  <option key={candidato.entryId} value={candidato.entryId}>
-                                    {rotuloDoCandidato(candidato)}
-                                  </option>
-                                ))}
-                              </select>
-                              {(() => {
-                                const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
-                                if (!candidato || !pedeValorDoMes(candidato, linha.cents)) return null;
-                                const escolha = valorMes[chaveDa(linha)] || "";
-                                return (
-                                  <span className="flex w-full flex-wrap items-center gap-2">
-                                    <span className="text-sm text-ink-2">Os valores divergem. Qual vale neste mês?</span>
-                                    <Segmentado<"" | ValorDoMes>
-                                      aria-label="Valor deste mês"
-                                      opcoes={[
-                                        { id: "extrato", label: `Extrato ${formatarReais(linha.cents)}` },
-                                        { id: "lancamento", label: `Lançamento ${formatarReais(candidato.cents)}` },
-                                      ]}
-                                      valor={escolha}
-                                      onEscolher={(id) => {
-                                        if (!id) return;
-                                        setValorMes((atual) => ({ ...atual, [chaveDa(linha)]: id }));
-                                      }}
-                                    />
-                                  </span>
-                                );
-                              })()}
-                              <Button
-                                variant="default"
-                                disabled={
-                                  ocupado !== "" ||
-                                  !lancamentoDa(linha) ||
-                                  linha.candidates.some(
-                                    (item) =>
-                                      item.entryId === lancamentoDa(linha) &&
-                                      pedeValorDoMes(item, linha.cents) &&
-                                      !valorMes[chaveDa(linha)],
-                                  )
-                                }
-                                onClick={() => void confirmar(linha, lancamentoDa(linha))}
-                              >
-                                Confirmar
-                              </Button>
-                            </div>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
+                              {linha.link ? (
+                                <span className="size-4" />
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  className={caixa}
+                                  aria-label={`Selecionar ${linha.description || "a linha"}`}
+                                  checked={marcada}
+                                  onChange={(event) =>
+                                    setMarcadas((atual) => ({ ...atual, [chave]: event.target.checked }))
+                                  }
+                                />
+                              )}
+                              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span className="min-w-0 font-display font-bold tracking-titulo">
+                                  {linha.description || "—"}
+                                </span>
+                                {linha.link ? <Chip tone="ok">Cruzado</Chip> : null}
+                                {!linha.link && linha.suggestion ? (
+                                  <Chip tone="ai">{linha.suggestionSource === "nome" ? "Nome" : "Valor"}</Chip>
+                                ) : null}
+                                {!linha.link && linha.sessionSource === "compromisso" ? (
+                                  <Chip tone="ai">Compromisso: {linha.appointmentTitle}</Chip>
+                                ) : null}
+                                {contas.length > 1 ? <span className="etiqueta text-ink-2">{linha.accountName}</span> : null}
+                                {arquivos.length > 1 ? <span className="etiqueta text-ink-2">{linha.filename}</span> : null}
+                              </span>
+                              <span className="font-display text-lg font-bold tracking-titulo">
+                                <Money cents={linha.cents} />
+                              </span>
+                              {linha.link ? (
+                                <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
+                                  {textoDoVinculo(linha.link)}
+                                </span>
+                              ) : sessoes.length ? (
+                                <BuscaSessao
+                                  className="col-start-2 row-start-2 min-w-0"
+                                  sessoes={sessoes}
+                                  valor={sessaoDa(linha)}
+                                  rotulo={`Sessão para ${linha.description || "a linha"}`}
+                                  onEscolher={(id) => setEscolha((atual) => ({ ...atual, [chave]: id }))}
+                                />
+                              ) : (
+                                <span className="col-start-2 row-start-2 text-sm text-ink-2">Crie uma sessão em Grupos.</span>
+                              )}
+                              {linha.link ? (
+                                <Button
+                                  className="col-start-3 row-start-2"
+                                  variant="quiet"
+                                  carregando={ocupado === chave}
+                                  disabled={ocupado !== ""}
+                                  onClick={() => void desfazer(linha)}
+                                >
+                                  {ocupado === chave ? "Desfazendo" : "Desfazer"}
+                                </Button>
+                              ) : (
+                                <Button
+                                  className="col-start-3 row-start-2"
+                                  variant="quiet"
+                                  carregando={ocupado === chave}
+                                  disabled={ocupado !== "" || !sessaoDa(linha)}
+                                  onClick={() => void acumular(linha)}
+                                >
+                                  {ocupado === chave ? "Lançando" : "Acumular"}
+                                </Button>
+                              )}
+                              {!linha.link && linha.candidates.length ? (
+                                <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
+                                  <select
+                                    className={cn(field, "w-full min-w-0 flex-1 desk:w-auto")}
+                                    aria-label={`Lançamento para ${linha.description || "a linha"}`}
+                                    value={lancamentoDa(linha)}
+                                    onChange={(event) => {
+                                      setPar((atual) => ({ ...atual, [chave]: event.target.value }));
+                                      setValorMes((atual) => ({ ...atual, [chave]: "" }));
+                                    }}
+                                  >
+                                    <option value="">Escolha o lançamento</option>
+                                    {linha.candidates.map((candidato) => (
+                                      <option key={candidato.entryId} value={candidato.entryId}>
+                                        {rotuloDoCandidato(candidato)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {(() => {
+                                    const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
+                                    if (!candidato || !pedeValorDoMes(candidato, linha.cents)) return null;
+                                    const escolhido = valorMes[chave] || "";
+                                    return (
+                                      <motion.span
+                                        initial={{ opacity: 0, y: -4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={curva}
+                                        className="flex w-full flex-wrap items-center gap-2 border border-pending-line bg-pending-soft p-3"
+                                      >
+                                        <span className="text-sm text-pending">Os valores divergem. Qual vale neste mês?</span>
+                                        <Segmentado<"" | ValorDoMes>
+                                          aria-label="Valor deste mês"
+                                          opcoes={[
+                                            { id: "extrato", label: `Extrato ${formatarReais(linha.cents)}` },
+                                            { id: "lancamento", label: `Lançamento ${formatarReais(candidato.cents)}` },
+                                          ]}
+                                          valor={escolhido}
+                                          onEscolher={(id) => {
+                                            if (!id) return;
+                                            setValorMes((atual) => ({ ...atual, [chave]: id }));
+                                          }}
+                                        />
+                                      </motion.span>
+                                    );
+                                  })()}
+                                  <Button
+                                    variant="default"
+                                    carregando={ocupado === chave}
+                                    disabled={
+                                      ocupado !== "" ||
+                                      !lancamentoDa(linha) ||
+                                      linha.candidates.some(
+                                        (item) =>
+                                          item.entryId === lancamentoDa(linha) &&
+                                          pedeValorDoMes(item, linha.cents) &&
+                                          !valorMes[chave],
+                                      )
+                                    }
+                                    onClick={() => void confirmar(linha, lancamentoDa(linha))}
+                                  >
+                                    {ocupado === chave ? "Cruzando" : "Confirmar"}
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </ItemAnimado>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </ListaAnimada>
                   </section>
                 );
-              })
-            ) : (
-              <p className="px-6 py-6 text-center text-ink-2">
-                {linhas.length
-                  ? "Nenhuma linha com esses filtros."
-                  : "Nenhuma linha lida neste mês. Importe um extrato em Importações."}
-              </p>
-            )}
-          </div>
-        </div>
+              })}
+            </div>
+          ) : (
+            <p className="border border-line bg-surface px-6 py-8 text-center text-ink-2">
+              {linhas.length
+                ? "Nenhuma linha com esses filtros."
+                : "Nenhuma linha lida neste mês. Importe um extrato em Importações."}
+            </p>
+          )}
+        </motion.div>
       ) : null}
       </Troca>
     </>
+  );
+}
+
+function Celula({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Passo className="grid content-between gap-2 bg-surface p-4">
+      <dt className="etiqueta text-ink-2">{label}</dt>
+      <dd className="font-display text-lg font-bold tracking-titulo">{children}</dd>
+    </Passo>
   );
 }

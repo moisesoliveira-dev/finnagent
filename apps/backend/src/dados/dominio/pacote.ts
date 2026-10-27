@@ -88,8 +88,10 @@ const compromisso = z.object({
   endMonth: inteiro.nullable(),
   endDay: inteiro.nullable(),
   entryId: idOuNulo,
+  // Pacotes exportados antes da sessão do compromisso não trazem o campo.
+  sessionId: idOuNulo.default(null),
 });
-const agenda = z.object({ id, name: texto, timezone: texto });
+const agenda =z.object({ id, name: texto, timezone: texto });
 const conta = z.object({ id, name: texto });
 const extrato = z.object({
   id,
@@ -203,7 +205,9 @@ function referenciasConsistentes(dados: DadosDoPacote) {
     dados.entryOccurrences.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAdjustments.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAmounts.every((item) => lancamentos.has(item.entryId)) &&
-    dados.appointments.every((item) => !item.entryId || lancamentos.has(item.entryId)) &&
+    dados.appointments.every(
+      (item) => (!item.entryId || lancamentos.has(item.entryId)) && (!item.sessionId || sessoes.has(item.sessionId)),
+    ) &&
     dados.statements.every((item) => contas.has(item.accountId)) &&
     dados.statementLines.every(
       (item) => extratos.has(item.statementId) && (!item.entryId || lancamentos.has(item.entryId)),

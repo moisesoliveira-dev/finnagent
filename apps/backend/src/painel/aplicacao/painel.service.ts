@@ -14,6 +14,7 @@ import {
   CONFIGURACOES_REPOSITORIO,
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
+import { ExtratosService } from "../../extratos/aplicacao/extratos.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { diaNoFuso, situacaoNoMes } from "../../financas/dominio/vista.js";
 import { PedidoInvalido } from "../dominio/erros.js";
@@ -23,6 +24,7 @@ export class PainelService {
   constructor(
     private readonly financas: FinancasService,
     private readonly agenda: AgendaService,
+    private readonly extratos: ExtratosService,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
   ) {}
 
@@ -52,6 +54,7 @@ export class PainelService {
     return {
       ...painel,
       avisos: avisosDe(preferencias, compromissos, base.entries),
+      semConferir: await this.extratos.semConferir(tenantId, year, scope === "ano" ? null : month),
     };
   }
 }

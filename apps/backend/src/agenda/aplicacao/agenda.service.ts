@@ -6,16 +6,20 @@ import {
   type Compromisso,
   type FinancasResposta,
   type FusoAgenda,
+  type Lancamento,
   type LancamentoDoMes,
   type MovimentoCompromisso,
   type NomeAgenda,
+  type SessaoDaAgenda,
   type StatusCompromisso,
   type Vinculo,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { ConfiguracoesService } from "../../configuracoes/aplicacao/configuracoes.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
+import { GRUPOS_REPOSITORIO, type GruposRepositorio } from "../../grupos/portas/grupos-repositorio.js";
 import { PedidoInvalido } from "../dominio/erros.js";
+import { gastoDoCompromisso } from "../dominio/gasto.js";
 import { montarIntervalo } from "../dominio/fuso.js";
 import { eventoValido } from "../dominio/sincronizar.js";
 import { situacaoNoMes } from "../../financas/dominio/vista.js";
@@ -32,9 +36,32 @@ export class AgendaService {
   constructor(
     @Inject(AGENDA_REPOSITORIO) private readonly agenda: AgendaRepositorio,
     @Inject(GOOGLE_AGENDA) private readonly google: GoogleAgenda,
+    @Inject(GRUPOS_REPOSITORIO) private readonly grupos: GruposRepositorio,
     private readonly financas: FinancasService,
     private readonly configuracoes: ConfiguracoesService,
   ) {}
+
+  // Só sessão que acumula pode receber os gastos de um compromisso; a de valor tem um único lançamento.
+  private async sessoes(tenantId: string) {
+    const { groups, sessions } = await this.grupos.listar(tenantId);
+    const grupos = new Map(groups.map((grupo) => [grupo.id, grupo.name]));
+    const rotulos = new Map(
+      sessions.map((sessao) => [sessao.id, `${grupos.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}`]),
+    );
+    const abertas: SessaoDaAgenda[] = sessions
+      .filter((sessao) => !sessao.endedAt && sessao.kind === "acumulo")
+      .map((sessao) => ({ id: sessao.id, label: rotulos.get(sessao.id) ?? sessao.name }));
+    return { rotulos, abertas, todas: sessions };
+  }
+
+  private async conferirSessao(tenantId: string, sessionId: string | null, anterior: string | null) {
+    if (!sessionId || sessionId === anterior) return;
+    const { todas } = await this.sessoes(tenantId);
+    const sessao = todas.find((item) => item.id === sessionId);
+    if (!sessao) throw new NaoEncontrado("Sessão não encontrada.");
+    if (sessao.endedAt) throw new PedidoInvalido("Essa sessão já foi encerrada.");
+    if (sessao.kind !== "acumulo") throw new PedidoInvalido("Escolha uma sessão que acumula gastos.");
+  }
 
   async ocorrencias(tenantId: string, year: number, month: number) {
     const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
@@ -46,9 +73,10 @@ export class AgendaService {
     const entries = lancamentosDoMes(base, year, month, await this.financas.hoje(tenantId));
     const calendars = await this.agenda.listarCalendarios(tenantId);
     const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
+    const { rotulos, abertas } = await this.sessoes(tenantId);
     const appointments = definicoes
       .flatMap((item) => ocorrenciasNoMes(item, year, month))
-      .map((item) => comVinculo(item, entries))
+      .map((item) => comSessao(comVinculo(item, entries), base.entries, rotulos))
       .sort((a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title));
     const config = await this.configuracoes.obter(tenantId);
     return {
@@ -56,6 +84,7 @@ export class AgendaService {
       calendars,
       appointments,
       entries,
+      sessions: abertas,
     };
   }
 
@@ -74,6 +103,7 @@ export class AgendaService {
     const intervalo = montarIntervalo(pedido);
     if (intervalo === "hora") throw new PedidoInvalido("Informe a hora inicial e a final.");
     if (intervalo === "ordem") throw new PedidoInvalido("A hora final vem depois da inicial.");
+    await this.conferirSessao(tenantId, pedido.sessionId, null);
     const resultado = await this.agenda.criar(tenantId, {
       ...pedido,
       ...intervalo,
@@ -87,7 +117,8 @@ export class AgendaService {
       throw new NaoEncontrado("Lançamento não encontrado nesse mês.");
     }
     if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
-    return comVinculo(resultado, entries);
+    const { rotulos } = await this.sessoes(tenantId);
+    return comSessao(comVinculo(resultado, entries), base.entries, rotulos);
   }
 
   async atualizar(tenantId: string, id: string, pedido: Omit<NovoCompromisso, "id" | "startAt" | "endAt" | "hour" | "minute" | "status"> & {
@@ -106,6 +137,8 @@ export class AgendaService {
     const intervalo = montarIntervalo(pedido);
     if (intervalo === "hora") throw new PedidoInvalido("Informe a hora inicial e a final.");
     if (intervalo === "ordem") throw new PedidoInvalido("A hora final vem depois da inicial.");
+    const anterior = await this.agenda.obter(tenantId, id);
+    await this.conferirSessao(tenantId, pedido.sessionId, anterior?.sessionId ?? null);
     const resultado = await this.agenda.atualizar(tenantId, {
       ...pedido,
       id,
@@ -118,7 +151,12 @@ export class AgendaService {
     if (resultado === "identificador") throw new Conflito("Não foi possível salvar o compromisso.");
     const base = await this.financas.listar(tenantId);
     const hoje = await this.financas.hoje(tenantId);
-    return comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month, hoje));
+    const { rotulos } = await this.sessoes(tenantId);
+    return comSessao(
+      comVinculo(resultado, lancamentosDoMes(base, pedido.year, pedido.month, hoje)),
+      base.entries,
+      rotulos,
+    );
   }
 
   async mover(
@@ -141,6 +179,7 @@ export class AgendaService {
       category: atual.category,
       ...validadeAoMover(atual, destino),
       entryId: atual.entryId,
+      sessionId: atual.sessionId,
     });
     return { appointment, series: atual.category !== "fixed" };
   }
@@ -190,6 +229,14 @@ function lancamentosDoMes(base: FinancasResposta, year: number, month: number, h
     });
   }
   return entries;
+}
+
+function comSessao(compromisso: Compromisso, entries: Lancamento[], rotulos: Map<string, string>): Compromisso {
+  return {
+    ...compromisso,
+    sessionLabel: compromisso.sessionId ? (rotulos.get(compromisso.sessionId) ?? null) : null,
+    spentCents: gastoDoCompromisso(compromisso, entries),
+  };
 }
 
 function comVinculo(compromisso: Compromisso, entries: LancamentoDoMes[]): Compromisso {

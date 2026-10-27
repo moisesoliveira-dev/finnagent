@@ -23,6 +23,9 @@ function definicao(parcial: Partial<Compromisso> = {}): Compromisso {
     endDay: null,
     entryId: null,
     link: null,
+    sessionId: null,
+    sessionLabel: null,
+    spentCents: 0,
     ...parcial,
   };
 }

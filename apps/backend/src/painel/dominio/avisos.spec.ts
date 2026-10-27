@@ -69,6 +69,9 @@ function consulta(startAt: string, status: Compromisso["status"] = "undone"): Co
     endDay: null,
     entryId: null,
     link: null,
+    sessionId: null,
+    sessionLabel: null,
+    spentCents: 0,
   };
 }
 

@@ -962,6 +962,15 @@ export type Compromisso = {
   endDay: number | null;
   entryId: string | null;
   link: Vinculo | null;
+  // Sessão que acumula os gastos deste compromisso. `spentCents` soma o que foi pago nela no dia dele.
+  sessionId: string | null;
+  sessionLabel: string | null;
+  spentCents: number;
+};
+
+export type SessaoDaAgenda = {
+  id: string;
+  label: string;
 };
 
 export type AgendaResposta = {
@@ -969,6 +978,7 @@ export type AgendaResposta = {
   calendars: Calendario[];
   appointments: Compromisso[];
   entries: LancamentoDoMes[];
+  sessions: SessaoDaAgenda[];
 };
 
 export const LIMITE_EXTRATO_BYTES = 5 * 1024 * 1024;
@@ -1068,14 +1078,21 @@ export type LinhaConferencia = {
   suggestionSource: OrigemDaProposta | null;
   candidates: VinculoCruzado[];
   sessionId: string | null;
+  // De onde veio a sessão sugerida: do nome já lançado antes ou do compromisso que cai no dia da linha.
+  sessionSource: OrigemDaSessao | null;
+  appointmentTitle: string | null;
 };
 
 export type OrigemDaProposta = "nome" | "valor";
+
+export type OrigemDaSessao = "nome" | "compromisso";
 
 export type ConferenciaResposta = {
   year: number;
   month: number;
   pending: number;
+  // O mês só está conferido quando há linhas e todas têm lançamento ou sessão.
+  checked: boolean;
   lines: LinhaConferencia[];
 };
 
@@ -1274,6 +1291,8 @@ export type PainelResposta = {
   items: ItemPainel[];
   months: MesPainel[];
   avisos: Aviso[];
+  // Linhas de extrato do período sem lançamento. O dinheiro delas ainda não entrou nos totais.
+  semConferir: number;
 };
 
 export type Aviso = {
@@ -1345,7 +1364,7 @@ export function montarPainel(
   workflow: Workflow,
   entries: Lancamento[],
   appointments: Compromisso[],
-): PainelResposta {
+): Omit<PainelResposta, "semConferir"> {
   const meses = scope === "ano" ? Array.from({ length: 12 }, (_, indice) => indice + 1) : [month ?? 1];
   const items: ItemPainel[] = [];
   const months: MesPainel[] = [];

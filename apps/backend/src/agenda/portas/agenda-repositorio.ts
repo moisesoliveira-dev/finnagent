@@ -32,6 +32,7 @@ export type NovoCompromisso = {
   endMonth: number | null;
   endDay: number | null;
   entryId: string | null;
+  sessionId: string | null;
 };
 
 export type FalhaDeCompromisso = "identificador" | "lancamento-ausente" | "ausente";

@@ -51,8 +51,8 @@ export function ListaMes({
 }
 
 export function resumoDoDia(itens: ItemDia[]) {
-  const total = itens.reduce((soma, item) => soma + (item.link?.cents ?? 0), 0);
-  return { quantidade: itens.length, total, temValor: itens.some((item) => item.link) };
+  const total = itens.reduce((soma, item) => soma + (item.link?.cents ?? item.acumula?.cents ?? 0), 0);
+  return { quantidade: itens.length, total, temValor: itens.some((item) => item.link ?? item.acumula) };
 }
 
 export function PainelDoDia({
@@ -142,6 +142,7 @@ function ItemDoDia({
                 </>
               ) : null}
               {item.link ? <Money cents={item.link.cents} strong /> : null}
+              {!item.link && item.acumula ? <Money cents={item.acumula.cents} strong /> : null}
             </span>
           </div>
           {item.description ? <p className="line-clamp-2 text-sm text-ink-2">{item.description}</p> : null}
@@ -157,6 +158,7 @@ function ItemDoDia({
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
+              {item.acumula ? <Chip>Acumula · {item.acumula.label}</Chip> : null}
               {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
               {item.status ? (
                 <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
@@ -269,11 +271,13 @@ function Linha({
               {item.link.groupName} › {item.link.sessionName}
             </Chip>
           ) : null}
+          {item.acumula ? <Chip>Acumula · {item.acumula.label}</Chip> : null}
           {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
         </div>
       </div>
       <div className="col-start-2 flex flex-wrap items-center justify-end gap-2 tab:col-start-auto">
         {item.link ? <Money cents={item.link.cents} strong /> : null}
+        {!item.link && item.acumula ? <Money cents={item.acumula.cents} strong /> : null}
         {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
       </div>
     </li>

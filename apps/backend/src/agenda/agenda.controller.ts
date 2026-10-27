@@ -48,6 +48,7 @@ const camposCompromisso = z.object({
   endMonth: z.number().int().min(1).max(12).nullable(),
   endDay: z.number().int().min(1).max(31).nullable(),
   entryId: z.uuid().nullable(),
+  sessionId: z.uuid().nullable().default(null),
 });
 
 function validarCompromisso(

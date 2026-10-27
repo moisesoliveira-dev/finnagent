@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfiguracoesModule } from "../configuracoes/configuracoes.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
+import { GruposModule } from "../grupos/grupos.module.js";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
 import { GoogleAgendaHttp } from "./adaptadores/google-agenda-http.js";
 import { PrismaAgendaRepositorio } from "./adaptadores/prisma-agenda-repositorio.js";
@@ -10,7 +11,7 @@ import { AGENDA_REPOSITORIO } from "./portas/agenda-repositorio.js";
 import { GOOGLE_AGENDA } from "./portas/google-agenda.js";
 
 @Module({
-  imports: [PersistenciaModule, FinancasModule, ConfiguracoesModule],
+  imports: [PersistenciaModule, FinancasModule, GruposModule, ConfiguracoesModule],
   exports: [AgendaService],
   controllers: [AgendaController],
   providers: [

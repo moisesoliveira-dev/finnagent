@@ -124,6 +124,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
           endMonth: completo.endMonth,
           endDay: completo.endDay,
           entryId: completo.entryId,
+          sessionId: completo.sessionId,
         },
       });
       await this.alinharVinculo(tx, tenantId, pedido.id, completo.entryId);
@@ -318,6 +319,7 @@ function dadosDe(tenantId: string, pedido: NovoCompromisso) {
     endMonth: pedido.endMonth,
     endDay: pedido.endDay,
     entryId: pedido.entryId,
+    sessionId: pedido.sessionId,
   };
 }
 
@@ -375,6 +377,7 @@ type Linha = {
   endMonth: number | null;
   endDay: number | null;
   entryId: string | null;
+  sessionId: string | null;
   googleEventId?: string | null;
 };
 
@@ -404,6 +407,9 @@ function compromissoDe(row: Linha, timezone: FusoAgenda): Compromisso {
     endDay: row.endDay,
     entryId: row.entryId,
     link: null,
+    sessionId: row.sessionId,
+    sessionLabel: null,
+    spentCents: 0,
   };
 }
 
@@ -425,7 +431,8 @@ function mesmoCompromisso(atual: Linha, pedido: NovoCompromisso) {
     atual.endYear === pedido.endYear &&
     atual.endMonth === pedido.endMonth &&
     atual.endDay === pedido.endDay &&
-    atual.entryId === pedido.entryId
+    atual.entryId === pedido.entryId &&
+    atual.sessionId === pedido.sessionId
   );
 }
 

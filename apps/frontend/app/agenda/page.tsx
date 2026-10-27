@@ -18,6 +18,7 @@ import {
   type StatusCompromisso,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
@@ -47,6 +48,7 @@ type Rascunho = {
   calendar: NomeAgenda;
   category: CategoriaCompromisso;
   entryId: string;
+  sessionId: string;
   existente: boolean;
 };
 
@@ -257,6 +259,7 @@ export default function Agenda() {
       calendar: "Pessoal",
       category: "fixed",
       entryId: "",
+      sessionId: "",
       existente: false,
     });
   }
@@ -286,6 +289,7 @@ export default function Agenda() {
       calendar: item.calendar,
       category: item.category,
       entryId: item.entryId ?? "",
+      sessionId: item.sessionId ?? "",
       existente: true,
     });
   }
@@ -312,6 +316,7 @@ export default function Agenda() {
       endMonth: endMonth ?? null,
       endDay: endDay ?? null,
       entryId: draftAtual.entryId || null,
+      sessionId: draftAtual.sessionId || null,
     };
   }
 
@@ -498,7 +503,7 @@ export default function Agenda() {
       >
         <div className="grid gap-4">
           {!data && !falhou ? (
-            <p className="max-w-prose text-sm text-ink-2">Carregando agenda.</p>
+            <Carregando texto="Carregando agenda." linhas={5} />
           ) : null}
           {google && !google.conectado ? <ConectarGoogle onConnect={conectarGoogle} /> : null}
           <div className="grid max-w-prose gap-1">
@@ -886,6 +891,32 @@ export default function Agenda() {
             </select>
             <p className="text-xs text-ink-2">
               Com vínculo, o dia mostra o valor e o status da transação.
+            </p>
+          </div>
+          <div className="grid gap-1">
+            <Rotulo
+              htmlFor="compromisso-sessao"
+              dica="Os gastos do extrato que caírem neste dia vão para a sessão, e o compromisso mostra o total."
+            >
+              Sessão que acumula os gastos <span className="font-normal text-ink-2">(opcional)</span>
+            </Rotulo>
+            <select
+              id="compromisso-sessao"
+              value={draft?.sessionId ?? ""}
+              onChange={(event) =>
+                setDraft((atual) => (atual ? { ...atual, sessionId: event.target.value } : atual))
+              }
+              className={field}
+            >
+              <option value="">Nenhuma</option>
+              {(data?.sessions ?? []).map((sessao) => (
+                <option key={sessao.id} value={sessao.id}>
+                  {sessao.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-ink-2">
+              Serve para gastos que se somam, como uma saída ou as corridas de um dia.
             </p>
           </div>
           {draft?.existente && draft.category !== "fixed" ? (

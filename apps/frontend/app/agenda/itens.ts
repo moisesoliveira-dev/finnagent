@@ -19,6 +19,8 @@ export type ItemDia = {
   calendar: NomeAgenda | null;
   category: CategoriaCompromisso | null;
   link: { groupName: string; sessionName: string; cents: number; situation: SituacaoOcorrencia } | null;
+  // Compromisso que acumula os gastos de uma sessão: `cents` é o que já foi pago nela no dia.
+  acumula: { label: string; cents: number } | null;
 };
 
 export function rotuloDaCategoria(categoria: CategoriaCompromisso) {
@@ -62,6 +64,7 @@ export function montarItens(
         calendar: item.calendar,
         category: item.category,
         link: item.link,
+        acumula: item.sessionLabel ? { label: item.sessionLabel, cents: item.spentCents } : null,
       });
     }
   }
@@ -84,6 +87,7 @@ export function montarItens(
           cents: item.cents,
           situation: item.situation,
         },
+        acumula: null,
       });
     }
   }

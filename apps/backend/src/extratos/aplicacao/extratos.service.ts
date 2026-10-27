@@ -11,6 +11,7 @@ import type {
   ValorDoMes,
   VinculoCruzado,
 } from "@finnagent/contracts";
+import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import {
@@ -23,6 +24,7 @@ import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { chaveDoNome } from "../dominio/nome-extrato.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
+import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
 import {
   EXTRATOS_REPOSITORIO,
   type ExtratosRepositorio,
@@ -49,10 +51,16 @@ export class ExtratosService {
     @Inject(ORGANIZADOR_DE_EXTRATO) private readonly organizador: OrganizadorDeExtrato,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
     private readonly financas: FinancasService,
+    private readonly agenda: AgendaService,
   ) {}
 
   listar(tenantId: string): Promise<ExtratosResposta> {
     return this.extratos.listar(tenantId);
+  }
+
+  // Quantas linhas do período ainda não viraram lançamento. `month` vazio conta o ano inteiro.
+  semConferir(tenantId: string, year: number, month: number | null) {
+    return this.extratos.contarSemLancamento(tenantId, year, month);
   }
 
   async previa(
@@ -110,6 +118,7 @@ export class ExtratosService {
     });
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outro extrato.");
     if (resultado === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
+    if (resultado === "duplicado") throw new Conflito("Esse arquivo já foi importado nesta conta.");
     if (resultado.novo) void this.concluirOcr(tenantId, resultado.extrato.id);
     return resultado.extrato;
   }
@@ -138,6 +147,7 @@ export class ExtratosService {
   async reprocessar(tenantId: string, id: string) {
     const atual = await this.extratos.carregar(tenantId, id);
     if (atual === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
+    await this.semCruzadas(tenantId, id, "reprocessar");
     if (ehOcr(atual.filename)) {
       const marcado = await this.extratos.marcarProcessando(tenantId, id);
       if (marcado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
@@ -164,6 +174,7 @@ export class ExtratosService {
     const lembrados = new Map(
       (await this.extratos.listarAssociacoes(tenantId)).map((item) => [item.name, item]),
     );
+    const compromissos = await this.agenda.ocorrencias(tenantId, year, month);
     const cruzaveis = cruzaveisDoMes(
       abertas.entries,
       linhas.map((linha) => linha.entryId),
@@ -173,21 +184,35 @@ export class ExtratosService {
     const lines = linhas.map(({ importedAt: _importedAt, ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
       if (linha.entryId) {
-        return { ...linha, link, suggestion: null, suggestionSource: null, candidates: [], sessionId: null };
+        return {
+          ...linha,
+          link,
+          suggestion: null,
+          suggestionSource: null,
+          candidates: [],
+          sessionId: null,
+          sessionSource: null,
+          appointmentTitle: null,
+        };
       }
       const candidatos = candidatosDaLinha(linha, cruzaveis);
       const lembrado = lembrados.get(chaveDoNome(linha.description));
       const proposta = propostaDaLinha(linha, candidatos, lembrado);
+      // O nome já lançado antes vale mais; sem ele, vale a sessão do compromisso que cai no dia da linha.
+      const doCompromisso = lembrado?.sessionId ? null : sessaoDoCompromisso(linha.date, compromissos);
       return {
         ...linha,
         link: null,
         suggestion: proposta ? vinculoDoCruzavel(proposta.suggestion) : null,
         suggestionSource: proposta?.source ?? null,
         candidates: candidatos.map(vinculoDoCruzavel),
-        sessionId: lembrado?.sessionId ?? null,
+        sessionId: lembrado?.sessionId ?? doCompromisso?.sessionId ?? null,
+        sessionSource: lembrado?.sessionId ? "nome" : doCompromisso ? "compromisso" : null,
+        appointmentTitle: doCompromisso?.title ?? null,
       };
     });
-    return { year, month, pending: lines.filter((linha) => !linha.entryId).length, lines };
+    const pending = lines.filter((linha) => !linha.entryId).length;
+    return { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
   }
 
   async confirmar(tenantId: string, statementId: string, line: number, entryId: string, valor?: ValorDoMes) {
@@ -202,12 +227,34 @@ export class ExtratosService {
     const candidato = linha.candidates.find((item) => item.entryId === entryId);
     if (!candidato) throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
     const centavos = valorDoMes(candidato.category, candidato.cents, gravada.cents, valor);
-    if (centavos === "extra") throw new PedidoInvalido("Extra só cruza com entrada.");
+    if (centavos === "extra") throw new PedidoInvalido("Adicional só cruza com entrada.");
     if (centavos === "escolha") {
       throw new PedidoInvalido("Escolha o valor deste mês: o do extrato ou o do lançamento.");
     }
     await this.cruzar(tenantId, statementId, line, entryId, gravada.description);
-    await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, centavos);
+    try {
+      await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, centavos);
+    } catch (error) {
+      await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
+      throw error;
+    }
+    return this.conferencia(tenantId, year, month);
+  }
+
+  // Devolve a linha para "sem lançamento" e a ocorrência para pendente. O nome lembrado continua valendo.
+  async desfazer(tenantId: string, statementId: string, line: number) {
+    const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
+    if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
+    if (!gravada.entryId) throw new Conflito("Essa linha não está cruzada.");
+    const [year, month] = gravada.date.split("-").map(Number);
+    const entryId = gravada.entryId;
+    await this.extratos.desfazerCruzamento(tenantId, statementId, line);
+    try {
+      await this.financas.reabrirPeloExtrato(tenantId, entryId, gravada.date, gravada.cents);
+    } catch (error) {
+      await this.cruzar(tenantId, statementId, line, entryId, gravada.description).catch(() => undefined);
+      throw error;
+    }
     return this.conferencia(tenantId, year, month);
   }
 
@@ -249,7 +296,13 @@ export class ExtratosService {
       await this.financas.excluir(tenantId, criado.id);
       throw error;
     }
-    await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, gravada.cents);
+    try {
+      await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, gravada.cents);
+    } catch (error) {
+      await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
+      await this.financas.excluir(tenantId, criado.id).catch(() => undefined);
+      throw error;
+    }
     return this.conferencia(tenantId, year, month);
   }
 
@@ -284,7 +337,16 @@ export class ExtratosService {
     if (resultado === "cruzada") throw new Conflito("Essa linha já foi cruzada.");
   }
 
+  // Reprocessar ou excluir apaga as linhas e o vínculo delas. Com linha cruzada, a ocorrência ficaria paga sem origem.
+  private async semCruzadas(tenantId: string, id: string, acao: "reprocessar" | "excluir") {
+    const cruzadas = await this.extratos.contarCruzadas(tenantId, id);
+    if (cruzadas === 0) return;
+    const quantas = cruzadas === 1 ? "1 linha cruzada" : `${cruzadas} linhas cruzadas`;
+    throw new Conflito(`Este extrato tem ${quantas}. Desfaça os cruzamentos na Conferência antes de ${acao}.`);
+  }
+
   async excluir(tenantId: string, id: string) {
+    await this.semCruzadas(tenantId, id, "excluir");
     const resultado = await this.extratos.excluir(tenantId, id);
     if (resultado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
   }

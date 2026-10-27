@@ -69,6 +69,9 @@ function compromisso(day: number, month = 10): Compromisso {
     endDay: null,
     entryId: null,
     link: null,
+    sessionId: null,
+    sessionLabel: null,
+    spentCents: 0,
   };
 }
 
