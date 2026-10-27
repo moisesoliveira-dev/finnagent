@@ -34,6 +34,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-}
       DATABASE_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
       DIRECT_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
+      AUTH_EMAIL_DONO: ${AUTH_EMAIL_DONO:-}
     depends_on:
       postgres:
         condition: service_healthy
