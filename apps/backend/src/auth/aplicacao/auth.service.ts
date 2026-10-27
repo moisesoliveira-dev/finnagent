@@ -1,11 +1,17 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loginDispensado, type SessaoAberta, type UsuarioDaConta } from "@finnagent/contracts";
-import { CredenciaisInvalidas, EmailEmUso, NaoAutenticado, TentativasEsgotadas } from "../dominio/erros.js";
+import {
+  CredenciaisInvalidas,
+  EmailEmUso,
+  MasterIntocavel,
+  NaoAutenticado,
+  TentativasEsgotadas,
+} from "../dominio/erros.js";
 import { Limitador } from "../dominio/limitador.js";
 import { interpretarCadastro, interpretarEntrada } from "../dominio/pedido.js";
 import { conferirSenha, gerarHash, hashDeReferencia } from "../dominio/senha.js";
-import { PedidoInvalido } from "../../grupos/dominio/erros.js";
+import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import { AUTH_REPOSITORIO, type AuthRepositorio, type Usuario } from "../portas/auth-repositorio.js";
 
 /** Tenant dos dados criados antes de existir login. */
@@ -81,16 +87,41 @@ export class AuthService {
       await this.repositorio.removerSessao(id, "expirada");
       return null;
     }
-    return { userId: sessao.userId, tenantId: sessao.tenantId };
+    return { userId: sessao.userId, tenantId: sessao.tenantId, role: sessao.role };
   }
 
   async eu(userId: string): Promise<UsuarioDaConta> {
     if (userId === USUARIO_SEM_LOGIN && loginDispensado(process.env)) {
-      return { id: USUARIO_SEM_LOGIN, name: "Desenvolvimento", email: "sem-login@local", semLogin: true };
+      return { id: USUARIO_SEM_LOGIN, name: "Desenvolvimento", email: "sem-login@local", role: "master", semLogin: true };
     }
     const usuario = await this.repositorio.buscarUsuario(userId);
     if (!usuario) throw new NaoAutenticado();
-    return { id: usuario.id, name: usuario.name, email: usuario.email };
+    return { id: usuario.id, name: usuario.name, email: usuario.email, role: usuario.role };
+  }
+
+  async listarUsuarios(tenantId: string): Promise<UsuarioDaConta[]> {
+    const usuarios = await this.repositorio.listarDoTenant(tenantId);
+    return usuarios.map((usuario) => ({ id: usuario.id, name: usuario.name, email: usuario.email, role: usuario.role }));
+  }
+
+  /** O master acrescenta um membro à própria conta. A senha segue a mesma regra do cadastro. */
+  async criarMembro(tenantId: string, corpo: unknown): Promise<UsuarioDaConta> {
+    const pedido = interpretarCadastro(corpo);
+    if (typeof pedido === "string") throw new PedidoInvalido(pedido);
+    const criado = await this.repositorio.criarMembro(tenantId, {
+      id: randomUUID(),
+      email: pedido.email,
+      name: pedido.name,
+      passwordHash: await gerarHash(pedido.password),
+    });
+    if (criado === "email-em-uso") throw new EmailEmUso();
+    return { id: criado.id, name: criado.name, email: criado.email, role: criado.role };
+  }
+
+  async removerUsuario(tenantId: string, id: string) {
+    const resultado = await this.repositorio.removerMembro(tenantId, id);
+    if (resultado === "ausente") throw new NaoEncontrado();
+    if (resultado === "master") throw new MasterIntocavel();
   }
 
   private limitar(origem: Origem) {
@@ -116,7 +147,7 @@ export class AuthService {
     return {
       token,
       expiresAt: expiresAt.toISOString(),
-      user: { id: usuario.id, name: usuario.name, email: usuario.email },
+      user: { id: usuario.id, name: usuario.name, email: usuario.email, role: usuario.role },
     };
   }
 }

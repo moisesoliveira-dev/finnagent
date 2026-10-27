@@ -1731,10 +1731,16 @@ function sensivel(chave: string) {
 export const SENHA_MINIMA = 10;
 export const SENHA_MAXIMA = 128;
 
+export const PAPEIS = ["master", "membro"] as const;
+
+export type PapelDoUsuario = (typeof PAPEIS)[number];
+
 export type UsuarioDaConta = {
   id: string;
   name: string;
   email: string;
+  /** Cada conta tem um só master. Os demais usuários são membros. */
+  role: PapelDoUsuario;
   /** Só vem como `true` no ambiente de desenvolvimento, quando o login foi dispensado. */
   semLogin?: boolean;
 };

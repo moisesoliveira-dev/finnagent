@@ -26,6 +26,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { aplicarTema, segurarTema } from "../../components/ui/tema";
 import { useToast } from "../../components/ui/toast";
 import { rotuloDoFuso } from "../agenda/itens";
+import { Usuarios } from "./usuarios";
 
 type Secao =
   | "conta"
@@ -35,6 +36,7 @@ type Secao =
   | "assistente"
   | "notificacoes"
   | "eventos"
+  | "usuarios"
   | "dados";
 
 type No = {
@@ -60,6 +62,7 @@ const ARVORE: No[] = [
     filhos: [
       { id: "conta", rotulo: "Conta", secao: "conta" },
       { id: "aparencia", rotulo: "Aparência", secao: "aparencia" },
+      { id: "usuarios", rotulo: "Usuários", secao: "usuarios" },
     ],
   },
   { id: "financas", rotulo: "Finanças", secao: "financas" },
@@ -573,7 +576,8 @@ export function Painel() {
             </ul>
           </nav>
 
-          <form className="grid min-w-0 gap-6 desk:col-span-3" onSubmit={(event) => void salvar(event)}>
+          <div className="grid min-w-0 gap-6 desk:col-span-3">
+          <form hidden={secao === "usuarios"} className="grid min-w-0 gap-6" onSubmit={(event) => void salvar(event)}>
             <section hidden={secao !== "conta"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-conta">
               <h2 id="titulo-conta" className="mb-3 font-display text-lg">Conta</h2>
               <Linha id="nome" titulo="Nome" dica="Como a conta aparece no Prumo.">
@@ -996,6 +1000,8 @@ export function Painel() {
               </div>
             ) : null}
           </form>
+          <Usuarios visivel={secao === "usuarios"} />
+          </div>
         </div>
       )}
 

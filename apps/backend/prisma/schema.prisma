@@ -329,17 +329,21 @@ model ConsumedEvent {
   @@map("consumed_events")
 }
 
+// Cada tenant tem vários usuários e só um master. O Prisma não descreve índice único parcial,
+// então `users_tenant_id_master_key` (UNIQUE (tenant_id) WHERE role = 'master') vive só na migration.
 model User {
   id             String        @id
-  tenantId       String        @unique @map("tenant_id")
+  tenantId       String        @map("tenant_id")
   email          String        @unique
   name           String        @default("")
+  role           String        @default("membro")
   passwordHash   String        @map("password_hash")
   failedAttempts Int           @default(0) @map("failed_attempts")
   lockedUntil    DateTime?     @map("locked_until")
   createdAt      DateTime      @default(now()) @map("created_at")
   sessions       AuthSession[]
 
+  @@index([tenantId])
   @@map("users")
 }
 

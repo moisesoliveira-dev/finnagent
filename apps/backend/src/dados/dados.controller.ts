@@ -11,10 +11,13 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import { BancoIndisponivel, PedidoInvalido } from "../grupos/dominio/erros.js";
+import { SoMaster } from "../auth/papel.js";
 import { DadosService } from "./aplicacao/dados.service.js";
 
 const tenantId = z.uuid();
 
+// Importar substitui todos os dados da conta e exportar leva todos eles: só o master.
+@SoMaster()
 @Controller("dados")
 export class DadosController {
   constructor(private readonly dados: DadosService) {}

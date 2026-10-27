@@ -22,3 +22,15 @@ export class TentativasEsgotadas extends Error {
     super(`Muitas tentativas. Tente de novo em ${Math.max(1, Math.ceil(segundos / 60))} min.`);
   }
 }
+
+export class MasterIntocavel extends Error {
+  constructor() {
+    super("O usuário master da conta não pode ser removido.");
+  }
+}
+
+export class SemPermissao extends Error {
+  constructor() {
+    super("Apenas o usuário master pode fazer isso.");
+  }
+}
