@@ -1,3 +1,4 @@
+import { loginDispensado } from "@finnagent/contracts";
 import { lerToken, limparCookies } from "./sessao";
 
 // O tenant não é mais escolhido aqui: o backend o descobre pela sessão (Authorization).
@@ -11,7 +12,8 @@ export async function callBackend(path: string, init?: RequestInit) {
   }
 
   const token = await lerToken();
-  if (!token) return semSessao();
+  // Sem cookie só passa em desenvolvimento; o backend confere o mesmo e responde 401 em produção.
+  if (!token && !loginDispensado(process.env)) return semSessao();
 
   try {
     const response = await fetch(new URL(path, base.endsWith("/") ? base : `${base}/`), {
@@ -19,7 +21,7 @@ export async function callBackend(path: string, init?: RequestInit) {
       headers: {
         "content-type": "application/json",
         ...init?.headers,
-        authorization: `Bearer ${token}`,
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       cache: "no-store",
     });

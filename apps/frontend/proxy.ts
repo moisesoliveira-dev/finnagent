@@ -1,3 +1,4 @@
+import { loginDispensado } from "@finnagent/contracts";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PAGINAS_ABERTAS = ["/login", "/cadastro"];
@@ -34,7 +35,8 @@ export function proxy(request: NextRequest) {
   const aberta = ehApi ? API_ABERTA.includes(pathname) : PAGINAS_ABERTAS.includes(pathname);
   const logado = temCookie(request);
 
-  if (!aberta && !logado) {
+  // Em desenvolvimento (APP_ENV=development, fora do Railway) o portão fica aberto; o backend decide o mesmo.
+  if (!aberta && !logado && !loginDispensado(process.env)) {
     if (ehApi) return NextResponse.json({ message: "Entre para continuar." }, { status: 401 });
     const destino = new URL("/login", request.url);
     if (pathname !== "/") destino.searchParams.set("proximo", `${pathname}${search}`);

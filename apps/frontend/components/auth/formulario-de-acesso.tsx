@@ -44,10 +44,13 @@ export function FormularioDeAcesso({
   modo,
   proximo,
   expirou = false,
+  semLogin = false,
 }: {
   modo: Modo;
   proximo: string;
   expirou?: boolean;
+  /** Desenvolvimento: o login não é exigido. Só a tela de entrada mostra o atalho. */
+  semLogin?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -121,6 +124,16 @@ export function FormularioDeAcesso({
         <h1 className="font-display text-xl tab:text-2xl">{texto.titulo}</h1>
         <p className="text-ink-2">{texto.subtitulo}</p>
       </div>
+
+      {semLogin ? (
+        <div role="note" className="grid gap-3 border border-pending-line bg-pending-soft p-4">
+          <p className="etiqueta text-pending">Modo desenvolvimento</p>
+          <p className="text-sm">O login não é exigido neste ambiente.</p>
+          <Link href={proximo} className="text-sm font-medium text-brand underline-offset-4 hover:underline">
+            Continuar sem entrar
+          </Link>
+        </div>
+      ) : null}
 
       <form onSubmit={enviar} noValidate className="grid gap-4">
         {modo === "cadastro" ? (
