@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DadosDoPerfil } from "@finnagent/contracts";
 import type {
   AuthRepositorio,
   MotivoDoFim,
   NovaSessao,
   NovoMembro,
   NovoUsuario,
+  PerfilGravado,
+  SessaoDeAcessoGravada,
   SessaoGravada,
   Usuario,
   UsuarioComSenha,
@@ -84,6 +87,60 @@ class Memoria implements AuthRepositorio {
   async removerSessao(id: string, motivo: MotivoDoFim) {
     this.sessoes.delete(id);
     this.fins.push(motivo);
+  }
+  perfis = new Map<string, DadosDoPerfil>();
+  async buscarComSenha(id: string) {
+    return this.usuarios.get(id) ?? null;
+  }
+  async buscarPerfil(id: string): Promise<PerfilGravado | null> {
+    const usuario = this.usuarios.get(id);
+    if (!usuario) return null;
+    const perfil = this.perfis.get(id);
+    return {
+      id: usuario.id,
+      tenantId: usuario.tenantId,
+      email: usuario.email,
+      role: usuario.role,
+      name: perfil?.name ?? usuario.name,
+      headline: perfil?.headline ?? "",
+      location: perfil?.location ?? "",
+      bio: perfil?.bio ?? "",
+      avatarTone: perfil?.avatarTone ?? "brand",
+      createdAt: new Date("2026-10-01T00:00:00Z"),
+    };
+  }
+  async atualizarPerfil(id: string, dados: DadosDoPerfil) {
+    const usuario = this.usuarios.get(id);
+    if (!usuario) return "ausente" as const;
+    usuario.name = dados.name;
+    this.perfis.set(id, dados);
+    return (await this.buscarPerfil(id)) as PerfilGravado;
+  }
+  async trocarSenha(id: string, passwordHash: string, manterSessao: string) {
+    const usuario = this.usuarios.get(id);
+    if (!usuario) return "ausente" as const;
+    usuario.passwordHash = passwordHash;
+    return this.encerrarOutras(id, manterSessao);
+  }
+  async listarSessoes(userId: string, agora: Date): Promise<SessaoDeAcessoGravada[]> {
+    return [...this.sessoes.values()]
+      .filter((sessao) => sessao.userId === userId && sessao.expiresAt > agora)
+      .map((sessao) => ({
+        id: sessao.id,
+        userAgent: sessao.userAgent,
+        createdAt: new Date("2026-10-27T12:00:00Z"),
+        expiresAt: sessao.expiresAt,
+      }));
+  }
+  async encerrarOutras(userId: string, manterSessao: string) {
+    let encerradas = 0;
+    for (const [chave, sessao] of this.sessoes) {
+      if (sessao.userId === userId && chave !== manterSessao) {
+        this.sessoes.delete(chave);
+        encerradas += 1;
+      }
+    }
+    return encerradas;
   }
 }
 
@@ -256,5 +313,86 @@ describe("autenticação", () => {
       barrado = await servico.entrar({ email: "x@exemplo.com", password: "y" }, insistente).catch((e) => e);
     }
     expect(barrado).toBeInstanceOf(TentativasEsgotadas);
+  });
+
+  describe("perfil", () => {
+    const dados = { name: "Ana Souza", headline: "Analista", location: "Recife", bio: "Gosto de planilhas.", avatarTone: "event" };
+
+    it("cada usuário tem o seu perfil, mesmo na mesma conta", async () => {
+      const ana = await servico.cadastrar(cadastro, origem);
+      const membro = await servico.criarMembro([...repositorio.usuarios.values()][0].tenantId, {
+        name: "Caio",
+        email: "caio@exemplo.com",
+        password: "outra-senha-forte-7",
+      });
+      await servico.atualizarPerfil(ana.user.id, dados);
+      expect(await servico.perfil(ana.user.id)).toMatchObject({ name: "Ana Souza", headline: "Analista", avatarTone: "event" });
+      expect(await servico.perfil(membro.id)).toMatchObject({ name: "Caio", headline: "", avatarTone: "brand" });
+    });
+
+    it("recusa nome vazio e cor desconhecida sem gravar nada", async () => {
+      const ana = await servico.cadastrar(cadastro, origem);
+      await expect(servico.atualizarPerfil(ana.user.id, { ...dados, name: " " })).rejects.toBeInstanceOf(PedidoInvalido);
+      await expect(servico.atualizarPerfil(ana.user.id, { ...dados, avatarTone: "rosa" })).rejects.toBeInstanceOf(
+        PedidoInvalido,
+      );
+      expect(repositorio.perfis.size).toBe(0);
+    });
+
+    it("quem entrou sem login vê um perfil de leitura e não edita", async () => {
+      vi.stubEnv("APP_ENV", "development");
+      vi.stubEnv("RAILWAY_ENVIRONMENT", "");
+      expect(await servico.perfil(USUARIO_SEM_LOGIN)).toMatchObject({ semLogin: true, createdAt: null });
+      await expect(servico.atualizarPerfil(USUARIO_SEM_LOGIN, dados)).rejects.toBeInstanceOf(PedidoInvalido);
+      expect(await servico.sessoes(USUARIO_SEM_LOGIN, "")).toEqual({ sessions: [] });
+    });
+
+    it("troca a senha, encerra as outras sessões e mantém a atual", async () => {
+      const aberta = await servico.cadastrar(cadastro, origem);
+      const outra = await servico.entrar({ email: cadastro.email, password: cadastro.password }, origem);
+      const troca = await servico.trocarSenha(aberta.user.id, aberta.token, {
+        currentPassword: cadastro.password,
+        newPassword: "nova-senha-forte-88",
+      });
+      expect(troca).toEqual({ sessoesEncerradas: 1 });
+      expect(await servico.resolver(aberta.token)).not.toBeNull();
+      expect(await servico.resolver(outra.token)).toBeNull();
+      await expect(
+        servico.entrar({ email: cadastro.email, password: cadastro.password }, origem),
+      ).rejects.toBeInstanceOf(CredenciaisInvalidas);
+      await servico.entrar({ email: cadastro.email, password: "nova-senha-forte-88" }, origem);
+    });
+
+    it("recusa a troca com a senha atual errada, como pedido inválido", async () => {
+      const aberta = await servico.cadastrar(cadastro, origem);
+      const erro = await servico
+        .trocarSenha(aberta.user.id, aberta.token, { currentPassword: "errada-1234", newPassword: "nova-senha-forte-88" })
+        .catch((e) => e);
+      expect(erro).toBeInstanceOf(PedidoInvalido);
+      expect(erro.message).toBe("A senha atual está incorreta.");
+      expect(await servico.resolver(aberta.token)).not.toBeNull();
+    });
+
+    it("segura quem tenta a senha atual em série", async () => {
+      const aberta = await servico.cadastrar(cadastro, origem);
+      let barrado: unknown = null;
+      for (let tentativa = 0; tentativa < 6; tentativa += 1) {
+        barrado = await servico
+          .trocarSenha(aberta.user.id, aberta.token, { currentPassword: "errada-1234", newPassword: "nova-senha-forte-88" })
+          .catch((e) => e);
+      }
+      expect(barrado).toBeInstanceOf(TentativasEsgotadas);
+    });
+
+    it("lista as sessões marcando a deste aparelho e encerra as outras", async () => {
+      const aberta = await servico.cadastrar(cadastro, { ip: "10.0.0.1", userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/126.0 Safari/537.36" });
+      await servico.entrar({ email: cadastro.email, password: cadastro.password }, { ip: "10.0.0.2", userAgent: "curl/8" });
+      const { sessions } = await servico.sessoes(aberta.user.id, aberta.token);
+      expect(sessions).toHaveLength(2);
+      expect(sessions.filter((sessao) => sessao.current)).toHaveLength(1);
+      expect(sessions.find((sessao) => sessao.current)?.device).toBe("Chrome em Windows");
+      expect(await servico.encerrarOutras(aberta.user.id, aberta.token)).toEqual({ sessoesEncerradas: 1 });
+      expect((await servico.sessoes(aberta.user.id, aberta.token)).sessions).toHaveLength(1);
+    });
   });
 });
