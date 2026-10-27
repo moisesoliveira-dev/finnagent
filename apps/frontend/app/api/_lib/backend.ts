@@ -1,5 +1,6 @@
-const tenantId = "00000000-0000-4000-8000-000000000001";
+import { lerToken, limparCookies } from "./sessao";
 
+// O tenant não é mais escolhido aqui: o backend o descobre pela sessão (Authorization).
 export async function callBackend(path: string, init?: RequestInit) {
   const base = process.env.API_URL;
   if (!base) {
@@ -9,16 +10,20 @@ export async function callBackend(path: string, init?: RequestInit) {
     );
   }
 
+  const token = await lerToken();
+  if (!token) return semSessao();
+
   try {
     const response = await fetch(new URL(path, base.endsWith("/") ? base : `${base}/`), {
       ...init,
       headers: {
         "content-type": "application/json",
-        "x-tenant-id": tenantId,
         ...init?.headers,
+        authorization: `Bearer ${token}`,
       },
       cache: "no-store",
     });
+    if (response.status === 401) return semSessao();
     if (response.status === 204) return new Response(null, { status: 204 });
     const body = await response.text();
     return new Response(body, {
@@ -34,4 +39,12 @@ export async function callBackend(path: string, init?: RequestInit) {
       { status: 503 },
     );
   }
+}
+
+/** Sessão ausente, vencida ou revogada: responde 401 e já apaga o cookie para a tela voltar ao login. */
+function semSessao() {
+  const resposta = Response.json({ message: "Sua sessão expirou. Entre de novo." }, { status: 401 });
+  resposta.headers.set("cache-control", "no-store");
+  limparCookies(resposta.headers);
+  return resposta;
 }
