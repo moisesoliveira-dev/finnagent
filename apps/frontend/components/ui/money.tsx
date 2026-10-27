@@ -10,6 +10,17 @@ export function formatarReais(cents: number) {
   return formatoDeReais.format(cents / 100);
 }
 
+/** Valor com sinal ("+ R$ 10,00", "− R$ 10,00"). É o texto do `Money`, para quem anima o número. */
+export function textoDoValor(cents: number) {
+  const sign = cents > 0 ? "+" : cents < 0 ? "−" : "";
+  const amount = formatarReais(Math.abs(cents));
+  return sign ? `${sign} ${amount}` : amount;
+}
+
+export function tomDoValor(cents: number) {
+  return cents > 0 ? "text-pos" : cents < 0 ? "text-neg" : "text-ink";
+}
+
 export function Money({
   cents,
   strong = false,
@@ -19,9 +30,7 @@ export function Money({
   strong?: boolean;
   acumulado?: boolean;
 }) {
-  const amount = formatarReais(Math.abs(cents));
-  const sign = cents > 0 ? "+" : cents < 0 ? "−" : "";
-  const tone = cents > 0 ? "text-pos" : cents < 0 ? "text-neg" : "text-ink";
+  const tone = tomDoValor(cents);
   const marca =
     acumulado && cents > 0
       ? "rounded-sm bg-pos-soft px-2 font-bold"
@@ -32,8 +41,6 @@ export function Money({
           : "font-medium";
 
   return (
-    <span className={cn("text-right tabular-nums", marca, tone)}>
-      {sign ? `${sign} ${amount}` : amount}
-    </span>
+    <span className={cn("text-right tabular-nums", marca, tone)}>{textoDoValor(cents)}</span>
   );
 }
