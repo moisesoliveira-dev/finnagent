@@ -29,3 +29,34 @@ Arquivos:
 - `apps/frontend/components/auth/estado-do-acesso.ts`
 - `apps/frontend/components/auth/formulario-de-acesso.tsx`
 - `apps/frontend/app/globals.css`
+
+## Estratégia de carregamento: esqueleto, botão em ação e servidor acordando
+
+O que foi feito:
+
+- Novo `components/ui/esqueleto.tsx` com `Esqueleto` (bloco reto `bg-surface-2` que pulsa na opacidade; parado com movimento reduzido), `Carregando` (reserva o espaço de uma faixa de totais e de N linhas, `role="status"` com texto só para leitor de tela; passados 3 s mostra "Acordando o servidor...", por causa do cold start do Railway serverless) e `PontoDeEspera`.
+- `Button` ganhou a prop `carregando`: trava o botão, põe `aria-busy` e mostra o ponto de espera. Quem chama troca o rótulo pelo gerúndio.
+- Os 15 textos soltos "Carregando X." (dashboard, finanças página/tabela/visão geral, agenda, grupos, metas, relatórios, eventos, extratos lista e linhas, configurações, usuários, conferência) passaram a usar `Carregando`.
+- Conferência de extratos: `carregar` não apaga mais a lista (`setDados(null)` removido). Ao trocar de mês ou depois de cruzar, desfazer ou acumular, a lista fica esmaecida com `aria-busy` e `inert` até a resposta. Só a primeira carga mostra o esqueleto; em falha a lista some. Os botões da linha mostram "Cruzando", "Desfazendo" e "Lançando", e os de lote "Lançando".
+- BFF (`app/api/_lib/backend.ts`): leitura (GET) tem prazo de 20 s e repete uma vez em 502/503/504 ou falha de rede. Escrita tem prazo de 60 s e nunca repete, para não duplicar efeito. Timeout responde 504 "O servidor demorou para responder. Tente de novo.".
+
+Motivo: o usuário só via uma linha de texto durante a espera, a lista da conferência sumia a cada ação e o serviço serverless dormindo parecia travado.
+
+Arquivos:
+
+- `apps/frontend/components/ui/esqueleto.tsx`
+- `apps/frontend/components/ui/button.tsx`
+- `apps/frontend/app/api/_lib/backend.ts`
+- `apps/frontend/app/page.tsx`
+- `apps/frontend/app/agenda/page.tsx`
+- `apps/frontend/app/configuracoes/painel.tsx`
+- `apps/frontend/app/configuracoes/usuarios.tsx`
+- `apps/frontend/app/eventos/page.tsx`
+- `apps/frontend/app/extratos/page.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/frontend/app/financas/page.tsx`
+- `apps/frontend/app/financas/tabela.tsx`
+- `apps/frontend/app/financas/visao-geral.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/metas/page.tsx`
+- `apps/frontend/app/relatorios/page.tsx`
