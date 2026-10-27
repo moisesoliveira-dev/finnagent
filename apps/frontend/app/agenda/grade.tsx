@@ -52,7 +52,7 @@ export function GradeMes({
         {celulas.map((celula, index) => {
           if (celula.tipo === "fora") {
             return (
-              <div key={`fora-${index}`} className="min-h-[68px] bg-surface-2 p-1 text-ink-2 tab:min-h-[108px] tab:p-2">
+              <div key={`fora-${index}`} className="min-h-16 bg-surface-2 p-1 text-ink-2 tab:min-h-28 tab:p-2">
                 <span className="grid size-6 place-items-center text-sm font-semibold">{celula.numero}</span>
               </div>
             );
@@ -66,7 +66,7 @@ export function GradeMes({
               key={`dia-${day}`}
               data-dia={day}
               className={cn(
-                "flex min-h-[68px] cursor-pointer flex-col items-stretch gap-1 p-1 text-left tab:min-h-[108px] tab:p-2",
+                "flex min-h-16 cursor-pointer flex-col items-stretch gap-1 p-1 text-left tab:min-h-28 tab:p-2",
                 day === selected ? "bg-brand-soft" : "bg-surface hover:bg-surface-2",
                 destino === day && "bg-event-soft",
               )}

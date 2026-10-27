@@ -11,7 +11,7 @@ import { ItemAnimado, ListaAnimada, useCurva } from "../../components/ui/movimen
 import { Chip } from "../../components/ui/chip";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Vazio } from "../../components/ui/vazio";
-import { Money } from "../../components/ui/money";
+import { formatarReais, Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Stat } from "../../components/ui/stat";
@@ -33,10 +33,6 @@ const MESES = [
 ];
 
 const field = cn(campo, "w-full");
-
-function reais(cents: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
-}
 
 function centavosDaMeta(texto: string, permiteZero: boolean) {
   const limpo = texto.trim();
@@ -67,11 +63,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 function textoDoCalculo(meta: Pick<Meta, "dueYear" | "dueMonth">, calculo: CalculoMeta, sobra: number) {
   if (calculo.alcancada) return ["Você já tem o valor desta meta."];
-  const frases = [`Faltam ${reais(calculo.falta)}.`];
+  const frases = [`Faltam ${formatarReais(calculo.falta)}.`];
   if (calculo.prazoPassou) frases.push("O prazo já passou.");
   if (calculo.porMes !== null && meta.dueMonth && meta.dueYear) {
     frases.push(
-      `Para chegar em ${MESES[meta.dueMonth - 1]} de ${meta.dueYear}, separe ${reais(calculo.porMes)} por mês.`,
+      `Para chegar em ${MESES[meta.dueMonth - 1]} de ${meta.dueYear}, separe ${formatarReais(calculo.porMes)} por mês.`,
     );
   }
   if (calculo.mesesNaSobra !== null) {
@@ -243,7 +239,7 @@ export default function MetasPage() {
                       />
                     </div>
                     <p className="text-sm font-medium">
-                      {reais(meta.savedCents)} de {reais(meta.targetCents)}
+                      {formatarReais(meta.savedCents)} de {formatarReais(meta.targetCents)}
                     </p>
                     <div className="grid gap-1 text-sm text-ink-2">
                       {textoDoCalculo(meta, calculo, dados.surplusCents).map((frase) => (
