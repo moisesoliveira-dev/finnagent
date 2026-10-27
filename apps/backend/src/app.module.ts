@@ -3,6 +3,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AgendaModule } from './agenda/agenda.module.js';
 import { ConfiguracoesModule } from './configuracoes/configuracoes.module.js';
+import { DadosModule } from './dados/dados.module.js';
 import { EventosModule } from './eventos/eventos.module.js';
 import { ExtratosModule } from './extratos/extratos.module.js';
 import { FinancasModule } from './financas/financas.module.js';
@@ -24,6 +25,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
     RelatoriosModule,
     PainelModule,
     ConfiguracoesModule,
+    DadosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

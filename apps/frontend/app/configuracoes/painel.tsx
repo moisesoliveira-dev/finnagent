@@ -176,10 +176,13 @@ export function Painel() {
   const [erroData, setErroData] = useState("");
   const [rascunhoModelo, setRascunhoModelo] = useState("");
   const [erroModelo, setErroModelo] = useState("");
-  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | null>(null);
+  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | null>(null);
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [transferindo, setTransferindo] = useState(false);
   const [palavra, setPalavra] = useState("");
   const [permissao, setPermissao] = useState("");
   const arvore = useRef<HTMLUListElement>(null);
+  const seletor = useRef<HTMLInputElement>(null);
   const sujoRef = useRef(false);
   const salvoRef = useRef<Preferencias | null>(null);
   const sujo = Boolean(form && salvo && JSON.stringify(form) !== JSON.stringify(salvo));
@@ -420,7 +423,51 @@ export function Painel() {
     }
   }
 
+  async function exportar() {
+    setTransferindo(true);
+    try {
+      const resposta = await fetch("/api/dados/exportar");
+      if (!resposta.ok) {
+        const corpo = (await resposta.json().catch(() => ({}))) as { message?: string };
+        throw new Error(corpo.message || "Não foi possível exportar os dados.");
+      }
+      const url = URL.createObjectURL(await resposta.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `prumo-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.sucesso("Dados exportados");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível exportar os dados.");
+    } finally {
+      setTransferindo(false);
+    }
+  }
+
+  async function importar() {
+    if (!arquivo) return;
+    setTransferindo(true);
+    try {
+      const resposta = await fetch("/api/dados/importar", { method: "POST", body: await arquivo.text() });
+      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string; entries?: number };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível importar os dados.");
+      toast.sucesso(`Dados importados: ${corpo.entries ?? 0} lançamentos`);
+      await carregar();
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível importar os dados.");
+    } finally {
+      setTransferindo(false);
+      setArquivo(null);
+      setConfirmacao(null);
+    }
+  }
+
   function confirmarAcao() {
+    if (confirmacao === "importar") {
+      void importar();
+      return;
+    }
     if (confirmacao === "excluir") {
       toast.alerta("A exclusão da conta ainda não está disponível.");
       setPalavra("");
@@ -903,8 +950,24 @@ export function Painel() {
 
             <section hidden={secao !== "dados"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-dados">
               <h2 id="titulo-dados" className="mb-3 font-display text-lg">Dados e privacidade</h2>
-              <Linha id="exportar" titulo="Exportar meus dados" dica="Lançamentos, sessões, grupos e agenda em um arquivo." grupo>
-                <Button onClick={() => toast.alerta("A exportação ainda não está disponível.")}>Exportar</Button>
+              <Linha id="exportar" titulo="Exportar meus dados" dica="Lançamentos, sessões, grupos, agenda, extratos e metas em um arquivo. Senhas e chaves não vão junto." grupo>
+                <Button onClick={() => void exportar()} disabled={transferindo}>Exportar</Button>
+              </Linha>
+              <Linha id="importar" titulo="Importar dados" dica="Carrega um arquivo exportado do Prumo. Os dados atuais são substituídos pelos do arquivo." grupo>
+                <input
+                  ref={seletor}
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={(event) => {
+                    const escolhido = event.target.files?.[0] ?? null;
+                    event.target.value = "";
+                    if (!escolhido) return;
+                    setArquivo(escolhido);
+                    setConfirmacao("importar");
+                  }}
+                />
+                <Button onClick={() => seletor.current?.click()} disabled={transferindo}>Importar</Button>
               </Linha>
               <Linha id="excluir" titulo="Excluir minha conta" dica="Apaga todos os seus dados. Não pode ser desfeito." grupo>
                 <Button
@@ -942,17 +1005,24 @@ export function Painel() {
         onCancel={(event) => {
           event.preventDefault();
           setPalavra("");
+          setArquivo(null);
           setConfirmacao(null);
         }}
       >
         <div className="dialog-corpo grid gap-4">
           <h2 id="titulo-confirmacao" className="font-display text-lg">
-            {confirmacao === "desconectar" ? "Desconectar o Google Calendar?" : "Excluir a conta?"}
+            {confirmacao === "desconectar"
+              ? "Desconectar o Google Calendar?"
+              : confirmacao === "importar"
+                ? "Importar os dados?"
+                : "Excluir a conta?"}
           </h2>
           <p>
             {confirmacao === "desconectar"
               ? "Os compromissos deixam de ser sincronizados. Os lançamentos continuam no Prumo."
-              : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
+              : confirmacao === "importar"
+                ? `Tudo o que você tem hoje (grupos, sessões, lançamentos, compromissos, extratos e metas) será substituído pelo conteúdo de ${arquivo?.name ?? "o arquivo"}. Isso não pode ser desfeito.`
+                : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
           </p>
           {exigePalavra ? (
             <div className="grid gap-1">
@@ -974,13 +1044,14 @@ export function Painel() {
             variant="quiet"
             onClick={() => {
               setPalavra("");
+              setArquivo(null);
               setConfirmacao(null);
             }}
           >
             Cancelar
           </Button>
-          <Button variant="danger" disabled={!podeConfirmar} onClick={confirmarAcao}>
-            {confirmacao === "desconectar" ? "Desconectar" : "Excluir conta"}
+          <Button variant="danger" disabled={!podeConfirmar || transferindo} onClick={confirmarAcao}>
+            {confirmacao === "desconectar" ? "Desconectar" : confirmacao === "importar" ? "Substituir meus dados" : "Excluir conta"}
           </Button>
         </div>
       </Dialogo>
