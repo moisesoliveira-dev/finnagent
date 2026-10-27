@@ -21,6 +21,7 @@ import {
   type Workflow,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
@@ -329,9 +330,7 @@ export default function Financas() {
       >
         <div className="grid min-w-0 gap-4">
           {!ready && !falhou ? (
-            <p role="status" className="max-w-prose text-sm text-ink-2">
-              Carregando finanças.
-            </p>
+            <Carregando texto="Carregando finanças." titulo linhas={5} />
           ) : null}
           {ready && workflow && data ? (
             <Troca id={`${visao}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">

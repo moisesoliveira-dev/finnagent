@@ -17,6 +17,7 @@ import {
   type Tema,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
 import { mola, Seta } from "../../components/ui/movimento";
@@ -522,7 +523,7 @@ export function Painel() {
           </Button>
         </div>
       ) : !form ? (
-        <p className="text-ink-2">Carregando configurações.</p>
+        <Carregando texto="Carregando configurações." linhas={4} />
       ) : (
         <div className="grid items-start gap-6 desk:grid-cols-4">
           <nav className="grid min-w-0 gap-2 desk:sticky desk:top-4 desk:col-span-1" aria-label="Seções das configurações">

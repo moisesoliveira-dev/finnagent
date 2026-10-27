@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { NOME_MES, type GeralResposta } from "@finnagent/contracts";
+import { Carregando } from "../../components/ui/esqueleto";
 import { List } from "../../components/ui/list";
 import { Vazio } from "../../components/ui/vazio";
 import { Money } from "../../components/ui/money";
@@ -37,9 +38,7 @@ export function VisaoGeral({ year, versao }: { year: number; versao: number }) {
 
   if (!dados) {
     return falhou ? null : (
-      <p role="status" className="max-w-prose text-sm text-ink-2">
-        Carregando a visão geral.
-      </p>
+      <Carregando texto="Carregando a visão geral." titulo linhas={3} />
     );
   }
 

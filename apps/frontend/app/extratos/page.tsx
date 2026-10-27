@@ -14,6 +14,7 @@ import {
   type StatusExtrato,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
@@ -329,7 +330,7 @@ export default function Extratos() {
         <span className="text-sm text-ink-2">ou clique para escolher · OFX, CSV, foto ou PDF, até 5 MB</span>
       </button>
 
-      {!dados && !falhou ? <p className="text-sm text-ink-2">Carregando extratos.</p> : null}
+      {!dados && !falhou ? <Carregando texto="Carregando extratos." linhas={3} /> : null}
 
       {dados ? (
         <>
@@ -642,7 +643,7 @@ export default function Extratos() {
                 </p>
               )
             ) : linhasFalhou ? null : (
-              <p className="py-6 text-center text-ink-2">Carregando linhas.</p>
+              <Carregando texto="Carregando linhas." linhas={5} className="py-4" />
             )
           ) : null}
         </div>

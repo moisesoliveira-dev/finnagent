@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { CampoDeSenha } from "../../components/auth/campo-de-senha";
 import { CampoDeTexto } from "../../components/auth/campo-de-texto";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Chip } from "../../components/ui/chip";
 import { Dialogo } from "../../components/ui/dialogo";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
@@ -140,7 +141,7 @@ export function Usuarios({ visivel }: { visivel: boolean }) {
           <Button onClick={() => void carregar()}>Tentar de novo</Button>
         </div>
       ) : !eu ? (
-        <p className="text-ink-2">Carregando…</p>
+        <Carregando texto="Carregando usuários." linhas={3} />
       ) : !master ? (
         <p className="max-w-prose text-ink-2">
           Você usa esta conta como membro. Só o usuário master cria e remove usuários.

@@ -6,6 +6,7 @@ import { calcularMeta, type CalculoMeta, type Meta, type MetasResposta } from "@
 import { CampoValor } from "../financas/campo-valor";
 import { reaisParaCentavos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
 import { ItemAnimado, ListaAnimada, useCurva } from "../../components/ui/movimento";
 import { Chip } from "../../components/ui/chip";
@@ -196,9 +197,7 @@ export default function MetasPage() {
       />
 
       {!dados && !falhou ? (
-        <p role="status" className="max-w-prose text-sm text-ink-2">
-          Carregando metas.
-        </p>
+        <Carregando texto="Carregando metas." linhas={3} />
       ) : null}
 
       {dados ? (

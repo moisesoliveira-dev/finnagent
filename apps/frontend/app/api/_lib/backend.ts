@@ -1,6 +1,12 @@
 import { loginDispensado } from "@finnagent/contracts";
 import { lerToken, limparCookies } from "./sessao";
 
+// Cold start do Railway serverless leva alguns segundos: leitura espera mais e tenta de novo uma vez.
+// Escrita tem prazo maior (importação e cruzamento) e nunca repete.
+const TEMPO_DA_LEITURA = 20_000;
+const TEMPO_DA_ESCRITA = 60_000;
+const FORA_DO_AR = new Set([502, 503, 504]);
+
 // O tenant não é mais escolhido aqui: o backend o descobre pela sessão (Authorization).
 export async function callBackend(path: string, init?: RequestInit) {
   const base = process.env.API_URL;
@@ -15,8 +21,10 @@ export async function callBackend(path: string, init?: RequestInit) {
   // Sem cookie só passa em desenvolvimento; o backend confere o mesmo e responde 401 em produção.
   if (!token && !loginDispensado(process.env)) return semSessao();
 
-  try {
-    const response = await fetch(new URL(path, base.endsWith("/") ? base : `${base}/`), {
+  const url = new URL(path, base.endsWith("/") ? base : `${base}/`);
+  const leitura = (init?.method ?? "GET") === "GET";
+  const pedido = () =>
+    fetch(url, {
       ...init,
       headers: {
         "content-type": "application/json",
@@ -24,7 +32,19 @@ export async function callBackend(path: string, init?: RequestInit) {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(leitura ? TEMPO_DA_LEITURA : TEMPO_DA_ESCRITA),
     });
+
+  try {
+    let response: Response;
+    try {
+      response = await pedido();
+      if (leitura && FORA_DO_AR.has(response.status)) response = await pedido();
+    } catch (error) {
+      // Serviço serverless acordando: uma leitura repete uma vez. Escrita não repete, para não duplicar o efeito.
+      if (!leitura || (error instanceof Error && error.name === "TimeoutError")) throw error;
+      response = await pedido();
+    }
     if (response.status === 401) return semSessao();
     if (response.status === 204) return new Response(null, { status: 204 });
     const body = await response.text();
@@ -35,10 +55,11 @@ export async function callBackend(path: string, init?: RequestInit) {
         "cache-control": "no-store",
       },
     });
-  } catch {
+  } catch (error) {
+    const demorou = error instanceof Error && error.name === "TimeoutError";
     return Response.json(
-      { message: "O backend não respondeu." },
-      { status: 503 },
+      { message: demorou ? "O servidor demorou para responder. Tente de novo." : "O backend não respondeu." },
+      { status: demorou ? 504 : 503 },
     );
   }
 }

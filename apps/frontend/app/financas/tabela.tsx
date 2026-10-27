@@ -5,6 +5,7 @@ import { api } from "./api";
 import { useToast } from "../../components/ui/toast";
 import { CATEGORIAS_TRANSACAO, type BaseResposta, type LinhaBase } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Carregando } from "../../components/ui/esqueleto";
 import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
 import { List } from "../../components/ui/list";
@@ -110,9 +111,7 @@ export function TabelaLancamentos({
 
   if (!dados) {
     return falhou ? null : (
-      <p role="status" className="max-w-prose text-sm text-ink-2">
-        Carregando lançamentos.
-      </p>
+      <Carregando texto="Carregando lançamentos." linhas={6} />
     );
   }
 
