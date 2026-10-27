@@ -199,6 +199,12 @@ button {
   scrollbar-color: var(--ink-2) transparent;
 }
 
+/* Área que rola sem mostrar a barra: o painel da tela de acesso, onde o conteúdo entra deslocado.
+   Fica depois do `*` e fora de camada: utilitário do Tailwind perderia para a regra acima. */
+.sem-barra {
+  scrollbar-width: none;
+}
+
 *::-webkit-scrollbar {
   width: 0.5rem;
   height: 0.5rem;

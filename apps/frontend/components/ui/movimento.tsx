@@ -146,25 +146,57 @@ const item = {
   visivel: { opacity: 1, y: 0, transition: curvaCheia },
 };
 
+// Quem pede menos movimento fica só com opacidade: o `MotionConfig` do app tira o deslocamento. O HTML do
+// servidor não pode depender dessa preferência (ela só existe no navegador), então a variante é sempre a mesma
+// e o estilo inicial, que o cliente descarta nesses casos, usa `suppressHydrationWarning`.
 export function ListaAnimada({ children, ...props }: HTMLMotionProps<"ul">) {
-  const reduzir = useReducedMotion();
   return (
-    <motion.ul
-      initial={reduzir ? false : "oculto"}
-      animate="visivel"
-      variants={reduzir ? undefined : lista}
-      {...props}
-    >
+    <motion.ul suppressHydrationWarning initial="oculto" animate="visivel" variants={lista} {...props}>
       {children}
     </motion.ul>
   );
 }
 
 export function ItemAnimado({ children, ...props }: HTMLMotionProps<"li">) {
-  const reduzir = useReducedMotion();
   return (
-    <motion.li variants={reduzir ? undefined : item} {...props}>
+    <motion.li suppressHydrationWarning variants={item} {...props}>
       {children}
     </motion.li>
+  );
+}
+
+// Blocos que entram um depois do outro: `Cascata` cuida do ritmo e cada `Passo` dentro dela é um degrau.
+// Funciona por qualquer nível de elementos entre os dois. Quem pede menos movimento fica só com opacidade:
+// o `MotionConfig` do app cuida disso. O estilo inicial (deslocamento) que o servidor desenha é descartado
+// no cliente dessas pessoas, então a peça usa `suppressHydrationWarning` nos próprios atributos.
+const passo = {
+  oculto: { opacity: 0, y: 12 },
+  visivel: { opacity: 1, y: 0, transition: curvaCheia },
+};
+
+export function Cascata({
+  children,
+  atraso = 0,
+  intervalo = 0.07,
+  ...props
+}: HTMLMotionProps<"div"> & { atraso?: number; intervalo?: number }) {
+  return (
+    <motion.div
+      suppressHydrationWarning
+      initial="oculto"
+      animate="visivel"
+      variants={{ oculto: {}, visivel: { transition: { staggerChildren: intervalo, delayChildren: atraso } } }}
+      {...props}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export function Passo({ children, ...props }: HTMLMotionProps<"div">) {
+  return (
+    <motion.div suppressHydrationWarning variants={passo} {...props}>
+      {children}
+    </motion.div>
   );
 }
