@@ -1,8 +1,18 @@
-import type { PapelDoUsuario } from "@finnagent/contracts";
+import type { DadosDoPerfil, PapelDoUsuario, TomDoAvatar } from "@finnagent/contracts";
 
 export const AUTH_REPOSITORIO = Symbol("AUTH_REPOSITORIO");
 
 export type Usuario = { id: string; tenantId: string; email: string; name: string; role: PapelDoUsuario };
+
+export type PerfilGravado = Usuario & {
+  headline: string;
+  location: string;
+  bio: string;
+  avatarTone: TomDoAvatar;
+  createdAt: Date;
+};
+
+export type SessaoDeAcessoGravada = { id: string; userAgent: string; createdAt: Date; expiresAt: Date };
 
 export type UsuarioComSenha = Usuario & {
   passwordHash: string;
@@ -51,6 +61,15 @@ export interface AuthRepositorio {
   removerMembro(tenantId: string, id: string): Promise<"removido" | "ausente" | "master">;
   buscarPorEmail(email: string): Promise<UsuarioComSenha | null>;
   buscarUsuario(id: string): Promise<Usuario | null>;
+  buscarComSenha(id: string): Promise<UsuarioComSenha | null>;
+  buscarPerfil(id: string): Promise<PerfilGravado | null>;
+  /** Sem mudança real, não grava nem registra evento. */
+  atualizarPerfil(id: string, dados: DadosDoPerfil): Promise<PerfilGravado | "ausente">;
+  /** Troca o hash e encerra as demais sessões do usuário. Devolve quantas encerrou. */
+  trocarSenha(id: string, passwordHash: string, manterSessao: string): Promise<number | "ausente">;
+  listarSessoes(userId: string, agora: Date): Promise<SessaoDeAcessoGravada[]>;
+  /** Encerra todas as sessões do usuário, menos a indicada. Devolve quantas encerrou. */
+  encerrarOutras(userId: string, manterSessao: string): Promise<number>;
   /** Soma uma falha. Ao chegar no limite, trava a conta e zera o contador. */
   registrarFalha(id: string, limite: number, bloqueioMs: number, agora: Date): Promise<void>;
   zerarFalhas(id: string): Promise<void>;

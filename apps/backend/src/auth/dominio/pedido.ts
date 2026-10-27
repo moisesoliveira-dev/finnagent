@@ -49,13 +49,18 @@ export function interpretarCadastro(corpo: unknown): PedidoDeCadastro | string {
     if (campos.has("email")) return "Informe um e-mail válido.";
     return `A senha precisa ter de ${SENHA_MINIMA} a ${SENHA_MAXIMA} caracteres.`;
   }
-  const { password, email: endereco } = lido.data;
+  const fraca = senhaFraca(lido.data.password, lido.data.email);
+  return fraca ?? lido.data;
+}
+
+/** Motivo para recusar uma senha que cabe no tamanho mas é previsível. `null` se ela serve. */
+export function senhaFraca(password: string, email: string): string | null {
   const minuscula = password.toLowerCase();
-  if (minuscula === endereco || minuscula === endereco.split("@")[0]) {
+  if (minuscula === email || minuscula === email.split("@")[0]) {
     return "A senha não pode ser igual ao e-mail.";
   }
   if (COMUNS.has(minuscula) || new Set(password).size < 4) {
     return "Escolha uma senha menos previsível.";
   }
-  return lido.data;
+  return null;
 }

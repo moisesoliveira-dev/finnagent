@@ -29,6 +29,7 @@ const ABAS = [
   "/extratos",
   "/extratos/conferencia",
   "/configuracoes",
+  "/perfil",
 ];
 
 export function indiceDaAba(pathname: string) {

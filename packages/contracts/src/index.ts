@@ -1764,6 +1764,36 @@ export type UsuarioDaConta = {
   semLogin?: boolean;
 };
 
+// Cores do avatar: cada uma é um par de tokens da interface (fundo e texto). O avatar mostra as iniciais.
+export const TONS_DO_AVATAR = ["brand", "event", "pos", "pending", "neg", "cta", "ink"] as const;
+
+export type TomDoAvatar = (typeof TONS_DO_AVATAR)[number];
+
+export const LIMITES_DO_PERFIL = { name: 80, headline: 80, location: 80, bio: 240 } as const;
+
+/** O perfil é de cada usuário, não da conta: dois usuários do mesmo tenant têm perfis diferentes. */
+export type PerfilDoUsuario = UsuarioDaConta & {
+  headline: string;
+  location: string;
+  bio: string;
+  avatarTone: TomDoAvatar;
+  /** Vazio só para quem entrou sem login em desenvolvimento, que não tem linha na tabela. */
+  createdAt: string | null;
+};
+
+export type DadosDoPerfil = Pick<PerfilDoUsuario, "name" | "headline" | "location" | "bio" | "avatarTone">;
+
+export type SessaoDeAcesso = {
+  /** Começo do identificador, só para a lista. Não serve para encerrar a sessão. */
+  ref: string;
+  device: string;
+  createdAt: string;
+  expiresAt: string;
+  current: boolean;
+};
+
+export type SessoesDoUsuario = { sessions: SessaoDeAcesso[] };
+
 /** O que o backend devolve ao entrar ou cadastrar. O token para no BFF; o navegador recebe só `{ user }`. */
 export type SessaoAberta = {
   token: string;

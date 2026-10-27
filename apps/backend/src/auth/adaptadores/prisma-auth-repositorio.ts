@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import { PAPEIS, type PapelDoUsuario } from "@finnagent/contracts";
+import { PAPEIS, TONS_DO_AVATAR, type DadosDoPerfil, type PapelDoUsuario } from "@finnagent/contracts";
 import type { User } from "@prisma/client";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { gravarOutbox } from "../../persistencia/gravar-outbox.js";
@@ -11,6 +11,7 @@ import type {
   NovaSessao,
   NovoMembro,
   NovoUsuario,
+  PerfilGravado,
   SessaoGravada,
   Usuario,
   UsuarioComSenha,
@@ -103,6 +104,74 @@ export class PrismaAuthRepositorio implements AuthRepositorio {
     return linha ? usuarioDe(linha) : null;
   }
 
+  async buscarComSenha(id: string): Promise<UsuarioComSenha | null> {
+    const linha = await this.banco().user.findUnique({ where: { id } });
+    return linha ? { ...usuarioDe(linha), passwordHash: linha.passwordHash, lockedUntil: linha.lockedUntil } : null;
+  }
+
+  async buscarPerfil(id: string) {
+    const linha = await this.banco().user.findUnique({ where: { id } });
+    return linha ? perfilDe(linha) : null;
+  }
+
+  async atualizarPerfil(id: string, dados: DadosDoPerfil) {
+    return this.banco().$transaction(async (tx) => {
+      const atual = await tx.user.findUnique({ where: { id } });
+      if (!atual) return "ausente" as const;
+      const campos = (Object.keys(dados) as (keyof DadosDoPerfil)[]).filter((campo) => atual[campo] !== dados[campo]);
+      if (campos.length === 0) return perfilDe(atual);
+      const salvo = await tx.user.update({ where: { id }, data: dados });
+      // O evento diz quais campos mudaram, não os valores: texto livre do usuário não vai para a fila.
+      await gravarOutbox(tx, atual.tenantId, "atualizar-perfil", id, { userId: id, campos }, randomUUID());
+      return perfilDe(salvo);
+    });
+  }
+
+  async trocarSenha(id: string, passwordHash: string, manterSessao: string) {
+    return this.banco().$transaction(async (tx) => {
+      const atual = await tx.user.findUnique({ where: { id }, select: { tenantId: true } });
+      if (!atual) return "ausente" as const;
+      await tx.user.update({ where: { id }, data: { passwordHash, failedAttempts: 0, lockedUntil: null } });
+      const encerradas = await tx.authSession.deleteMany({ where: { userId: id, NOT: { id: manterSessao } } });
+      await gravarOutbox(
+        tx,
+        atual.tenantId,
+        "trocar-senha",
+        id,
+        { userId: id, sessoesEncerradas: encerradas.count },
+        randomUUID(),
+      );
+      return encerradas.count;
+    });
+  }
+
+  async listarSessoes(userId: string, agora: Date) {
+    const linhas = await this.banco().authSession.findMany({
+      where: { userId, expiresAt: { gt: agora } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, userAgent: true, createdAt: true, expiresAt: true },
+    });
+    return linhas;
+  }
+
+  async encerrarOutras(userId: string, manterSessao: string) {
+    return this.banco().$transaction(async (tx) => {
+      const dono = await tx.user.findUnique({ where: { id: userId }, select: { tenantId: true } });
+      const encerradas = await tx.authSession.deleteMany({ where: { userId, NOT: { id: manterSessao } } });
+      if (dono && encerradas.count > 0) {
+        await gravarOutbox(
+          tx,
+          dono.tenantId,
+          "encerrar-outras-sessoes",
+          userId,
+          { userId, sessoesEncerradas: encerradas.count },
+          randomUUID(),
+        );
+      }
+      return encerradas.count;
+    });
+  }
+
   async registrarFalha(id: string, limite: number, bloqueioMs: number, agora: Date) {
     await this.banco().$transaction(async (tx) => {
       const atual = await tx.user.update({
@@ -178,6 +247,17 @@ function papelDe(valor: string): PapelDoUsuario {
 
 function usuarioDe(linha: User): Usuario {
   return { id: linha.id, tenantId: linha.tenantId, email: linha.email, name: linha.name, role: papelDe(linha.role) };
+}
+
+function perfilDe(linha: User): PerfilGravado {
+  return {
+    ...usuarioDe(linha),
+    headline: linha.headline,
+    location: linha.location,
+    bio: linha.bio,
+    avatarTone: TONS_DO_AVATAR.find((tom) => tom === linha.avatarTone) ?? "brand",
+    createdAt: linha.createdAt,
+  };
 }
 
 function violouUnico(error: unknown) {

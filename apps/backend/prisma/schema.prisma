@@ -340,6 +340,10 @@ model User {
   tenantId       String        @map("tenant_id")
   email          String        @unique
   name           String        @default("")
+  headline       String        @default("")
+  location       String        @default("")
+  bio            String        @default("")
+  avatarTone     String        @default("brand") @map("avatar_tone")
   role           String        @default("membro")
   passwordHash   String        @map("password_hash")
   failedAttempts Int           @default(0) @map("failed_attempts")
