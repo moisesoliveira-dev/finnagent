@@ -10,6 +10,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -33,6 +34,15 @@ const criarMeta = z
     }
   });
 
+const separarMeta = z.object({ cents: z.number().int().positive().max(2_147_483_647) });
+
+const divisaoDasMetas = z
+  .object({ percents: z.record(z.uuid(), z.number().int().min(0).max(100)) })
+  .refine((pedido) => Object.values(pedido.percents).reduce((soma, valor) => soma + valor, 0) <= 100, {
+    message: "A soma das porcentagens passa de 100%.",
+  });
+const ordemDasMetas = z.object({ ids: z.array(z.uuid()).max(500) });
+
 @Controller("metas")
 export class MetasController {
   constructor(private readonly metas: MetasService) {}
@@ -53,6 +63,41 @@ export class MetasController {
       throw new BadRequestException("Não foi possível salvar a meta.");
     }
     return this.executar(() => this.metas.criar(this.tenant(tenant), pedido.data));
+  }
+
+  @Put("divisao")
+  @HttpCode(204)
+  dividir(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = divisaoDasMetas.safeParse(body);
+    if (!pedido.success) throw new BadRequestException(pedido.error.issues[0]?.message ?? "Divisão inválida.");
+    return this.executar(() => this.metas.dividir(this.tenant(tenant), pedido.data.percents));
+  }
+
+  @Post(":id/aprovar")
+  @HttpCode(204)
+  aprovar(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+    const metaId = z.uuid().safeParse(id);
+    if (!metaId.success) throw new BadRequestException("Meta inválida.");
+    return this.executar(() => this.metas.aprovar(this.tenant(tenant), metaId.data));
+  }
+
+  @Put("ordem")
+  @HttpCode(204)
+  reordenar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = ordemDasMetas.safeParse(body);
+    if (!pedido.success || new Set(pedido.data.ids).size !== pedido.data.ids.length) {
+      throw new BadRequestException("Ordem inválida.");
+    }
+    return this.executar(() => this.metas.reordenar(this.tenant(tenant), pedido.data.ids));
+  }
+
+  @Post(":id/separar")
+  @HttpCode(204)
+  separar(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const metaId = z.uuid().safeParse(id);
+    const pedido = separarMeta.safeParse(body);
+    if (!metaId.success || !pedido.success) throw new BadRequestException("Informe um valor em reais.");
+    return this.executar(() => this.metas.separar(this.tenant(tenant), metaId.data, pedido.data.cents));
   }
 
   @Delete(":id")

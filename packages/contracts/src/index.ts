@@ -1134,17 +1134,63 @@ export type Meta = {
   id: string;
   name: string;
   targetCents: number;
+  /** Com sessão, é o que a sessão da meta acumulou (lançamentos de saída, lidos como positivo). */
   savedCents: number;
   dueYear: number | null;
   dueMonth: number | null;
+  /** A sessão do grupo "Metas" que guarda o valor separado; null nas metas criadas antes dela existir. */
+  sessionId: string | null;
+  /** A ordem de prioridade que a pessoa escolheu: 1 é a primeira a receber da sobra. */
+  position: number;
+};
+
+/** O grupo que recebe uma sessão por meta. */
+export const GRUPO_DAS_METAS = "Metas";
+
+/** A parte da sobra do mês que a pessoa reservou para uma meta, e se já aprovou. */
+export type DivisaoDaMeta = {
+  /** De 0 a 100: a porcentagem da sobra do mês. */
+  percent: number;
+  /** Pendente: porcentagem da sobra de hoje. Aprovada: o valor que foi separado. */
+  cents: number;
+  approved: boolean;
 };
 
 export type MetasResposta = {
   goals: Meta[];
+  /** A sobra do mês antes das metas: o que as metas disputam. */
   surplusCents: number;
+  /** O que as metas já separaram neste mês (saída lançada nas sessões delas). */
+  separatedCents: number;
+  /** Quanto cada meta pede da sobra deste mês, pela prioridade. */
+  suggested: Record<string, number>;
+  /** A divisão da sobra deste mês que a pessoa escolheu, por meta. Meta sem divisão não aparece. */
+  division: Record<string, DivisaoDaMeta>;
   year: number;
   month: number;
 };
+
+/**
+ * As metas têm prioridade na sobra do mês, na ordem que a pessoa escolheu: a primeira recebe antes, cada uma até o
+ * que precisa (a parcela por mês, ou o que falta se não há prazo). A alcançada não pede nada.
+ */
+export function alocarSobra(
+  metas: Pick<Meta, "id" | "name" | "targetCents" | "savedCents" | "dueYear" | "dueMonth" | "position">[],
+  hoje: { year: number; month: number },
+  sobra: number,
+): Record<string, number> {
+  let resta = Math.max(sobra, 0);
+  const pedido: Record<string, number> = {};
+  const ordem = [...metas].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR"));
+  for (const meta of ordem) {
+    const calculo = calcularMeta(meta, hoje, sobra);
+    const precisa = calculo.alcancada ? 0 : (calculo.porMes ?? calculo.falta);
+    const parte = Math.min(precisa, resta);
+    pedido[meta.id] = parte;
+    resta -= parte;
+  }
+  return pedido;
+}
 
 export type CalculoMeta = {
   falta: number;
@@ -1680,7 +1726,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("financeiro", "Grupo", ["criar-grupo", "atualizar-grupo", "remover-grupo", "permanecer-ano"]),
   ...grupo("financeiro", "Sessão", ["criar-sessao", "atualizar-sessao", "encerrar-sessao", "remover-sessao"]),
-  ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta"]),
+  ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta", "reordenar-metas", "dividir-sobra-das-metas", "aprovar-sobra-da-meta"]),
   ...grupo("financeiro", "Feriado", ["criar-feriado-local", "remover-feriado-local"]),
   ...grupo("agenda", "Compromisso", [
     "criar-compromisso",

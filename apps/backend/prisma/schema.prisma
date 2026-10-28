@@ -281,9 +281,25 @@ model Goal {
   savedCents  Int    @default(0) @map("saved_cents")
   dueYear     Int?   @map("due_year")
   dueMonth    Int?   @map("due_month")
+  sessionId   String? @map("session_id")
+  position    Int     @default(0)
 
   @@index([tenantId])
   @@map("goals")
+}
+
+// A parte da sobra de um mês que a pessoa reservou para uma meta. Só vira lançamento quando ela aprova.
+model GoalAllocation {
+  goalId        String  @map("goal_id")
+  tenantId      String  @map("tenant_id")
+  year          Int
+  month         Int
+  percent       Int
+  approvedCents Int?    @map("approved_cents")
+
+  @@id([goalId, year, month])
+  @@index([tenantId, year, month])
+  @@map("goal_allocations")
 }
 
 model Preference {
