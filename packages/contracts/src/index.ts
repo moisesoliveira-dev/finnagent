@@ -2126,7 +2126,9 @@ const resumoDoQueApaga = z
   .describe("Em português, o que será apagado, para a pessoa confirmar. Ex.: 'o lançamento Aluguel de outubro'.");
 
 const camposDoLancamento = z.object({
-  sessionId: idDoSistema.describe("Sessão onde o lançamento entra. Descubra com listar_grupos_e_sessoes."),
+  sessionId: idDoSistema.describe(
+    "Sessão onde o lançamento entra, com grupo e nome que combinam com o valor. Consulte com listar_grupos_e_sessoes; se nenhuma combinar, pergunte à pessoa antes.",
+  ),
   name: z.string().trim().min(1).max(160).describe("Nome curto do lançamento, como 'Aluguel'."),
   description: z.string().trim().max(160).optional().describe("Detalhe opcional."),
   justification: z.string().trim().max(160).optional().describe("Por que existe. Se a pessoa não disser, deixe vazio."),
@@ -2191,7 +2193,12 @@ const camposDoCompromisso = z.object({
   endMonth: mesDoSistema.nullable().optional(),
   endDay: diaDoSistema.nullable().optional(),
   entryId: idDoSistema.nullable().optional().describe("Lançamento ligado a este compromisso, se houver."),
-  sessionId: idDoSistema.nullable().optional().describe("Sessão do gasto do compromisso, se houver."),
+  sessionId: idDoSistema
+    .nullable()
+    .optional()
+    .describe(
+      "Sessão de acúmulo que soma os gastos pagos no dia do compromisso, se houver. Não é o valor do compromisso: valor é lançamento, de finanças.",
+    ),
 });
 
 export type FerramentaDoAssistente = {
@@ -2421,7 +2428,9 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       justification: z.string().trim().max(160).optional(),
       kind: z
         .enum(TIPOS_SESSAO)
-        .describe("valor = recebe um lançamento único; acumulo = junta vários lançamentos de qualquer categoria."),
+        .describe(
+          "valor = recebe um só lançamento, da categoria única (unique); acumulo = junta vários lançamentos de qualquer categoria, inclusive fixa, parcela e empréstimo.",
+        ),
     }),
     rotulo: (args) => `Criou a sessão ${entreAspas(args.name)}`,
   }),
