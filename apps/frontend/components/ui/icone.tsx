@@ -7,7 +7,15 @@ const comum = {
   "aria-hidden": true as const,
 };
 
-export function Icone({ name }: { name: "add" | "edit" | "remove" | "refresh" }) {
+export function Icone({ name }: { name: "add" | "edit" | "remove" | "refresh" | "search" }) {
+  if (name === "search") {
+    return (
+      <svg {...comum}>
+        <circle cx="11" cy="11" r="6" />
+        <path d="M20 20l-4.5-4.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
   if (name === "add") {
     return (
       <svg {...comum}>

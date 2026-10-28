@@ -1488,7 +1488,7 @@ export const CATEGORIAS_EVENTO = [
   {
     code: "financeiro",
     name: "Financeiro",
-    description: "Lançamentos, sessões, grupos e metas",
+    description: "Lançamentos, sessões, grupos, metas e feriados",
     active: true,
   },
   {
@@ -1500,19 +1500,25 @@ export const CATEGORIAS_EVENTO = [
   {
     code: "extratos",
     name: "Extratos",
-    description: "Importação e leitura de extratos",
+    description: "Importação, leitura e cruzamento de extratos",
     active: true,
   },
   {
     code: "agente",
     name: "Agente",
-    description: "Ações propostas e confirmadas pela IA",
+    description: "Conversas e mensagens do assistente de IA",
     active: true,
   },
   {
     code: "configuracoes",
     name: "Configurações",
-    description: "Preferências e a conexão com o Google",
+    description: "Preferências, IA, dados e a conexão com o Google",
+    active: true,
+  },
+  {
+    code: "conta",
+    name: "Conta",
+    description: "Acesso, senha, perfil e usuários",
     active: true,
   },
   {
@@ -1524,6 +1530,11 @@ export const CATEGORIAS_EVENTO = [
 ] as const;
 
 export type CodigoCategoriaEvento = (typeof CATEGORIAS_EVENTO)[number]["code"];
+
+const CODIGOS_CATEGORIA_EVENTO = CATEGORIAS_EVENTO.map((item) => item.code) as [
+  CodigoCategoriaEvento,
+  ...CodigoCategoriaEvento[],
+];
 
 export const STATUS_EVENTO = ["pendente", "processando", "concluído", "com falha"] as const;
 
@@ -1541,6 +1552,10 @@ export type Evento = {
   aggregate: string;
   status: StatusEvento;
   occurredAt: string;
+  /** Quando a fila publicou o evento; null enquanto está pendente. */
+  publishedAt: string | null;
+  /** Quando o consumidor processou; null enquanto não processou. */
+  consumedAt: string | null;
   correlationId: string | null;
   causationId: string | null;
   idempotencyKey: string;
@@ -1559,12 +1574,73 @@ export type HistoricoEvento = {
   error: string;
 };
 
-export type EventosResposta = {
-  categories: Array<(typeof CATEGORIAS_EVENTO)[number]>;
-  events: Evento[];
-  history: HistoricoEvento[];
+export type Paginacao = {
+  /** A página atual, a partir de 1. */
+  number: number;
+  size: number;
+  /** Quantos itens os filtros encontram, somando todas as páginas. */
+  total: number;
 };
 
+export type VolumeDeEventosNoDia = { date: string; total: number; status: Record<StatusEvento, number> };
+
+/**
+ * Uma página da lista de eventos. Cada contagem ignora o próprio filtro (a de categoria ignora a categoria
+ * escolhida; a de status, o status), para mostrar quanto há em cada opção. O volume ignora o dia.
+ */
+export type PaginaDeEventos = {
+  categories: Array<(typeof CATEGORIAS_EVENTO)[number]>;
+  /** O fuso da conta: as datas da tela e o volume por dia seguem ele. */
+  timezone: string;
+  /** Hoje no fuso da conta (AAAA-MM-DD). */
+  today: string;
+  events: Evento[];
+  page: Paginacao;
+  counts: { categories: Record<CodigoCategoriaEvento, number>; status: Record<StatusEvento, number> };
+  volume: VolumeDeEventosNoDia[];
+};
+
+export type PaginaDoHistorico = {
+  timezone: string;
+  today: string;
+  /** Até quando o histórico volta, pela preferência da conta. */
+  retention: Retencao;
+  history: HistoricoEvento[];
+  page: Paginacao;
+};
+
+export type DetalheDoEvento = { timezone: string; event: Evento; history: HistoricoEvento[] };
+
+export const EVENTOS_POR_PAGINA = 50;
+
+export const DIAS_DO_VOLUME_DE_EVENTOS = 30;
+
+const paginaPedida = z.coerce.number().int().min(1).max(100_000).catch(1);
+const buscaPedida = z
+  .string()
+  .catch("")
+  .transform((texto) => texto.trim().slice(0, 120));
+
+/** Os filtros da lista de eventos, vindos da URL ou da query. Valor inválido vira o padrão, sem erro. */
+export const ESQUEMA_FILTRO_DE_EVENTOS = z.object({
+  pagina: paginaPedida,
+  categoria: z.enum(CODIGOS_CATEGORIA_EVENTO).nullable().catch(null),
+  status: z.enum(STATUS_EVENTO).nullable().catch(null),
+  q: buscaPedida,
+  dia: z.iso.date().nullable().catch(null),
+});
+
+export type FiltroDeEventos = z.infer<typeof ESQUEMA_FILTRO_DE_EVENTOS>;
+
+export const ESQUEMA_FILTRO_DO_HISTORICO = z.object({
+  pagina: paginaPedida,
+  resultado: z.enum(RESULTADOS_HISTORICO).nullable().catch(null),
+  q: buscaPedida,
+});
+
+export type FiltroDoHistorico = z.infer<typeof ESQUEMA_FILTRO_DO_HISTORICO>;
+
+/** Uma linha da outbox, com o momento em que foi consumida. */
 export type LinhaOutbox = {
   id: string;
   operation: string;
@@ -1572,129 +1648,131 @@ export type LinhaOutbox = {
   payload: string;
   occurredAt: string;
   publishedAt: string | null;
+  consumedAt: string | null;
 };
 
-export type LinhaConsumo = {
-  idempotencyKey: string;
-  consumedAt: string;
-};
+type InfoDaOperacao = { category: CodigoCategoriaEvento; aggregate: string };
 
-const FINANCEIRO = new Set([
-  "definir-workflow",
-  "criar-lancamento",
-  "atualizar-lancamento",
-  "excluir-lancamento",
-  "atualizar-status-lancamento",
-  "associar-compromisso",
-  "adiantar-parcelas",
-  "cancelar-parcelas",
-  "adiantar-emprestimo",
-  "cancelar-emprestimo",
-  "cancelar-fixo",
-  "suspender-fixo",
-  "atualizar-valor-fixo",
-  "atualizar-ocorrencia",
-  "criar-grupo",
-  "atualizar-grupo",
-  "remover-grupo",
-  "criar-sessao",
-  "atualizar-sessao",
-  "encerrar-sessao",
-  "permanecer-ano",
-  "remover-sessao",
-  "criar-meta",
-  "excluir-meta",
-]);
-
-const EXTRATOS = new Set([
-  "importar-extrato",
-  "reprocessar-extrato",
-  "cruzar-linha",
-  "excluir-extrato",
-  "associar-nome-extrato",
-]);
-
-const NOME_AGREGADO: Record<string, string> = {
-  "definir-workflow": "Fluxo",
-  "criar-lancamento": "Lançamento",
-  "atualizar-lancamento": "Lançamento",
-  "excluir-lancamento": "Lançamento",
-  "atualizar-status-lancamento": "Lançamento",
-  "associar-compromisso": "Lançamento",
-  "adiantar-parcelas": "Lançamento",
-  "cancelar-parcelas": "Lançamento",
-  "adiantar-emprestimo": "Lançamento",
-  "cancelar-emprestimo": "Lançamento",
-  "cancelar-fixo": "Lançamento",
-  "suspender-fixo": "Lançamento",
-  "atualizar-valor-fixo": "Lançamento",
-  "atualizar-ocorrencia": "Lançamento",
-  "criar-grupo": "Grupo",
-  "atualizar-grupo": "Grupo",
-  "remover-grupo": "Grupo",
-  "criar-sessao": "Sessão",
-  "atualizar-sessao": "Sessão",
-  "encerrar-sessao": "Sessão",
-  "permanecer-ano": "Grupo",
-  "remover-sessao": "Sessão",
-  "criar-meta": "Meta",
-  "excluir-meta": "Meta",
-  "salvar-configuracoes": "Configurações",
-  "iniciar-google": "Configurações",
-  "conectar-google": "Configurações",
-  "desconectar-google": "Configurações",
-  "atualizar-fuso": "Configurações",
-  "criar-compromisso": "Compromisso",
-  "atualizar-compromisso": "Compromisso",
-  "excluir-compromisso": "Compromisso",
-  "atualizar-status-compromisso": "Compromisso",
-  "sincronizar-google-agenda": "Calendário",
-  "atualizar-fuso-calendario": "Calendário",
-  "importar-extrato": "Extrato",
-  "reprocessar-extrato": "Extrato",
-  "cruzar-linha": "Linha de extrato",
-  "excluir-extrato": "Extrato",
-  "associar-nome-extrato": "Extrato",
-};
-
-export function montarEventos(linhas: LinhaOutbox[], consumos: LinhaConsumo[]): EventosResposta {
-  const consumido = new Map(consumos.map((linha) => [linha.idempotencyKey, linha]));
-  const events = linhas.map((linha) => eventoDe(linha, consumido.has(linha.idempotencyKey)));
-  const porChave = new Map(linhas.map((linha, indice) => [linha.idempotencyKey, events[indice]]));
-  const history = consumos.flatMap((consumo) => {
-    const montado = porChave.get(consumo.idempotencyKey);
-    if (!montado) return [];
-    return [
-      {
-        eventId: montado.id,
-        eventType: montado.type,
-        consumer: "Publicar outbox",
-        result: "sucesso" as const,
-        attempt: 1,
-        durationMs: null,
-        occurredAt: consumo.consumedAt,
-        error: "",
-      },
-    ];
-  });
-  events.sort((a, b) => compararRecente(a.occurredAt, b.occurredAt));
-  history.sort((a, b) => compararRecente(a.occurredAt, b.occurredAt));
-  return { categories: [...CATEGORIAS_EVENTO], events, history };
+function grupo(category: CodigoCategoriaEvento, aggregate: string, operacoes: string[]) {
+  return operacoes.map((operation): [string, InfoDaOperacao] => [operation, { category, aggregate }]);
 }
 
-function eventoDe(linha: LinhaOutbox, publicadoEConsumido: boolean): Evento {
+// Cada operação que vai para a outbox, com a categoria e o nome do agregado. Operação nova que não entrar
+// aqui aparece como "Sistema · Registro".
+const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
+  ...grupo("financeiro", "Fluxo", ["definir-workflow"]),
+  ...grupo("financeiro", "Lançamento", [
+    "criar-lancamento",
+    "atualizar-lancamento",
+    "excluir-lancamento",
+    "atualizar-status-lancamento",
+    "associar-compromisso",
+    "adiantar-parcelas",
+    "cancelar-parcelas",
+    "adiantar-emprestimo",
+    "cancelar-emprestimo",
+    "cancelar-fixo",
+    "suspender-fixo",
+    "atualizar-valor-fixo",
+    "atualizar-ocorrencia",
+    "excluir-ocorrencia",
+    "redatar-vencimentos",
+  ]),
+  ...grupo("financeiro", "Grupo", ["criar-grupo", "atualizar-grupo", "remover-grupo", "permanecer-ano"]),
+  ...grupo("financeiro", "Sessão", ["criar-sessao", "atualizar-sessao", "encerrar-sessao", "remover-sessao"]),
+  ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta"]),
+  ...grupo("financeiro", "Feriado", ["criar-feriado-local", "remover-feriado-local"]),
+  ...grupo("agenda", "Compromisso", [
+    "criar-compromisso",
+    "atualizar-compromisso",
+    "excluir-compromisso",
+    "atualizar-status-compromisso",
+  ]),
+  ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
+  ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
+  ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato"]),
+  ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento"]),
+  ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
+  ...grupo("agente", "Conversa", [
+    "criar-conversa",
+    "renomear-conversa",
+    "remover-conversa",
+    "remover-conversas",
+    "expirar-conversas",
+  ]),
+  ...grupo("agente", "Mensagem", ["registrar-mensagem-do-assistente"]),
+  ...grupo("configuracoes", "Configurações", [
+    "salvar-configuracoes",
+    "iniciar-google",
+    "conectar-google",
+    "desconectar-google",
+  ]),
+  ...grupo("configuracoes", "Assistente de IA", ["salvar-assistente-de-ia"]),
+  ...grupo("configuracoes", "Provedor de IA", ["criar-provedor-de-ia", "atualizar-provedor-de-ia", "remover-provedor-de-ia"]),
+  ...grupo("configuracoes", "Dados", ["importar-dados"]),
+  ...grupo("conta", "Acesso", [
+    "abrir-sessao",
+    "encerrar-sessao-de-acesso",
+    "encerrar-outras-sessoes",
+    "registrar-falha-de-acesso",
+    "zerar-falhas-de-acesso",
+    "bloquear-conta",
+    "trocar-senha",
+  ]),
+  ...grupo("conta", "Perfil", ["atualizar-perfil"]),
+  ...grupo("conta", "Usuário", ["criar-usuario", "remover-usuario"]),
+]);
+
+const VINDAS_DA_IMPORTACAO = new Set(["importar-extrato", "reprocessar-extrato"]);
+
+export const CATEGORIA_DE_OPERACAO_DESCONHECIDA: CodigoCategoriaEvento = "sistema";
+export const AGREGADO_DE_OPERACAO_DESCONHECIDA = "Registro";
+export const ORIGEM_PADRAO_DO_EVENTO = "sistema";
+
+function origemDe(operation: string) {
+  return VINDAS_DA_IMPORTACAO.has(operation) ? "importação" : ORIGEM_PADRAO_DO_EVENTO;
+}
+
+/**
+ * As operações conhecidas, para o banco filtrar e buscar pelo mesmo critério da tela: a busca acha o texto no
+ * tipo, no nome do agregado ou na origem; e, quando o texto parece começo de id, o id do evento ou do agregado.
+ */
+export const OPERACOES_DE_EVENTO: ReadonlyArray<InfoDaOperacao & { operation: string; origin: string }> = [
+  ...INFO_DA_OPERACAO,
+].map(([operation, info]) => ({ operation, ...info, origin: origemDe(operation) }));
+
+/** Os campos do payload que dão o id do agregado, na ordem em que valem. */
+export const CAMPOS_DO_ID_DO_AGREGADO = ["id", "statementId", "userId"] as const;
+
+/** Quem consome o evento hoje: a publicação da outbox. */
+export const CONSUMIDOR_DA_OUTBOX = "Publicar outbox";
+
+/** O status pelo andamento na fila. O banco usa os mesmos nomes para filtrar e contar. */
+export const STATUS_DA_LINHA = {
+  semPublicar: "pendente",
+  semConsumir: "processando",
+  consumida: "concluído",
+} as const satisfies Record<string, StatusEvento>;
+
+export function statusDaLinha(linha: Pick<LinhaOutbox, "publishedAt" | "consumedAt">): StatusEvento {
+  if (!linha.publishedAt) return STATUS_DA_LINHA.semPublicar;
+  return linha.consumedAt ? STATUS_DA_LINHA.consumida : STATUS_DA_LINHA.semConsumir;
+}
+
+/** O evento da tela a partir da linha da outbox. O payload sai com os campos sensíveis mascarados. */
+export function eventoDaLinha(linha: LinhaOutbox): Evento {
   const bruto = lerJson(linha.payload);
+  const info = INFO_DA_OPERACAO.get(linha.operation);
   return {
     id: linha.id,
     type: linha.operation,
-    category: categoriaDe(linha.operation),
-    origin:
-      linha.operation === "importar-extrato" || linha.operation === "reprocessar-extrato"
-        ? "importação"
-        : "sistema",
-    aggregate: agregadoDe(linha.operation, bruto),
-    status: !linha.publishedAt ? "pendente" : publicadoEConsumido ? "concluído" : "processando",
+    category: info?.category ?? CATEGORIA_DE_OPERACAO_DESCONHECIDA,
+    origin: origemDe(linha.operation),
+    aggregate: agregadoDe(info?.aggregate ?? AGREGADO_DE_OPERACAO_DESCONHECIDA, bruto),
+    status: statusDaLinha(linha),
     occurredAt: linha.occurredAt,
+    publishedAt: linha.publishedAt,
+    consumedAt: linha.consumedAt,
     correlationId: null,
     causationId: null,
     idempotencyKey: linha.idempotencyKey,
@@ -1703,42 +1781,30 @@ function eventoDe(linha: LinhaOutbox, publicadoEConsumido: boolean): Evento {
   };
 }
 
-function compararRecente(a: string, b: string) {
-  if (a === b) return 0;
-  return a < b ? 1 : -1;
+/** O processamento do evento: hoje é um passo só, a publicação da outbox, quando ela foi consumida. */
+export function historicoDoEvento(evento: Evento): HistoricoEvento[] {
+  if (!evento.consumedAt) return [];
+  const publicado = evento.publishedAt ? Date.parse(evento.publishedAt) : Number.NaN;
+  const consumido = Date.parse(evento.consumedAt);
+  return [
+    {
+      eventId: evento.id,
+      eventType: evento.type,
+      consumer: CONSUMIDOR_DA_OUTBOX,
+      result: "sucesso",
+      attempt: 1,
+      durationMs: Number.isNaN(publicado) || Number.isNaN(consumido) ? null : Math.max(0, consumido - publicado),
+      occurredAt: evento.consumedAt,
+      error: "",
+    },
+  ];
 }
 
-const CONFIGURACOES = new Set([
-  "salvar-configuracoes",
-  "iniciar-google",
-  "conectar-google",
-  "desconectar-google",
-]);
-
-const AGENDA = new Set([
-  "criar-compromisso",
-  "atualizar-compromisso",
-  "excluir-compromisso",
-  "atualizar-status-compromisso",
-  "sincronizar-google-agenda",
-  "atualizar-fuso-calendario",
-  "atualizar-fuso",
-]);
-
-function categoriaDe(operation: string): CodigoCategoriaEvento {
-  if (FINANCEIRO.has(operation)) return "financeiro";
-  if (AGENDA.has(operation)) return "agenda";
-  if (EXTRATOS.has(operation)) return "extratos";
-  if (CONFIGURACOES.has(operation)) return "configuracoes";
-  return "sistema";
-}
-
-function agregadoDe(operation: string, payload: unknown) {
-  const nome = NOME_AGREGADO[operation] ?? "Registro";
+function agregadoDe(nome: string, payload: unknown) {
   if (!payload || typeof payload !== "object") return nome;
-  const registro = payload as { id?: unknown; statementId?: unknown };
-  const id = typeof registro.id === "string" ? registro.id : typeof registro.statementId === "string" ? registro.statementId : "";
-  return id ? `${nome} · ${id}` : nome;
+  const registro = payload as Record<string, unknown>;
+  const campo = CAMPOS_DO_ID_DO_AGREGADO.find((chave) => typeof registro[chave] === "string" && registro[chave]);
+  return campo ? `${nome} · ${String(registro[campo])}` : nome;
 }
 
 function lerJson(texto: string): unknown {

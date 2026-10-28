@@ -230,7 +230,8 @@ export class PrismaAuthRepositorio implements AuthRepositorio {
       // Duas chamadas ao mesmo tempo podem chegar aqui: só quem de fato apagou registra o evento.
       const apagadas = await tx.authSession.deleteMany({ where: { id } });
       if (apagadas.count === 0) return;
-      await gravarOutbox(tx, linha.tenantId, "encerrar-sessao", linha.userId, { userId: linha.userId, motivo }, randomUUID());
+      // O nome difere do "encerrar-sessao" das sessões de finanças, para a tela de Eventos saber de qual se trata.
+      await gravarOutbox(tx, linha.tenantId, "encerrar-sessao-de-acesso", linha.userId, { userId: linha.userId, motivo }, randomUUID());
     });
   }
 
