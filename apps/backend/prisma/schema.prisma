@@ -100,6 +100,11 @@ model Entry {
   commitmentId        String?       @map("commitment_id")
   recurrence          String?
   recurrenceInterval  Int?          @map("recurrence_interval")
+  // Regra de vencimento: como cada data cai em dia útil. O padrão é o dia como está.
+  dueRule             String        @default("dia") @map("due_rule")
+  dueOrder            Int?          @map("due_order")
+  dueShift            String        @default("manter") @map("due_shift")
+  dueCount            String        @default("bancaria") @map("due_count")
   session           Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   amounts           EntryAmount[]
   adjustments       EntryAdjustment[]
@@ -307,6 +312,9 @@ model Preference {
   aiApiKey               String   @default("") @map("ai_api_key")
   aiModels               String[] @default([]) @map("ai_models")
   aiModel                String   @default("") @map("ai_model")
+  dueDefaults            Json     @default("{}") @map("due_defaults")
+  showHolidays           Boolean  @default(true) @map("show_holidays")
+  showOptionalHolidays   Boolean  @default(true) @map("show_optional_holidays")
 
   @@map("preferences")
 }
@@ -428,4 +436,18 @@ model AiMessage {
   @@index([conversationId, createdAt])
   @@index([tenantId])
   @@map("ai_messages")
+}
+
+// Feriado da cidade ou do estado, cadastrado pela conta: repete todo ano no mesmo dia.
+model Holiday {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  name      String
+  day       Int
+  month     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, month, day])
+  @@index([tenantId])
+  @@map("holidays")
 }

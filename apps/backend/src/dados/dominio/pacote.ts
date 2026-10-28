@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AJUSTES_DE_DIA_UTIL, CONTAGENS_DE_DIA_UTIL, TIPOS_DE_REGRA } from "@finnagent/contracts";
 import { z } from "zod";
 
 export const APLICATIVO = "finnagent";
@@ -56,6 +57,10 @@ const lancamento = z.object({
   commitmentId: idOuNulo,
   recurrence: texto.nullable(),
   recurrenceInterval: inteiro.nullable(),
+  dueRule: z.enum(TIPOS_DE_REGRA).default("dia"),
+  dueOrder: inteiro.min(1).max(23).nullable().default(null),
+  dueShift: z.enum(AJUSTES_DE_DIA_UTIL).default("manter"),
+  dueCount: z.enum(CONTAGENS_DE_DIA_UTIL).default("bancaria"),
 });
 const ocorrencia = z.object({
   entryId: id,
@@ -146,7 +151,11 @@ const preferencias = z.object({
   history: texto,
   aiModels: z.array(texto).max(100),
   aiModel: texto,
+  dueDefaults: z.record(z.string(), z.enum(AJUSTES_DE_DIA_UTIL)).default({}),
+  showHolidays: z.boolean().default(true),
+  showOptionalHolidays: z.boolean().default(true),
 });
+const feriadoLocal = z.object({ id, name: texto, day: inteiro.min(1).max(31), month: inteiro.min(1).max(12) });
 const fluxo = z.object({ year: inteiro, month: inteiro, day: inteiro });
 
 const dados = z.object({
@@ -165,6 +174,7 @@ const dados = z.object({
   statementLines: lista(linhaDeExtrato),
   statementAliases: lista(apelido),
   goals: lista(meta),
+  holidays: lista(feriadoLocal),
   preferences: preferencias.nullable().default(null),
   workflow: fluxo.nullable().default(null),
 });
@@ -287,6 +297,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       entryId: de(lancamentos, item.entryId),
     })),
     goals: dados.goals.map((item) => ({ ...item, id: randomUUID() })),
+    holidays: dados.holidays.map((item) => ({ ...item, id: randomUUID() })),
   };
 }
 

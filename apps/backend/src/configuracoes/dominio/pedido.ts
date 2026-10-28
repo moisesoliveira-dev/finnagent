@@ -1,10 +1,12 @@
 import {
+  AJUSTES_DE_DIA_UTIL,
   FUSOS_AGENDA,
   HORAS_PENDENTE,
   LEMBRETES,
   LIMITE_ID_MODELO,
   LIMITE_MODELOS_IA,
   MODOS_CATEGORIA,
+  PADROES_DE_VENCIMENTO_INICIAIS,
   RETENCOES,
   TEMAS,
   idDeModelo,
@@ -45,6 +47,16 @@ const pedido = z.object({
   aiModel: z.string().trim().max(LIMITE_ID_MODELO).default(""),
   aiApiKey: z.string().max(400).default(""),
   limparChaveIa: z.boolean().default(false),
+  vencimentos: z
+    .object({
+      fixa_entrada: z.enum(AJUSTES_DE_DIA_UTIL),
+      fixa_saida: z.enum(AJUSTES_DE_DIA_UTIL),
+      parcela: z.enum(AJUSTES_DE_DIA_UTIL),
+      emprestimo: z.enum(AJUSTES_DE_DIA_UTIL),
+    })
+    .default(PADROES_DE_VENCIMENTO_INICIAIS),
+  feriadosNaAgenda: z.boolean().default(true),
+  facultativosNaAgenda: z.boolean().default(true),
 });
 
 export function dataDoWorkflow(texto: string) {

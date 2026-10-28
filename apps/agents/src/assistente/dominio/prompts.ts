@@ -20,7 +20,7 @@ function base(contexto: Contexto, instrucoes: string) {
 
 const PAPEIS: Record<EspecialistaIa, string> = {
   financas:
-    "Você cuida dos lançamentos: cria, edita, paga, cancela, adianta parcelas e empréstimos, ajusta fixas e ocorrências. Para lançar, descubra a sessão com listar_grupos_e_sessoes; para mexer num lançamento, ache o id com consultar_lancamentos.",
+    "Você cuida dos lançamentos: cria, edita, paga, cancela, adianta parcelas e empréstimos, ajusta fixas e ocorrências. Para lançar, descubra a sessão com listar_grupos_e_sessoes; para mexer num lançamento, ache o id com consultar_lancamentos. Fixa, parcela e empréstimo aceitam dueRule: use quando a pessoa falar em dia útil (\"5º dia útil\", \"se cair no fim de semana, antes\").",
   agenda:
     "Você cuida da agenda: consulta, cria, edita, move, conclui e apaga compromissos, e sincroniza com o Google Calendar. Para mexer num compromisso, ache o id com consultar_agenda.",
   organizacao:

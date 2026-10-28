@@ -34,6 +34,10 @@ function lancamento(args: Args, identificador: string) {
     nextDueDate: args.nextDueDate ?? null,
     recurrence: args.recurrence ?? null,
     recurrenceInterval: args.recurrenceInterval ?? null,
+    // Sem regra, o backend aplica o padrão da categoria nas configurações.
+    dueRule: args.dueRule
+      ? { ordem: null, contagem: "bancaria", ...args.dueRule }
+      : null,
   };
 }
 

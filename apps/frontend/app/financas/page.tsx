@@ -2,20 +2,31 @@
 
 import { useEffect, useState } from "react";
 import {
+  CALENDARIO_NACIONAL,
   CATEGORIAS_TRANSACAO,
   MODOS_TRANSACAO,
+  PADROES_DE_VENCIMENTO_INICIAIS,
   PRIORIDADES_TRANSACAO,
   RECORRENCIAS,
+  REGRA_SEM_AJUSTE,
   STATUS_TRANSACAO,
   TIPOS_TRANSACAO,
+  aceitaRegraDeVencimento,
+  criarCalendario,
+  regraPadrao,
+  type CalendarioDeDiasUteis,
   type CategoriaTransacao,
+  type Configuracoes,
+  type FeriadoLocal,
   type FinancasVista,
   type GruposResposta,
   type LancamentoVista,
   type ModoTransacao,
   type PrioridadeTransacao,
+  type PadroesDeVencimento,
   type Recorrencia,
   type RegraCategoria,
+  type RegraDeVencimento,
   type StatusTransacao,
   type TipoTransacao,
   type Workflow,
@@ -38,6 +49,7 @@ import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
+import { RegraDoVencimento } from "./regra-do-vencimento";
 import { centavosParaReais, doisDigitos, reaisParaCentavos } from "./reais";
 import {
   ROTULO_CATEGORIA,
@@ -72,6 +84,9 @@ type Rascunho = {
   recurrence: Recorrencia;
   recurrenceInterval: string;
   commitmentId: string;
+  dueRule: RegraDeVencimento;
+  /** false: a regra segue o padrão das configurações enquanto a pessoa não mexer. */
+  dueRuleManual: boolean;
 };
 
 const field = cn(campo, "w-full");
@@ -89,6 +104,8 @@ export default function Financas() {
   const [foco, setFoco] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
   const [saving, setSaving] = useState(false);
+  const [vencimentos, setVencimentos] = useState<PadroesDeVencimento>(PADROES_DE_VENCIMENTO_INICIAIS);
+  const [calendario, setCalendario] = useState<CalendarioDeDiasUteis>(CALENDARIO_NACIONAL);
 
   function carregar() {
     return api<FinancasVista>("/api/financas")
@@ -140,6 +157,19 @@ export default function Financas() {
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
   const travado = entrada?.termsLocked ?? false;
+  const padraoDoVencimento = draft && vista ? regraPadrao(vencimentos, draft.category, vista.mode) : REGRA_SEM_AJUSTE;
+  const regraDoVencimento = draft?.dueRuleManual ? draft.dueRule : padraoDoVencimento;
+
+  // Os padrões de vencimento e os feriados da conta deixam a prévia igual ao que o backend grava.
+  // Se falharem, a prévia usa os padrões iniciais e os feriados nacionais, e o backend continua mandando.
+  async function prepararVencimento() {
+    const [config, feriados] = await Promise.all([
+      api<Configuracoes>("/api/configuracoes").catch(() => null),
+      api<{ locais: FeriadoLocal[] }>("/api/feriados").catch(() => null),
+    ]);
+    if (config?.vencimentos) setVencimentos(config.vencimentos);
+    if (feriados) setCalendario(criarCalendario(feriados.locais));
+  }
 
   async function excluir(entry: LancamentoVista) {
     try {
@@ -160,7 +190,7 @@ export default function Financas() {
 
   async function abrirEdicao(entry: LancamentoVista, numero?: number) {
     try {
-      const opcoes = await sessoesAbertas();
+      const [opcoes] = await Promise.all([sessoesAbertas(), prepararVencimento()]);
       if (!opcoes.some((session) => session.id === entry.sessionId)) {
         opcoes.unshift({
           id: entry.sessionId,
@@ -197,7 +227,7 @@ export default function Financas() {
 
   async function abrirLancamento() {
     try {
-      const abertas = await sessoesAbertas();
+      const [abertas] = await Promise.all([sessoesAbertas(), prepararVencimento()]);
       const opcoes = abertas.filter((session) => session.available);
       if (opcoes.length === 0) {
         toast.alerta(
@@ -231,6 +261,8 @@ export default function Financas() {
         recurrence: "monthly",
         recurrenceInterval: "1",
         commitmentId: "",
+        dueRule: REGRA_SEM_AJUSTE,
+        dueRuleManual: false,
       });
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
@@ -270,6 +302,9 @@ export default function Financas() {
           nextDueDate: draft.nextDueDate || null,
           recurrence: draft.recurrence,
           recurrenceInterval: numeroDoCampo(draft.recurrenceInterval),
+          // Sem escolha da pessoa, vai null e o backend aplica o padrão atual das configurações.
+          dueRule:
+            aceitaRegraDeVencimento(draft.category) && (draft.dueRuleManual || editando) ? regraDoVencimento : null,
         }),
       });
       gravou = true;
@@ -713,6 +748,22 @@ export default function Financas() {
                 )}
               </div>
             ) : null}
+            {draft && vista && aceitaRegraDeVencimento(draft.category) ? (
+              <RegraDoVencimento
+                category={draft.category}
+                recurrence={draft.category === "fixed" ? draft.recurrence : null}
+                recurrenceInterval={numeroDoCampo(draft.recurrenceInterval)}
+                installments={numeroDoCampo(draft.installments)}
+                date={draft.date}
+                regra={regraDoVencimento}
+                padrao={padraoDoVencimento}
+                editando={editando}
+                calendario={calendario}
+                onChange={(dueRule, dueRuleManual) =>
+                  setDraft((current) => (current ? { ...current, dueRule, dueRuleManual } : current))
+                }
+              />
+            ) : null}
             {entrada ? (
               <OcorrenciasDoLancamento
                 entry={entrada}
@@ -840,6 +891,8 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
     recurrence: entry.recurrence ?? "monthly",
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),
     commitmentId: entry.commitmentId ?? "",
+    dueRule: entry.dueRule ?? REGRA_SEM_AJUSTE,
+    dueRuleManual: true,
   };
 }
 

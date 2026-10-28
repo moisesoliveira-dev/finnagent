@@ -71,7 +71,7 @@ export function montarItens(
   if (camadas.lancamento) {
     for (const item of entries) {
       itens.push({
-        id: `lancamento-${item.id}`,
+        id: `lancamento-${item.id}-${item.number}`,
         kind: "lancamento",
         day: item.day,
         time: null,

@@ -328,6 +328,8 @@ export type Lancamento = {
   recurrenceInterval: number | null;
   synced: boolean;
   occurrences?: Ocorrencia[];
+  /** Como cada vencimento cai em dia útil. Sem regra, é o dia como está. */
+  dueRule?: RegraDeVencimento;
 };
 
 export type FinancasResposta = {
@@ -627,6 +629,7 @@ type ContratoLancamento = Pick<
   | "recurrence"
   | "recurrenceInterval"
   | "adjustments"
+  | "dueRule"
 >;
 
 export function ocorrenciasDoLancamento(entry: Lancamento) {
@@ -634,7 +637,7 @@ export function ocorrenciasDoLancamento(entry: Lancamento) {
   return gradeDoLancamento(entry);
 }
 
-export function gradeDoLancamento(entry: ContratoLancamento): Ocorrencia[] {
+export function gradeDoLancamento(entry: ContratoLancamento, calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL): Ocorrencia[] {
   if (entry.type === "adicional" || entry.type === "variável") {
     return [...entry.months]
       .sort((a, b) => a.year - b.year || a.month - b.month)
@@ -649,7 +652,7 @@ export function gradeDoLancamento(entry: ContratoLancamento): Ocorrencia[] {
       );
   }
   if (entry.type === "fixo") {
-    return datasFixas(entry).map((dueDate, index) =>
+    return datasFixas(entry, calendario).map((dueDate, index) =>
       montarOcorrencia(index + 1, dueDate, entry.cents, entry, entry.status),
     );
   }
@@ -660,7 +663,13 @@ export function gradeDoLancamento(entry: ContratoLancamento): Ocorrencia[] {
     const year = Math.floor(absoluto / 12);
     const month = (absoluto % 12) + 1;
     lista.push(
-      montarOcorrencia(parcela + 1, isoDaData(year, month, entry.day), entry.cents, entry, entry.status),
+      montarOcorrencia(
+        parcela + 1,
+        dataPelaRegra(year, month, entry.day, entry.dueRule ?? REGRA_SEM_AJUSTE, calendario),
+        entry.cents,
+        entry,
+        entry.status,
+      ),
     );
   }
   return lista;
@@ -771,7 +780,8 @@ function statusDaGrade(
   return statusPedido;
 }
 
-function datasFixas(entry: ContratoLancamento) {
+function datasFixas(entry: ContratoLancamento, calendario: CalendarioDeDiasUteis) {
+  const regra = entry.dueRule ?? REGRA_SEM_AJUSTE;
   const recurrence = entry.recurrence ?? "monthly";
   const passo = Math.max(entry.recurrenceInterval ?? 1, 1);
   if (recurrence === "weekly" || recurrence === "customize") {
@@ -782,7 +792,8 @@ function datasFixas(entry: ContratoLancamento) {
         ...datasNoMes(entry.startYear, entry.startMonth, entry.day, entry.startYear, monthIndex, stepDays),
       );
     }
-    return datas;
+    // Semanal e a cada N dias: "Nº dia útil" não se aplica; só o ajuste quando cai em dia não útil.
+    return datas.map((data) => ajustarAoDiaUtil(data, { ...regra, tipo: "dia" }, calendario));
   }
   const datas: string[] = [];
   for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
@@ -795,7 +806,7 @@ function datasFixas(entry: ContratoLancamento) {
       entry.startYear,
       monthIndex,
     );
-    if (vezes === 1) datas.push(isoDaData(entry.startYear, monthIndex + 1, entry.day));
+    if (vezes === 1) datas.push(dataPelaRegra(entry.startYear, monthIndex + 1, entry.day, regra, calendario));
   }
   return datas;
 }
@@ -886,6 +897,10 @@ export type Preferencias = {
   aiModel: string;
   aiApiKey: string;
   limparChaveIa: boolean;
+  /** O ajuste sugerido por categoria quando um vencimento cai em dia não útil. */
+  vencimentos: PadroesDeVencimento;
+  feriadosNaAgenda: boolean;
+  facultativosNaAgenda: boolean;
 };
 
 export type AgendaGoogle = {
@@ -913,6 +928,8 @@ export type EstadoGoogle = "desconectado" | "sincronizando" | "sincronizado" | "
 
 export type LancamentoDoMes = {
   id: string;
+  /** A ocorrência do dia. A fixa semanal, ou um vencimento que o ajuste trouxe de outro mês, aparece mais de uma vez no mês. */
+  number: number;
   description: string;
   day: number;
   groupName: string;
@@ -981,6 +998,8 @@ export type AgendaResposta = {
   appointments: Compromisso[];
   entries: LancamentoDoMes[];
   sessions: SessaoDaAgenda[];
+  /** Feriados e pontos facultativos do mês, conforme as configurações de exibição. */
+  holidays: Feriado[];
 };
 
 export const LIMITE_EXTRATO_BYTES = 5 * 1024 * 1024;
@@ -2134,6 +2153,24 @@ const camposDoLancamento = z.object({
     .optional()
     .describe("Recorrência da fixa: weekly, monthly, quarterly, semi_annual, annual ou customize."),
   recurrenceInterval: z.number().int().min(1).max(3660).optional().describe("Intervalo da recorrência. Mensal = 1."),
+  dueRule: z
+    .object({
+      tipo: z
+        .enum(["dia", "dia_util", "ultimo_dia_util"])
+        .describe("dia = o dia da data; dia_util = o Nº dia útil do mês (ex.: 5º dia útil); ultimo_dia_util = último dia útil."),
+      ordem: z.number().int().min(1).max(23).nullable().optional().describe("O N do Nº dia útil. Só com tipo dia_util."),
+      ajuste: z
+        .enum(["manter", "antecipar", "adiar", "adiar_no_mes"])
+        .describe("Se o dia cair em fim de semana ou feriado: manter, antecipar, adiar ou adiar sem trocar de mês. Só com tipo dia."),
+      contagem: z
+        .enum(["bancaria", "clt"])
+        .optional()
+        .describe("bancaria = seg a sex (padrão); clt = o sábado conta, como no 5º dia útil do salário."),
+    })
+    .optional()
+    .describe(
+      "Só para fixa, parcela e empréstimo, quando a pessoa disser como cai em dia útil. Sem isso vale o padrão da conta. Ex.: salário no 5º dia útil = { tipo: dia_util, ordem: 5, ajuste: antecipar, contagem: clt }.",
+    ),
 });
 
 const camposDoCompromisso = z.object({
@@ -2657,4 +2694,369 @@ export const FERRAMENTAS_POR_NOME = new Map(FERRAMENTAS_DO_ASSISTENTE.map((item)
 
 export function ferramentasDo(agente: EspecialistaIa) {
   return FERRAMENTAS_DO_ASSISTENTE.filter((item) => item.agentes.includes(agente));
+}
+
+// ─── Feriados, dias úteis e regra de vencimento ──────────────────────────────────────────────────
+// Puro: o backend grava as datas com isto e a tela mostra a prévia com a mesma conta.
+
+/**
+ * nacional: feriado em todo o país, ninguém trabalha nem o banco abre.
+ * bancario: ponto facultativo em que os bancos fecham (Carnaval, Corpus Christi).
+ * facultativo: ponto facultativo com banco aberto; só aparece na agenda.
+ * local: feriado da cidade ou do estado, cadastrado pela conta.
+ */
+export const TIPOS_DE_FERIADO = ["nacional", "bancario", "facultativo", "local"] as const;
+
+export type TipoDeFeriado = (typeof TIPOS_DE_FERIADO)[number];
+
+export type Feriado = { data: string; nome: string; tipo: TipoDeFeriado };
+
+/** Feriado da cidade ou do estado: repete todo ano no mesmo dia. */
+export type FeriadoLocal = { id: string; nome: string; dia: number; mes: number };
+
+export const LIMITE_FERIADOS_LOCAIS = 40;
+
+export const ROTULO_DO_TIPO_DE_FERIADO: Record<TipoDeFeriado, string> = {
+  nacional: "Feriado nacional",
+  bancario: "Ponto facultativo, bancos fechados",
+  facultativo: "Ponto facultativo",
+  local: "Feriado local",
+};
+
+function dataIsoUtc(instante: number) {
+  return new Date(instante).toISOString().slice(0, 10);
+}
+
+/** Domingo de Páscoa pelo algoritmo de Meeus/Jones/Butcher, em UTC. */
+export function pascoa(ano: number) {
+  const a = ano % 19;
+  const b = Math.floor(ano / 100);
+  const c = ano % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31);
+  const dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return Date.UTC(ano, mes - 1, dia);
+}
+
+const DIA_EM_MS = 86_400_000;
+
+const FERIADOS_FIXOS: Array<{ mes: number; dia: number; nome: string; tipo: TipoDeFeriado; desde?: number }> = [
+  { mes: 1, dia: 1, nome: "Confraternização Universal", tipo: "nacional" },
+  { mes: 4, dia: 21, nome: "Tiradentes", tipo: "nacional" },
+  { mes: 5, dia: 1, nome: "Dia do Trabalho", tipo: "nacional" },
+  { mes: 9, dia: 7, nome: "Independência do Brasil", tipo: "nacional" },
+  { mes: 10, dia: 12, nome: "Nossa Senhora Aparecida", tipo: "nacional" },
+  { mes: 11, dia: 2, nome: "Finados", tipo: "nacional" },
+  { mes: 11, dia: 15, nome: "Proclamação da República", tipo: "nacional" },
+  // Feriado nacional pela Lei 14.759/2023.
+  { mes: 11, dia: 20, nome: "Dia Nacional de Zumbi e da Consciência Negra", tipo: "nacional", desde: 2024 },
+  { mes: 12, dia: 25, nome: "Natal", tipo: "nacional" },
+];
+
+/** Os móveis, contados a partir da Páscoa. */
+const FERIADOS_MOVEIS: Array<{ distancia: number; nome: string; tipo: TipoDeFeriado }> = [
+  { distancia: -48, nome: "Carnaval", tipo: "bancario" },
+  { distancia: -47, nome: "Carnaval", tipo: "bancario" },
+  { distancia: -46, nome: "Quarta-feira de Cinzas (até 14h)", tipo: "facultativo" },
+  { distancia: -2, nome: "Sexta-feira Santa", tipo: "nacional" },
+  { distancia: 60, nome: "Corpus Christi", tipo: "bancario" },
+];
+
+function diasDoMes(ano: number, mes: number) {
+  return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+}
+
+function isoDoDia(ano: number, mes: number, dia: number) {
+  const limitado = Math.min(Math.max(dia, 1), diasDoMes(ano, mes));
+  return `${String(ano).padStart(4, "0")}-${String(mes).padStart(2, "0")}-${String(limitado).padStart(2, "0")}`;
+}
+
+/** Feriados e pontos facultativos do ano, nacionais e da conta, em ordem de data. */
+export function feriadosDoAno(ano: number, locais: FeriadoLocal[] = []): Feriado[] {
+  const lista: Feriado[] = [];
+  for (const item of FERIADOS_FIXOS) {
+    if (item.desde && ano < item.desde) continue;
+    lista.push({ data: isoDoDia(ano, item.mes, item.dia), nome: item.nome, tipo: item.tipo });
+  }
+  const domingo = pascoa(ano);
+  for (const item of FERIADOS_MOVEIS) {
+    lista.push({ data: dataIsoUtc(domingo + item.distancia * DIA_EM_MS), nome: item.nome, tipo: item.tipo });
+  }
+  for (const local of locais) {
+    lista.push({ data: isoDoDia(ano, local.mes, local.dia), nome: local.nome, tipo: "local" });
+  }
+  return lista.sort((a, b) => a.data.localeCompare(b.data) || a.nome.localeCompare(b.nome));
+}
+
+/**
+ * bancaria: segunda a sexta, sem feriado nem ponto facultativo bancário. Vale para boleto, fatura e transferência.
+ * clt: o sábado conta como dia útil, como no "5º dia útil" do salário (CLT, art. 459). Domingo e feriado não contam.
+ */
+export const CONTAGENS_DE_DIA_UTIL = ["bancaria", "clt"] as const;
+
+export type ContagemDeDiaUtil = (typeof CONTAGENS_DE_DIA_UTIL)[number];
+
+export type CalendarioDeDiasUteis = {
+  ehUtil(data: string, contagem: ContagemDeDiaUtil): boolean;
+  feriados(ano: number): Feriado[];
+  feriadoDe(data: string): Feriado[];
+};
+
+export function criarCalendario(locais: FeriadoLocal[] = []): CalendarioDeDiasUteis {
+  const anos = new Map<number, { lista: Feriado[]; porData: Map<string, Feriado[]> }>();
+  const doAno = (ano: number) => {
+    let atual = anos.get(ano);
+    if (!atual) {
+      const lista = feriadosDoAno(ano, locais);
+      const porData = new Map<string, Feriado[]>();
+      for (const feriado of lista) porData.set(feriado.data, [...(porData.get(feriado.data) ?? []), feriado]);
+      atual = { lista, porData };
+      anos.set(ano, atual);
+    }
+    return atual;
+  };
+  const feriadoDe = (data: string) => doAno(Number(data.slice(0, 4))).porData.get(data) ?? [];
+  return {
+    feriados: (ano) => doAno(ano).lista,
+    feriadoDe,
+    ehUtil(data, contagem) {
+      const semana = new Date(`${data}T12:00:00Z`).getUTCDay();
+      if (semana === 0) return false;
+      if (semana === 6 && contagem === "bancaria") return false;
+      return !feriadoDe(data).some(
+        (feriado) => feriado.tipo === "nacional" || feriado.tipo === "local" || (feriado.tipo === "bancario" && contagem === "bancaria"),
+      );
+    },
+  };
+}
+
+/** Só os feriados nacionais: serve quando a conta não cadastrou nenhum local. */
+export const CALENDARIO_NACIONAL = criarCalendario();
+
+/**
+ * dia: o dia escolhido do mês (dia 31 em fevereiro vira o último dia).
+ * dia_util: o Nº dia útil do mês, como o 5º.
+ * ultimo_dia_util: o último dia útil do mês.
+ */
+export const TIPOS_DE_REGRA = ["dia", "dia_util", "ultimo_dia_util"] as const;
+
+export type TipoDeRegra = (typeof TIPOS_DE_REGRA)[number];
+
+/**
+ * O que fazer quando o dia escolhido não é útil. adiar_no_mes adia, mas se isso trocar o mês,
+ * antecipa: a conta não pula para o mês seguinte (a convenção dos bancos).
+ */
+export const AJUSTES_DE_DIA_UTIL = ["manter", "antecipar", "adiar", "adiar_no_mes"] as const;
+
+export type AjusteDeDiaUtil = (typeof AJUSTES_DE_DIA_UTIL)[number];
+
+export const ROTULO_DO_AJUSTE: Record<AjusteDeDiaUtil, string> = {
+  manter: "Manter a data",
+  antecipar: "Antecipar para o dia útil anterior",
+  adiar: "Adiar para o próximo dia útil",
+  adiar_no_mes: "Adiar sem passar para o mês seguinte",
+};
+
+export type RegraDeVencimento = {
+  tipo: TipoDeRegra;
+  /** O N do "Nº dia útil". Só no tipo dia_util. */
+  ordem: number | null;
+  ajuste: AjusteDeDiaUtil;
+  contagem: ContagemDeDiaUtil;
+};
+
+/** A regra de quem não escolheu nada: o dia como está, sem ajuste. Os lançamentos antigos ficam assim. */
+export const REGRA_SEM_AJUSTE: RegraDeVencimento = { tipo: "dia", ordem: null, ajuste: "manter", contagem: "bancaria" };
+
+/** Só lançamentos com série de vencimentos têm regra. Única e extra já são a data escolhida. */
+export const CATEGORIAS_COM_REGRA = ["fixed", "installment", "loan"] as const;
+
+export function aceitaRegraDeVencimento(category: CategoriaTransacao) {
+  return (CATEGORIAS_COM_REGRA as readonly string[]).includes(category);
+}
+
+/** "Nº dia útil" e "último dia útil" só fazem sentido no que se repete por mês, não por semana ou dias. */
+export function aceitaDiaUtilDoMes(category: CategoriaTransacao, recurrence: Recorrencia | null) {
+  if (category !== "fixed") return aceitaRegraDeVencimento(category);
+  return recurrence !== "weekly" && recurrence !== "customize";
+}
+
+/**
+ * Deixa a regra coerente com o lançamento: categoria sem série não tem regra; fixa semanal só ajusta;
+ * a ordem só existe no "Nº dia útil"; a contagem da CLT só muda o "Nº dia útil".
+ */
+export function normalizarRegra(
+  category: CategoriaTransacao,
+  recurrence: Recorrencia | null,
+  regra: RegraDeVencimento,
+): RegraDeVencimento {
+  if (!aceitaRegraDeVencimento(category)) return REGRA_SEM_AJUSTE;
+  const tipo = regra.tipo !== "dia" && !aceitaDiaUtilDoMes(category, recurrence) ? "dia" : regra.tipo;
+  return {
+    tipo,
+    ordem: tipo === "dia_util" ? Math.min(Math.max(Math.round(regra.ordem ?? 1), 1), 23) : null,
+    ajuste: tipo === "dia" ? regra.ajuste : "antecipar",
+    contagem: tipo === "dia_util" ? regra.contagem : "bancaria",
+  };
+}
+
+export const PADROES_DE_VENCIMENTO = ["fixa_entrada", "fixa_saida", "parcela", "emprestimo"] as const;
+
+export type PadraoDeVencimento = (typeof PADROES_DE_VENCIMENTO)[number];
+
+export type PadroesDeVencimento = Record<PadraoDeVencimento, AjusteDeDiaUtil>;
+
+export const ROTULO_DO_PADRAO: Record<PadraoDeVencimento, { nome: string; exemplo: string }> = {
+  fixa_entrada: { nome: "Fixa de entrada", exemplo: "Salário, aluguel recebido" },
+  fixa_saida: { nome: "Fixa de saída", exemplo: "Aluguel, luz, assinaturas" },
+  parcela: { nome: "Parcela", exemplo: "Compra parcelada, fatura" },
+  emprestimo: { nome: "Empréstimo", exemplo: "Financiamento, consignado" },
+};
+
+/** Sugestão para conta nova: quem recebe costuma ganhar antes; quem paga, pagar no próximo dia útil sem multa. */
+export const PADROES_DE_VENCIMENTO_INICIAIS: PadroesDeVencimento = {
+  fixa_entrada: "antecipar",
+  fixa_saida: "adiar",
+  parcela: "adiar",
+  emprestimo: "adiar",
+};
+
+export function padraoDa(category: CategoriaTransacao, mode: ModoTransacao): PadraoDeVencimento | null {
+  if (category === "fixed") return mode === "inflows" ? "fixa_entrada" : "fixa_saida";
+  if (category === "installment") return "parcela";
+  if (category === "loan") return "emprestimo";
+  return null;
+}
+
+/** A regra que um lançamento novo ganha pela categoria, se a pessoa não escolher outra. */
+export function regraPadrao(padroes: PadroesDeVencimento, category: CategoriaTransacao, mode: ModoTransacao): RegraDeVencimento {
+  const padrao = padraoDa(category, mode);
+  return padrao ? { ...REGRA_SEM_AJUSTE, ajuste: padroes[padrao] } : REGRA_SEM_AJUSTE;
+}
+
+function moverDia(data: string, passos: number) {
+  return dataIsoUtc(Date.parse(`${data}T00:00:00Z`) + passos * DIA_EM_MS);
+}
+
+function procurar(data: string, sentido: 1 | -1, util: (data: string) => boolean) {
+  let atual = data;
+  for (let tentativa = 0; tentativa < 15 && !util(atual); tentativa += 1) atual = moverDia(atual, sentido);
+  return atual;
+}
+
+/**
+ * Sábado e Carnaval são dias úteis na CLT, mas banco não credita neles: a data vai para um dia útil bancário,
+ * na direção do ajuste (o "Nº dia útil" é prazo, então antecipa).
+ */
+function emDiaDeBanco(data: string, regra: RegraDeVencimento, calendario: CalendarioDeDiasUteis): string {
+  if (regra.contagem !== "clt" || regra.ajuste === "manter") return data;
+  return ajustarAoDiaUtil(data, { ...regra, contagem: "bancaria" }, calendario);
+}
+
+/** Ajusta uma data que caiu em dia não útil. Serve também para fixas semanais e a cada N dias. */
+export function ajustarAoDiaUtil(
+  data: string,
+  regra: RegraDeVencimento,
+  calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL,
+): string {
+  if (regra.ajuste === "manter") return data;
+  const util = (item: string) => calendario.ehUtil(item, regra.contagem);
+  let ajustada = data;
+  if (!util(data)) {
+    if (regra.ajuste === "antecipar") ajustada = procurar(data, -1, util);
+    else {
+      ajustada = procurar(data, 1, util);
+      if (regra.ajuste === "adiar_no_mes" && ajustada.slice(0, 7) !== data.slice(0, 7)) ajustada = procurar(data, -1, util);
+    }
+  }
+  return emDiaDeBanco(ajustada, regra, calendario);
+}
+
+/** A data de um vencimento do mês pela regra. */
+export function dataPelaRegra(
+  ano: number,
+  mes: number,
+  dia: number,
+  regra: RegraDeVencimento,
+  calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL,
+) {
+  if (regra.tipo === "dia") return ajustarAoDiaUtil(isoDoDia(ano, mes, dia), regra, calendario);
+  const uteis: string[] = [];
+  for (let atual = 1; atual <= diasDoMes(ano, mes); atual += 1) {
+    const data = isoDoDia(ano, mes, atual);
+    if (calendario.ehUtil(data, regra.contagem)) uteis.push(data);
+  }
+  if (uteis.length === 0) return isoDoDia(ano, mes, dia);
+  const escolhida =
+    regra.tipo === "ultimo_dia_util" ? uteis[uteis.length - 1] : uteis[Math.min(Math.max(regra.ordem ?? 1, 1), uteis.length) - 1];
+  return emDiaDeBanco(escolhida, { ...regra, ajuste: "antecipar" }, calendario);
+}
+
+/** Texto curto da regra, para chip e lista: "5º dia útil", "Dia 30, antecipa". */
+export function textoDaRegra(regra: RegraDeVencimento, dia: number) {
+  // A contagem da CLT só muda o "Nº dia útil": nas outras regras a data final é sempre dia de banco.
+  if (regra.tipo === "dia_util") return `${regra.ordem ?? 1}º dia útil${regra.contagem === "clt" ? " (CLT)" : ""}`;
+  if (regra.tipo === "ultimo_dia_util") return "Último dia útil";
+  const ajuste = { manter: "", antecipar: ", antecipa", adiar: ", adia", adiar_no_mes: ", adia no mês" }[regra.ajuste];
+  return `Dia ${dia}${ajuste}`;
+}
+
+export function mesmaRegra(a: RegraDeVencimento, b: RegraDeVencimento) {
+  return a.tipo === b.tipo && (a.ordem ?? null) === (b.ordem ?? null) && a.ajuste === b.ajuste && a.contagem === b.contagem;
+}
+
+/** Uma data da prévia: `base` é o dia sem regra, `feriado` é o nome do feriado que caía nele. */
+export type PreviaDeVencimento = { data: string; base: string; feriado: string | null };
+
+/**
+ * As próximas datas de um lançamento pela regra, para a prévia do formulário. Segue a recorrência da fixa
+ * (inclusive semanal e a cada N dias) e o número de parcelas. A fixa vale só no ano em que começa, então
+ * a prévia dela para em dezembro, como a grade gravada.
+ */
+export function proximosVencimentos(
+  entrada: {
+    category: CategoriaTransacao;
+    date: string;
+    recurrence: Recorrencia | null;
+    recurrenceInterval: number | null;
+    installments: number | null;
+  },
+  regra: RegraDeVencimento,
+  calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL,
+  quantos = 4,
+): PreviaDeVencimento[] {
+  const [ano, mes, dia] = entrada.date.split("-").map(Number);
+  if (!ano || !mes || !dia || !aceitaRegraDeVencimento(entrada.category)) return [];
+  const fixa = entrada.category === "fixed";
+  const recurrence = fixa ? (entrada.recurrence ?? "monthly") : "monthly";
+  const efetiva = normalizarRegra(entrada.category, recurrence, regra);
+  const passo = Math.max(fixa ? (entrada.recurrenceInterval ?? 1) : 1, 1);
+  const total = fixa ? quantos : Math.min(quantos, Math.max(entrada.installments ?? quantos, 1));
+  const lista: Array<{ data: string; base: string }> = [];
+  if (recurrence === "weekly" || recurrence === "customize") {
+    const dias = recurrence === "weekly" ? 7 * passo : passo;
+    for (let vez = 0; vez < total; vez += 1) {
+      const base = dataIsoUtc(Date.UTC(ano, mes - 1, dia) + vez * dias * DIA_EM_MS);
+      if (Number(base.slice(0, 4)) !== ano) break;
+      lista.push({ base, data: ajustarAoDiaUtil(base, { ...efetiva, tipo: "dia" }, calendario) });
+    }
+  } else {
+    const meses = MESES_DA_RECORRENCIA[recurrence] * passo;
+    for (let vez = 0; vez < total; vez += 1) {
+      const absoluto = mes - 1 + vez * meses;
+      const alvoAno = ano + Math.floor(absoluto / 12);
+      const alvoMes = (absoluto % 12) + 1;
+      if (fixa && alvoAno !== ano) break;
+      lista.push({ base: isoDoDia(alvoAno, alvoMes, dia), data: dataPelaRegra(alvoAno, alvoMes, dia, efetiva, calendario) });
+    }
+  }
+  return lista.map((item) => ({ ...item, feriado: calendario.feriadoDe(item.base)[0]?.nome ?? null }));
 }

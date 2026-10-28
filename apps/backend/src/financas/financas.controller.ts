@@ -15,11 +15,14 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+  AJUSTES_DE_DIA_UTIL,
   CATEGORIAS_TRANSACAO,
+  CONTAGENS_DE_DIA_UTIL,
   MODOS_TRANSACAO,
   PRIORIDADES_TRANSACAO,
   RECORRENCIAS,
   STATUS_TRANSACAO,
+  TIPOS_DE_REGRA,
   TIPOS_TRANSACAO,
 } from "@finnagent/contracts";
 import { z } from "zod";
@@ -56,6 +59,16 @@ const formularioLancamento = z.object({
   nextDueDate: opcional(dataIso),
   recurrence: opcional(z.enum(RECORRENCIAS)),
   recurrenceInterval: opcional(z.number().int().min(1).max(3660)),
+  // Sem regra, vale o padrão da categoria nas configurações.
+  dueRule: z
+    .object({
+      tipo: z.enum(TIPOS_DE_REGRA),
+      ordem: z.number().int().min(1).max(23).nullable().default(null),
+      ajuste: z.enum(AJUSTES_DE_DIA_UTIL),
+      contagem: z.enum(CONTAGENS_DE_DIA_UTIL).default("bancaria"),
+    })
+    .nullable()
+    .default(null),
 });
 const filtroBase = z.object({
   year: z.coerce.number().int().min(2000).max(2100).nullable().catch(null),
@@ -285,6 +298,7 @@ export class FinancasController {
       if (campo === "justification") throw new BadRequestException("Informe a justificativa.");
       if (campo === "date") throw new BadRequestException("Informe uma data válida.");
       if (campo === "cents") throw new BadRequestException("Informe o valor.");
+      if (campo === "dueRule") throw new BadRequestException("Confira a regra do vencimento.");
       throw new BadRequestException("Não foi possível salvar o lançamento.");
     }
     return parsed.data;

@@ -28,6 +28,7 @@ import { useToast } from "../../components/ui/toast";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Troca } from "../../components/ui/movimento";
+import { feriadosNoDia, SelosDoFeriado } from "./feriados";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
 import { ListaMes, PainelDoDia, resumoDoDia } from "./lista";
@@ -186,6 +187,7 @@ export default function Agenda() {
   const mesVisivel = carregado?.month ?? month;
 
   const itens = data ? montarItens(data.appointments, data.entries, camadas, calendarios) : [];
+  const feriados = data?.holidays ?? [];
   const doDia = itensNoDia(itens, selecaoGrade);
   const resumo = resumoDoDia(doDia);
   const hojeNoMes = ehHoje(anoVisivel, mesVisivel, hoje.getDate()) ? hoje.getDate() : null;
@@ -570,6 +572,7 @@ export default function Agenda() {
                   selected={selecaoGrade}
                   today={hojeNoMes}
                   itens={itens}
+                  feriados={feriados}
                   onSelect={escolherDia}
                   onOpen={abrirDia}
                   onContext={abrirMenu}
@@ -580,6 +583,7 @@ export default function Agenda() {
                   year={anoVisivel}
                   month={mesVisivel}
                   itens={itens}
+                  feriados={feriados}
                   onStatus={(id, status) => void atualizarStatus(id, status)}
                   onEdit={abrirCompromisso}
                 />
@@ -653,6 +657,7 @@ export default function Agenda() {
                   Hoje
                 </Chip>
               ) : null}
+              <SelosDoFeriado feriados={feriadosNoDia(feriados, selecaoGrade)} />
             </h2>
             <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
               <span>
@@ -883,7 +888,9 @@ export default function Agenda() {
               className={field}
             >
               <option value="">Nenhuma</option>
-              {(data?.entries ?? []).map((entry) => (
+              {(data?.entries ?? [])
+                .filter((entry, indice, lista) => lista.findIndex((item) => item.id === entry.id) === indice)
+                .map((entry) => (
                 <option key={entry.id} value={entry.id}>
                   {entry.sessionName} · {entry.groupName} · {entry.description}
                 </option>

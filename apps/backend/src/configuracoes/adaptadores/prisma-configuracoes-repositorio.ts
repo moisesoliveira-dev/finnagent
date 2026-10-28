@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import {
   AGENDAS,
+  AJUSTES_DE_DIA_UTIL,
+  PADROES_DE_VENCIMENTO,
+  PADROES_DE_VENCIMENTO_INICIAIS,
+  type PadroesDeVencimento,
   FUSO_PADRAO,
   FUSOS_AGENDA,
   LEMBRETES,
@@ -187,6 +191,9 @@ function linhaDe(preferencias: Preferencias) {
     emailAlerts: preferencias.emailAlerts,
     appAlerts: preferencias.appAlerts,
     history: preferencias.history,
+    dueDefaults: preferencias.vencimentos,
+    showHolidays: preferencias.feriadosNaAgenda,
+    showOptionalHolidays: preferencias.facultativosNaAgenda,
   };
 }
 
@@ -234,6 +241,9 @@ function preferenciasDe(
     ...modelosSalvos(preferencia?.aiModels, preferencia?.aiModel),
     aiApiKey: "",
     limparChaveIa: false,
+    vencimentos: vencimentosDe(preferencia?.dueDefaults),
+    feriadosNaAgenda: preferencia?.showHolidays ?? true,
+    facultativosNaAgenda: preferencia?.showOptionalHolidays ?? true,
     googleSecretConfigured: Boolean(preferencia?.googleClientSecret),
     googleConnected: Boolean(preferencia?.googleRefreshToken),
     googleAccount: preferencia?.googleAccount ?? "",
@@ -259,4 +269,15 @@ function lembreteDe(valor: string | undefined): Lembrete {
 
 function retencaoDe(valor: string | undefined): Retencao {
   return RETENCOES.find((retencao) => retencao === valor) ?? "1a";
+}
+
+/** Padrões gravados por cima dos iniciais: valor desconhecido volta ao inicial. */
+function vencimentosDe(valor: unknown): PadroesDeVencimento {
+  const gravado = valor && typeof valor === "object" ? (valor as Record<string, unknown>) : {};
+  const padroes = { ...PADROES_DE_VENCIMENTO_INICIAIS };
+  for (const chave of PADROES_DE_VENCIMENTO) {
+    const ajuste = AJUSTES_DE_DIA_UTIL.find((item) => item === gravado[chave]);
+    if (ajuste) padroes[chave] = ajuste;
+  }
+  return padroes;
 }

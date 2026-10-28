@@ -1,10 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
-  centavosNoMes,
   type AgendaResposta,
   type Calendario,
   type Compromisso,
-  type FinancasResposta,
   type FusoAgenda,
   type Lancamento,
   type LancamentoDoMes,
@@ -16,13 +14,14 @@ import {
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { ConfiguracoesService } from "../../configuracoes/aplicacao/configuracoes.service.js";
+import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { GRUPOS_REPOSITORIO, type GruposRepositorio } from "../../grupos/portas/grupos-repositorio.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { gastoDoCompromisso } from "../dominio/gasto.js";
 import { montarIntervalo } from "../dominio/fuso.js";
 import { eventoValido } from "../dominio/sincronizar.js";
-import { situacaoNoMes } from "../../financas/dominio/vista.js";
+import { lancamentosDoMes } from "../dominio/lancamentos-do-mes.js";
 import { comValidade, mensagemDaCategoria, ocorrenciasNoMes, validadeAoMover } from "./ocorrencias.js";
 import {
   AGENDA_REPOSITORIO,
@@ -39,6 +38,7 @@ export class AgendaService {
     @Inject(GRUPOS_REPOSITORIO) private readonly grupos: GruposRepositorio,
     private readonly financas: FinancasService,
     private readonly configuracoes: ConfiguracoesService,
+    private readonly feriados: FeriadosService,
   ) {}
 
   // Só sessão que acumula pode receber os gastos de um compromisso; a de valor tem um único lançamento.
@@ -85,7 +85,25 @@ export class AgendaService {
       appointments,
       entries,
       sessions: abertas,
+      holidays: await this.feriadosDoMes(tenantId, year, month, config),
     };
+  }
+
+  /** O que a agenda mostra: nada, só os feriados, ou também os pontos facultativos. */
+  private async feriadosDoMes(
+    tenantId: string,
+    year: number,
+    month: number,
+    config: { feriadosNaAgenda: boolean; facultativosNaAgenda: boolean },
+  ) {
+    if (!config.feriadosNaAgenda) return [];
+    const prefixo = `${year}-${String(month).padStart(2, "0")}-`;
+    const { feriados } = await this.feriados.doAno(tenantId, year);
+    return feriados.filter(
+      (item) =>
+        item.data.startsWith(prefixo) &&
+        (config.facultativosNaAgenda || item.tipo === "nacional" || item.tipo === "local"),
+    );
   }
 
   async criar(tenantId: string, pedido: Omit<NovoCompromisso, "startAt" | "endAt" | "hour" | "minute" | "status"> & {
@@ -211,26 +229,6 @@ export class AgendaService {
   }
 }
 
-function lancamentosDoMes(base: FinancasResposta, year: number, month: number, hoje: string) {
-  const monthIndex = month - 1;
-  const ultimo = new Date(year, month, 0).getDate();
-  const entries: LancamentoDoMes[] = [];
-  for (const entry of base.entries) {
-    const cents = centavosNoMes(entry, base.workflow, year, monthIndex);
-    if (cents === undefined) continue;
-    entries.push({
-      id: entry.id,
-      description: entry.description,
-      day: Math.min(entry.day, ultimo),
-      groupName: entry.groupName,
-      sessionName: entry.sessionName,
-      cents,
-      situation: situacaoNoMes(entry, year, month, hoje),
-    });
-  }
-  return entries;
-}
-
 function comSessao(compromisso: Compromisso, entries: Lancamento[], rotulos: Map<string, string>): Compromisso {
   return {
     ...compromisso,
@@ -240,13 +238,15 @@ function comSessao(compromisso: Compromisso, entries: Lancamento[], rotulos: Map
 }
 
 function comVinculo(compromisso: Compromisso, entries: LancamentoDoMes[]): Compromisso {
-  const entry = entries.find((item) => item.id === compromisso.entryId);
+  const doLancamento = entries.filter((item) => item.id === compromisso.entryId);
+  const entry = doLancamento[0];
   const link: Vinculo | null = entry
     ? {
         entryId: entry.id,
         groupName: entry.groupName,
         sessionName: entry.sessionName,
-        cents: entry.cents,
+        // O valor do mês inteiro, mesmo quando o lançamento vence em mais de um dia.
+        cents: doLancamento.reduce((total, item) => total + item.cents, 0),
         situation: entry.situation,
       }
     : null;

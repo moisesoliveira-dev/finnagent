@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StatusCompromisso } from "@finnagent/contracts";
+import type { Feriado, StatusCompromisso } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { Icone } from "../../components/ui/icone";
@@ -8,22 +8,26 @@ import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { rotuloDaSituacao, tomDaSituacao } from "../financas/rotulos";
+import { feriadosNoDia, SelosDoFeriado } from "./feriados";
 import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, type ItemDia } from "./itens";
 
 export function ListaMes({
   year,
   month,
   itens,
+  feriados,
   onStatus,
   onEdit,
 }: {
   year: number;
   month: number;
   itens: ItemDia[];
+  feriados: Feriado[];
   onStatus: (id: string, status: StatusCompromisso) => void;
   onEdit: (id: string) => void;
 }) {
-  const dias = [...new Set(itens.map((item) => item.day))].sort((a, b) => a - b);
+  const diasComFeriado = feriados.map((item) => Number(item.data.slice(8, 10)));
+  const dias = [...new Set([...itens.map((item) => item.day), ...diasComFeriado])].sort((a, b) => a - b);
   if (dias.length === 0) {
     return (
       <div className="rounded-lg border border-line bg-surface p-6 text-ink-2">
@@ -33,19 +37,24 @@ export function ListaMes({
   }
   return (
     <div className="grid min-w-0 gap-8">
-      {dias.map((day) => (
-        <section key={day} className="grid min-w-0 gap-3">
-          <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
-            {rotuloDoDia(year, month, day)}
-            {ehHoje(year, month, day) ? (
-              <Chip tone="ok">
-                Hoje
-              </Chip>
-            ) : null}
-          </h2>
-          <ListaDoDia itens={itensNoDia(itens, day)} onStatus={onStatus} onEdit={onEdit} />
-        </section>
-      ))}
+      {dias.map((day) => {
+        const doDia = itensNoDia(itens, day);
+        return (
+          <section key={day} className="grid min-w-0 gap-3">
+            <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
+              {rotuloDoDia(year, month, day)}
+              {ehHoje(year, month, day) ? (
+                <Chip tone="ok">
+                  Hoje
+                </Chip>
+              ) : null}
+              <SelosDoFeriado feriados={feriadosNoDia(feriados, day)} />
+            </h2>
+            {/* Dia que só tem o feriado mostra o título e o selo, sem o quadro de "Nada neste dia". */}
+            {doDia.length > 0 ? <ListaDoDia itens={doDia} onStatus={onStatus} onEdit={onEdit} /> : null}
+          </section>
+        );
+      })}
     </div>
   );
 }

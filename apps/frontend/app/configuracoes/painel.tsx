@@ -3,8 +3,16 @@
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
+  AJUSTES_DE_DIA_UTIL,
+  CALENDARIO_NACIONAL,
   LEMBRETES,
+  PADROES_DE_VENCIMENTO,
+  REGRA_SEM_AJUSTE,
+  ROTULO_DO_AJUSTE,
+  ROTULO_DO_PADRAO,
+  ajustarAoDiaUtil,
   rotuloDoGoogle,
+  type AjusteDeDiaUtil,
   type AgendaGoogle,
   type Configuracoes,
   type EstadoGoogle,
@@ -25,6 +33,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { aplicarTema, segurarTema } from "../../components/ui/tema";
 import { useToast } from "../../components/ui/toast";
 import { rotuloDoFuso } from "../agenda/itens";
+import { FeriadosDaConta } from "./feriados";
 import { PainelDeIa } from "./ia/painel-de-ia";
 import { Usuarios } from "./usuarios";
 
@@ -32,6 +41,8 @@ type Secao =
   | "conta"
   | "aparencia"
   | "financas"
+  | "financas-vencimentos"
+  | "financas-feriados"
   | "google"
   | "ia-provedores"
   | "ia-agentes"
@@ -67,7 +78,15 @@ const ARVORE: No[] = [
       { id: "usuarios", rotulo: "Usuários", secao: "usuarios" },
     ],
   },
-  { id: "financas", rotulo: "Finanças", secao: "financas" },
+  {
+    id: "financas",
+    rotulo: "Finanças",
+    filhos: [
+      { id: "financas-geral", rotulo: "Geral", secao: "financas" },
+      { id: "financas-vencimentos", rotulo: "Vencimentos", secao: "financas-vencimentos" },
+      { id: "financas-feriados", rotulo: "Feriados", secao: "financas-feriados" },
+    ],
+  },
   {
     id: "integracoes",
     rotulo: "Integrações",
@@ -96,7 +115,9 @@ const ARVORE: No[] = [
 /** Seções que a URL pode pedir, lidas da própria árvore. */
 const SECOES: Secao[] = ARVORE.flatMap((no) => (no.filhos ?? [no]).flatMap((item) => (item.secao ? [item.secao] : [])));
 
-const ABERTOS = { geral: true, integracoes: true, ia: true, sistema: true };
+const ABERTOS = { geral: true, financas: true, integracoes: true, ia: true, sistema: true };
+
+const TODOS_ABERTOS = Object.fromEntries(ARVORE.map((no) => [no.id, true]));
 
 const FUSOS: Array<[FusoAgenda, string]> = [
   ["America/Sao_Paulo", "GMT−3"],
@@ -127,8 +148,11 @@ function achatar(nos: No[], abertos: Record<string, boolean>, pai: string | null
 }
 
 function rotuloDa(secao: Secao) {
-  const lista = achatar(ARVORE, { geral: true, integracoes: true, avisos: true, sistema: true });
-  return lista.find((item) => item.secao === secao)?.rotulo ?? "Conta";
+  const lista = achatar(ARVORE, TODOS_ABERTOS);
+  const item = lista.find((atual) => atual.secao === secao);
+  const pai = item?.pai ? lista.find((atual) => atual.id === item.pai) : null;
+  // "Geral" se repete em Geral e em Finanças: o nome do grupo desfaz a dúvida no botão do celular.
+  return item ? (pai && item.rotulo === "Geral" ? `${pai.rotulo} · ${item.rotulo}` : item.rotulo) : "Conta";
 }
 
 function formularioDe(dados: Configuracoes): Preferencias {
@@ -157,7 +181,31 @@ function formularioDe(dados: Configuracoes): Preferencias {
     aiModel: dados.aiModel,
     aiApiKey: "",
     limparChaveIa: false,
+    vencimentos: dados.vencimentos,
+    feriadosNaAgenda: dados.feriadosNaAgenda,
+    facultativosNaAgenda: dados.facultativosNaAgenda,
   };
+}
+
+const dataCurta = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "UTC" });
+
+function proximoDia(iso: string) {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Um exemplo concreto do ajuste: o próximo dia sem banco a partir de hoje e para onde o vencimento iria. */
+function exemploDoAjuste(ajuste: AjusteDeDiaUtil) {
+  const agora = new Date();
+  let data = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  for (let tentativa = 0; tentativa < 15 && CALENDARIO_NACIONAL.ehUtil(data, "bancaria"); tentativa += 1) {
+    data = proximoDia(data);
+  }
+  const feriado = CALENDARIO_NACIONAL.feriadoDe(data)[0]?.nome;
+  const dia = dataCurta.format(new Date(`${data}T12:00:00Z`));
+  const fim = ajustarAoDiaUtil(data, { ...REGRA_SEM_AJUSTE, ajuste }, CALENDARIO_NACIONAL);
+  const origem = feriado ? `${dia} (${feriado})` : dia;
+  if (fim === data) return `Ex.: vence em ${origem} mesmo assim.`;
+  return `Ex.: em vez de ${origem}, vence ${dataCurta.format(new Date(`${fim}T12:00:00Z`))}.`;
 }
 
 function opcoesDoCalendario(lista: AgendaGoogle[], atual: string) {
@@ -363,7 +411,7 @@ export function Painel() {
         } else if (mensagem.includes("data")) {
           setErroData(mensagem);
           setSecao("financas");
-          setFoco("financas");
+          setFoco("financas-geral");
         }
         toast.erro(mensagem);
         return;
@@ -627,6 +675,57 @@ export function Painel() {
               </Linha>
             </section>
 
+            <section hidden={secao !== "financas-vencimentos"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-vencimentos">
+              <h2 id="titulo-vencimentos" className="mb-1 font-display text-lg">Vencimentos</h2>
+              <p className="mb-3 max-w-prose text-sm text-ink-2">
+                O que um lançamento novo faz quando o dia cai em fim de semana ou feriado. No formulário dá para trocar
+                por Nº dia útil, último dia útil ou contagem da CLT. Mudar aqui não altera o que já foi lançado.
+              </p>
+              {PADROES_DE_VENCIMENTO.map((padrao) => (
+                <Linha
+                  key={padrao}
+                  id={`vencimento-${padrao}`}
+                  titulo={ROTULO_DO_PADRAO[padrao].nome}
+                  dica={`${ROTULO_DO_PADRAO[padrao].exemplo}. ${exemploDoAjuste(form.vencimentos[padrao])}`}
+                >
+                  <select
+                    id={`vencimento-${padrao}`}
+                    value={form.vencimentos[padrao]}
+                    aria-describedby={`vencimento-${padrao}-dica`}
+                    className={field}
+                    onChange={(event) =>
+                      alterar("vencimentos", { ...form.vencimentos, [padrao]: event.target.value as AjusteDeDiaUtil })
+                    }
+                  >
+                    {AJUSTES_DE_DIA_UTIL.map((ajuste) => (
+                      <option key={ajuste} value={ajuste}>
+                        {ROTULO_DO_AJUSTE[ajuste]}
+                      </option>
+                    ))}
+                  </select>
+                </Linha>
+              ))}
+            </section>
+
+            <section hidden={secao !== "financas-feriados"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-feriados">
+              <h2 id="titulo-feriados" className="mb-3 font-display text-lg">Feriados na agenda</h2>
+              <Linha id="feriados-agenda" titulo="Mostrar feriados na agenda" dica="Nacionais e os da sua cidade aparecem no dia, na grade e na lista.">
+                <Interruptor id="feriados-agenda" checked={form.feriadosNaAgenda} onChange={(valor) => alterar("feriadosNaAgenda", valor)} />
+              </Linha>
+              <Linha
+                id="facultativos-agenda"
+                titulo="Mostrar pontos facultativos"
+                dica="Carnaval, Quarta-feira de Cinzas, Corpus Christi e outros dias em que nem todo mundo para."
+              >
+                <Interruptor
+                  id="facultativos-agenda"
+                  checked={form.feriadosNaAgenda && form.facultativosNaAgenda}
+                  disabled={!form.feriadosNaAgenda}
+                  onChange={(valor) => alterar("facultativosNaAgenda", valor)}
+                />
+              </Linha>
+            </section>
+
             <section hidden={secao !== "google"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-google">
               <h2 id="titulo-google" className="mb-3 font-display text-lg">Google Calendar</h2>
               <p className="mb-3 text-sm text-ink-2">
@@ -865,6 +964,7 @@ export function Painel() {
               </div>
             ) : null}
           </form>
+          <FeriadosDaConta visivel={secao === "financas-feriados"} />
           <Usuarios visivel={secao === "usuarios"} />
           <PainelDeIa secao={secao} />
           </div>
