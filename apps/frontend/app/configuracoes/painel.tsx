@@ -4,8 +4,6 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
   LEMBRETES,
-  LIMITE_MODELOS_IA,
-  idDeModelo,
   rotuloDoGoogle,
   type AgendaGoogle,
   type Configuracoes,
@@ -27,6 +25,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { aplicarTema, segurarTema } from "../../components/ui/tema";
 import { useToast } from "../../components/ui/toast";
 import { rotuloDoFuso } from "../agenda/itens";
+import { PainelDeIa } from "./ia/painel-de-ia";
 import { Usuarios } from "./usuarios";
 
 type Secao =
@@ -34,7 +33,9 @@ type Secao =
   | "aparencia"
   | "financas"
   | "google"
-  | "assistente"
+  | "ia-provedores"
+  | "ia-agentes"
+  | "ia-comportamento"
   | "notificacoes"
   | "eventos"
   | "usuarios"
@@ -73,13 +74,15 @@ const ARVORE: No[] = [
     filhos: [{ id: "google", rotulo: "Google Calendar", secao: "google" }],
   },
   {
-    id: "avisos",
-    rotulo: "Assistente e avisos",
+    id: "ia",
+    rotulo: "Inteligência artificial",
     filhos: [
-      { id: "assistente", rotulo: "Assistente", secao: "assistente" },
-      { id: "notificacoes", rotulo: "Notificações", secao: "notificacoes" },
+      { id: "ia-provedores", rotulo: "Provedores", secao: "ia-provedores" },
+      { id: "ia-agentes", rotulo: "Agentes", secao: "ia-agentes" },
+      { id: "ia-comportamento", rotulo: "Comportamento", secao: "ia-comportamento" },
     ],
   },
+  { id: "notificacoes", rotulo: "Notificações", secao: "notificacoes" },
   {
     id: "sistema",
     rotulo: "Sistema",
@@ -90,7 +93,10 @@ const ARVORE: No[] = [
   },
 ];
 
-const ABERTOS = { geral: true, integracoes: true, avisos: true, sistema: true };
+/** Seções que a URL pode pedir, lidas da própria árvore. */
+const SECOES: Secao[] = ARVORE.flatMap((no) => (no.filhos ?? [no]).flatMap((item) => (item.secao ? [item.secao] : [])));
+
+const ABERTOS = { geral: true, integracoes: true, ia: true, sistema: true };
 
 const FUSOS: Array<[FusoAgenda, string]> = [
   ["America/Sao_Paulo", "GMT−3"],
@@ -172,14 +178,11 @@ export function Painel() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleAccount, setGoogleAccount] = useState("");
   const [googleCalendars, setGoogleCalendars] = useState<AgendaGoogle[]>([]);
-  const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
   const [retorno, setRetorno] = useState("");
   const [falhou, setFalhou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erroNome, setErroNome] = useState("");
   const [erroData, setErroData] = useState("");
-  const [rascunhoModelo, setRascunhoModelo] = useState("");
-  const [erroModelo, setErroModelo] = useState("");
   const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [transferindo, setTransferindo] = useState(false);
@@ -203,7 +206,6 @@ export function Painel() {
     setGoogleConnected(dados.googleConnected);
     setGoogleAccount(dados.googleAccount);
     setGoogleCalendars(dados.googleCalendars);
-    setAiKeyConfigured(dados.aiKeyConfigured);
     aplicarTema(base.theme);
   }
 
@@ -249,6 +251,8 @@ export function Painel() {
   useEffect(() => {
     setRetorno(`${window.location.origin}/api/configuracoes/google/retorno`);
     const params = new URLSearchParams(window.location.search);
+    const pedida = params.get("secao");
+    if (pedida && SECOES.includes(pedida as Secao)) setSecao(pedida as Secao);
     const resultado = params.get("google");
     if (resultado === "conectado") toast.sucesso("Google Calendar conectado");
     if (resultado === "erro") toast.erro("Não foi possível conectar o Google Calendar.");
@@ -280,41 +284,6 @@ export function Painel() {
     setForm((atual) => (atual ? { ...atual, [chave]: valor } : atual));
   }
 
-  function adicionarModelo() {
-    if (!form) return;
-    const nome = idDeModelo(rascunhoModelo);
-    if (!nome) {
-      setErroModelo("Informe um identificador de modelo válido.");
-      return;
-    }
-    if (form.aiModels.includes(nome)) {
-      setErroModelo("Esse modelo já está cadastrado.");
-      return;
-    }
-    if (form.aiModels.length >= LIMITE_MODELOS_IA) {
-      setErroModelo(`Cadastre no máximo ${LIMITE_MODELOS_IA} modelos.`);
-      return;
-    }
-    setErroModelo("");
-    setRascunhoModelo("");
-    setForm({
-      ...form,
-      aiModels: [...form.aiModels, nome],
-      aiModel: form.aiModel || nome,
-    });
-  }
-
-  function removerModelo(nome: string) {
-    if (!form) return;
-    const aiModels = form.aiModels.filter((item) => item !== nome);
-    setErroModelo("");
-    setForm({
-      ...form,
-      aiModels,
-      aiModel: form.aiModel === nome ? (aiModels[0] ?? "") : form.aiModel,
-    });
-  }
-
   function mudarTema(tema: Tema) {
     alterar("theme", tema);
     aplicarTema(tema);
@@ -325,8 +294,6 @@ export function Painel() {
     setForm(salvo);
     setErroNome("");
     setErroData("");
-    setErroModelo("");
-    setRascunhoModelo("");
     aplicarTema(salvo.theme);
   }
 
@@ -380,7 +347,6 @@ export function Painel() {
     setSalvando(true);
     setErroNome("");
     setErroData("");
-    setErroModelo("");
     try {
       const resposta = await fetch("/api/configuracoes", {
         method: "PUT",
@@ -394,10 +360,6 @@ export function Painel() {
           setErroNome(mensagem);
           setSecao("conta");
           setFoco("conta");
-        } else if (mensagem.includes("modelo")) {
-          setErroModelo(mensagem);
-          setSecao("assistente");
-          setFoco("assistente");
         } else if (mensagem.includes("data")) {
           setErroData(mensagem);
           setSecao("financas");
@@ -578,7 +540,7 @@ export function Painel() {
           </nav>
 
           <div className="grid min-w-0 gap-6 desk:col-span-3">
-          <form hidden={secao === "usuarios"} className="grid min-w-0 gap-6" onSubmit={(event) => void salvar(event)}>
+          <form hidden={secao === "usuarios" || secao.startsWith("ia-")} className="grid min-w-0 gap-6" onSubmit={(event) => void salvar(event)}>
             <section hidden={secao !== "conta"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-conta">
               <h2 id="titulo-conta" className="mb-3 font-display text-lg">Conta</h2>
               <Linha id="nome" titulo="Nome" dica="Como a conta aparece no Prumo.">
@@ -792,104 +754,6 @@ export function Painel() {
               </Linha>
             </section>
 
-            <section hidden={secao !== "assistente"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-assistente">
-              <h2 id="titulo-assistente" className="mb-3 font-display text-lg">Assistente</h2>
-              <p className="mb-3 text-sm text-ink-2">A IA propõe e você confirma. Ações com efeito sempre pedem confirmação.</p>
-              <Linha id="chave-ia" titulo="Chave da OpenAI" dica="A leitura de foto e PDF do extrato usa esta chave. Sem chave salva, usa a chave do ambiente. O campo vazio mantém a chave já salva.">
-                <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
-                  <input
-                    id="chave-ia"
-                    type="password"
-                    value={form.aiApiKey}
-                    autoComplete="new-password"
-                    placeholder={aiKeyConfigured && !form.limparChaveIa ? "Chave já salva" : ""}
-                    aria-describedby="chave-ia-dica"
-                    className={cn(field, "w-auto min-w-0 flex-1")}
-                    onChange={(event) =>
-                      setForm((atual) =>
-                        atual ? { ...atual, aiApiKey: event.target.value, limparChaveIa: false } : atual,
-                      )
-                    }
-                  />
-                  {aiKeyConfigured && !form.limparChaveIa ? (
-                    <Button
-                      onClick={() =>
-                        setForm((atual) => (atual ? { ...atual, aiApiKey: "", limparChaveIa: true } : atual))
-                      }
-                    >
-                      Remover chave
-                    </Button>
-                  ) : null}
-                </span>
-              </Linha>
-              <Linha
-                id="modelos"
-                titulo="Modelos"
-                dica="Cadastre o identificador de cada modelo. O marcado fica em uso na leitura de foto e PDF. Nada vem pronto."
-              >
-                <span className="grid w-full gap-2">
-                  <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
-                    <input
-                      id="modelos"
-                      value={rascunhoModelo}
-                      autoComplete="off"
-                      aria-invalid={erroModelo ? true : undefined}
-                      aria-describedby={erroModelo ? "modelos-erro modelos-dica" : "modelos-dica"}
-                      className={cn(field, "w-auto min-w-0 flex-1")}
-                      onChange={(event) => {
-                        setErroModelo("");
-                        setRascunhoModelo(event.target.value);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter") return;
-                        event.preventDefault();
-                        adicionarModelo();
-                      }}
-                    />
-                    <Button onClick={adicionarModelo}>Adicionar</Button>
-                  </span>
-                  {erroModelo ? (
-                    <p id="modelos-erro" className="text-sm text-neg" role="alert">
-                      {erroModelo}
-                    </p>
-                  ) : null}
-                  {form.aiModels.length === 0 ? (
-                    <p className="text-sm text-ink-2">Nenhum modelo cadastrado.</p>
-                  ) : (
-                    <span id="modelo-em-uso" role="radiogroup" aria-label="Modelo em uso" className="grid w-full gap-2">
-                      {form.aiModels.map((modelo) => (
-                        <span key={modelo} className="flex w-full min-w-0 flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            role="radio"
-                            aria-checked={form.aiModel === modelo}
-                            className={cn(
-                              "min-h-10 min-w-0 max-w-full rounded-sm border px-3 text-left text-sm",
-                              form.aiModel === modelo ? "border-brand bg-brand-soft font-semibold text-brand" : "border-line bg-surface text-ink",
-                              focusRing,
-                            )}
-                            onClick={() => alterar("aiModel", modelo)}
-                          >
-                            {modelo}
-                          </button>
-                          <Button onClick={() => removerModelo(modelo)}>Remover</Button>
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </span>
-              </Linha>
-              <Linha id="registrar" titulo="Registrar lançamentos" dica="Esse passo continua pedindo confirmação.">
-                <select id="registrar" disabled className={field} defaultValue="confirmar" aria-describedby="registrar-dica">
-                  <option value="confirmar">Sempre confirmar</option>
-                </select>
-              </Linha>
-              <Linha id="compromissos" titulo="Criar compromissos" dica="Esse passo continua pedindo confirmação.">
-                <select id="compromissos" disabled className={field} defaultValue="confirmar" aria-describedby="compromissos-dica">
-                  <option value="confirmar">Sempre confirmar</option>
-                </select>
-              </Linha>
-            </section>
 
             <section hidden={secao !== "notificacoes"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-notificacoes">
               <h2 id="titulo-notificacoes" className="mb-3 font-display text-lg">Notificações</h2>
@@ -1002,6 +866,7 @@ export function Painel() {
             ) : null}
           </form>
           <Usuarios visivel={secao === "usuarios"} />
+          <PainelDeIa secao={secao} />
           </div>
         </div>
       )}

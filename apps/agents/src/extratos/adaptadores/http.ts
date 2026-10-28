@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { LIMITE_ID_MODELO, idDeModelo } from "@finnagent/contracts";
 import { z } from "zod";
+import { erroDaUrl } from "../../assistente/dominio/url.js";
 import { log } from "../../log.js";
 import { OrganizarExtrato } from "../aplicacao/organizar-extrato.js";
 import { ModeloIndisponivel, PedidoInvalido } from "../dominio/erros.js";
@@ -17,6 +18,7 @@ const pedido = z.object({
     .max(LIMITE_ID_MODELO)
     .optional()
     .refine((valor) => valor === undefined || idDeModelo(valor) === valor),
+  baseUrl: z.string().trim().max(300).optional(),
 });
 
 const LIMITE = 8_000_000;
@@ -38,6 +40,11 @@ export function tratarExtrato(servico: OrganizarExtrato) {
         enviar(res, 400, {
           message: campo === "model" ? "Cadastre um modelo de IA nas configurações." : "Envie uma imagem ou um PDF do extrato.",
         });
+        return;
+      }
+      const erroDeUrl = corpo.data.baseUrl ? erroDaUrl(corpo.data.baseUrl) : null;
+      if (erroDeUrl) {
+        enviar(res, 400, { message: erroDeUrl });
         return;
       }
       const lines = await servico.organizar(corpo.data);

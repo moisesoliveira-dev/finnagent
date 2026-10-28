@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type TenantId = string;
 
 export type Grupo = {
@@ -1017,6 +1019,8 @@ export type PedidoOrganizarExtrato = {
   content: string;
   apiKey?: string;
   model?: string;
+  /** Provedor no formato da OpenAI fora da OpenAI (OpenRouter, Ollama...). */
+  baseUrl?: string;
 };
 
 export type Extrato = {
@@ -1823,4 +1827,834 @@ export function estaNoRailway(env: Variaveis) {
  */
 export function loginDispensado(env: Variaveis) {
   return ambienteDe(env) === "development" && !estaNoRailway(env);
+}
+
+// ─── Assistente de IA ────────────────────────────────────────────────────────────────────────────
+// Provedores, agentes, configuração, mensagens do chat e o catálogo de ferramentas. O catálogo é a
+// lista fechada do que a IA pode fazer: o backend só executa o que está aqui, com a sessão de quem pediu.
+
+export const PROVEDORES_IA = ["openai", "anthropic", "google", "openai_compativel", "ollama"] as const;
+
+export type ProvedorIa = (typeof PROVEDORES_IA)[number];
+
+export type InfoDoProvedor = {
+  nome: string;
+  descricao: string;
+  precisaChave: boolean;
+  precisaUrl: boolean;
+  urlPadrao: string;
+  /** Lê foto e PDF de extrato. Só os provedores no formato da OpenAI, por enquanto. */
+  leExtratos: boolean;
+  dicaDaChave: string;
+};
+
+export const INFO_DOS_PROVEDORES: Record<ProvedorIa, InfoDoProvedor> = {
+  openai: {
+    nome: "OpenAI",
+    descricao: "Modelos GPT, direto na API da OpenAI.",
+    precisaChave: true,
+    precisaUrl: false,
+    urlPadrao: "",
+    leExtratos: true,
+    dicaDaChave: "Gere em platform.openai.com, em API keys.",
+  },
+  anthropic: {
+    nome: "Anthropic",
+    descricao: "Modelos Claude, direto na API da Anthropic.",
+    precisaChave: true,
+    precisaUrl: false,
+    urlPadrao: "",
+    leExtratos: false,
+    dicaDaChave: "Gere em console.anthropic.com, em API keys.",
+  },
+  google: {
+    nome: "Google Gemini",
+    descricao: "Modelos Gemini, pelo Google AI Studio.",
+    precisaChave: true,
+    precisaUrl: false,
+    urlPadrao: "",
+    leExtratos: false,
+    dicaDaChave: "Gere em aistudio.google.com, em Get API key.",
+  },
+  openai_compativel: {
+    nome: "Compatível com OpenAI",
+    descricao: "OpenRouter, Groq, Mistral, DeepSeek, Together, xAI ou qualquer API no formato da OpenAI.",
+    precisaChave: true,
+    precisaUrl: true,
+    urlPadrao: "https://openrouter.ai/api/v1",
+    leExtratos: true,
+    dicaDaChave: "A chave do serviço escolhido.",
+  },
+  ollama: {
+    nome: "Ollama",
+    descricao: "Modelos rodando no seu computador ou num servidor seu.",
+    precisaChave: false,
+    precisaUrl: true,
+    urlPadrao: "http://host.docker.internal:11434/v1",
+    leExtratos: true,
+    dicaDaChave: "",
+  },
+};
+
+export const AGENTES_IA = ["coordenador", "financas", "agenda", "organizacao", "metas", "extratos", "analise"] as const;
+
+export type AgenteIa = (typeof AGENTES_IA)[number];
+
+export const ESPECIALISTAS_IA = ["financas", "agenda", "organizacao", "metas", "extratos", "analise"] as const;
+
+export type EspecialistaIa = (typeof ESPECIALISTAS_IA)[number];
+
+export const INFO_DOS_AGENTES: Record<AgenteIa, { nome: string; resumo: string }> = {
+  coordenador: { nome: "Coordenador", resumo: "Entende o pedido e passa para o especialista certo." },
+  financas: { nome: "Finanças", resumo: "Lançamentos, parcelas, empréstimos, fixos e pagamentos." },
+  agenda: { nome: "Agenda", resumo: "Compromissos e a sincronização com o Google Calendar." },
+  organizacao: { nome: "Organização", resumo: "Grupos, sessões e a virada do ano." },
+  metas: { nome: "Metas", resumo: "Metas de economia, valores e prazos." },
+  extratos: { nome: "Extratos", resumo: "Conferência e cruzamento das linhas importadas." },
+  analise: { nome: "Análise", resumo: "Responde perguntas com o painel, os relatórios e o histórico." },
+};
+
+/** Cada função pode usar um modelo próprio. `leitor` é a leitura de extrato por foto ou PDF. */
+export const FUNCOES_DE_MODELO = [...AGENTES_IA, "leitor"] as const;
+
+export type FuncaoDeModelo = (typeof FUNCOES_DE_MODELO)[number];
+
+export const INFO_DA_LEITURA = {
+  nome: "Leitura de extratos",
+  resumo: "Lê a foto ou o PDF do extrato e transforma em linhas.",
+};
+
+export const LIMITE_MODELOS_POR_PROVEDOR = 40;
+export const LIMITE_INSTRUCOES_IA = 2000;
+export const LIMITE_MENSAGEM_DO_CHAT = 4000;
+
+export const PASSOS_DO_ASSISTENTE = [4, 8, 12] as const;
+
+export type PassosDoAssistente = (typeof PASSOS_DO_ASSISTENTE)[number];
+
+export const CRIATIVIDADES = ["precisa", "equilibrada", "criativa"] as const;
+
+export type Criatividade = (typeof CRIATIVIDADES)[number];
+
+export function temperaturaDa(criatividade: Criatividade) {
+  return criatividade === "precisa" ? 0 : criatividade === "equilibrada" ? 0.4 : 0.8;
+}
+
+export const RETENCOES_DO_CHAT = ["30d", "90d", "1a", "sempre"] as const;
+
+export type RetencaoDoChat = (typeof RETENCOES_DO_CHAT)[number];
+
+export type EscolhaDeModelo = { providerId: string; model: string };
+
+export type ProvedorConfigurado = {
+  id: string;
+  kind: ProvedorIa;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  hasKey: boolean;
+  updatedAt: string;
+};
+
+export type PedidoDeProvedor = {
+  kind: ProvedorIa;
+  label: string;
+  /** Vazio mantém a chave já salva. */
+  apiKey: string;
+  limparChave: boolean;
+  baseUrl: string;
+  models: string[];
+};
+
+export type ComportamentoDoAssistente = {
+  confirmarExclusao: boolean;
+  maxPassos: PassosDoAssistente;
+  criatividade: Criatividade;
+  instrucoes: string;
+  retencao: RetencaoDoChat;
+};
+
+export type ConfiguracaoDoAssistente = {
+  padrao: EscolhaDeModelo | null;
+  funcoes: Partial<Record<FuncaoDeModelo, EscolhaDeModelo | null>>;
+  comportamento: ComportamentoDoAssistente;
+};
+
+export const COMPORTAMENTO_PADRAO: ComportamentoDoAssistente = {
+  confirmarExclusao: true,
+  maxPassos: 8,
+  criatividade: "precisa",
+  instrucoes: "",
+  retencao: "1a",
+};
+
+export type ConfiguracaoDeIa = {
+  provedores: ProvedorConfigurado[];
+  assistente: ConfiguracaoDoAssistente;
+  /** Só o master muda provedores e o comportamento do assistente. */
+  podeEditar: boolean;
+};
+
+export type ResultadoDoTeste = { ok: boolean; models: string[]; message: string; ms: number };
+
+// Mensagens do chat, como a tela mostra.
+
+export type EstadoDaAcao = "executando" | "feita" | "falhou" | "cancelada";
+
+export type AcaoDoAssistente = {
+  id: string;
+  ferramenta: string;
+  rotulo: string;
+  estado: EstadoDaAcao;
+  detalhe: string;
+};
+
+export type OpcaoDaPergunta = { rotulo: string; descricao?: string };
+
+export type PerguntaDoAssistente = {
+  id: string;
+  tipo: "pergunta" | "confirmacao";
+  texto: string;
+  opcoes: OpcaoDaPergunta[];
+  resposta: string | null;
+};
+
+export type ParteDaMensagem =
+  | { tipo: "texto"; texto: string }
+  | { tipo: "acao"; acao: AcaoDoAssistente }
+  | { tipo: "pergunta"; pergunta: PerguntaDoAssistente }
+  | { tipo: "agente"; agente: AgenteIa };
+
+export type MensagemDoChat = {
+  id: string;
+  role: "user" | "assistant";
+  partes: ParteDaMensagem[];
+  agente: AgenteIa | null;
+  createdAt: string;
+};
+
+export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean };
+
+export type ConversaCompleta = ConversaResumo & { mensagens: MensagemDoChat[] };
+
+export type PedidoDeMensagem = {
+  conversationId: string | null;
+  texto?: string;
+  resposta?: { perguntaId: string; escolha: string };
+};
+
+/** O que o backend manda para a tela, uma linha JSON por evento, enquanto o assistente trabalha. */
+export type EventoDoChat =
+  | { tipo: "conversa"; conversa: ConversaResumo }
+  | { tipo: "inicio"; usuario: MensagemDoChat | null; assistenteId: string }
+  | { tipo: "agente"; agente: AgenteIa }
+  | { tipo: "texto"; delta: string }
+  | { tipo: "acao"; acao: AcaoDoAssistente }
+  | { tipo: "pergunta"; pergunta: PerguntaDoAssistente }
+  | { tipo: "resposta"; perguntaId: string; escolha: string }
+  | { tipo: "fim"; mensagem: MensagemDoChat }
+  | { tipo: "erro"; message: string };
+
+// Conversa entre o backend (que orquestra e executa) e o agents (que raciocina).
+
+export type ModeloResolvido = { kind: ProvedorIa; apiKey: string; baseUrl: string; model: string };
+
+export type ChamadaDeFerramenta = { id: string; nome: string; args: Record<string, unknown> };
+
+export type MensagemDoModelo =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; agente: AgenteIa | null; toolCalls?: ChamadaDeFerramenta[] }
+  | { role: "tool"; content: string; toolCallId: string; nome: string; agente: AgenteIa | null };
+
+export type PedidoDePasso = {
+  modelos: Partial<Record<AgenteIa, ModeloResolvido>>;
+  temperatura: number;
+  instrucoes: string;
+  contexto: { hoje: string; usuario: string; fuso: string };
+  mensagens: MensagemDoModelo[];
+  agenteAtivo: EspecialistaIa | null;
+};
+
+/** Notas: encaminhamentos entre agentes neste passo, para o backend guardar no histórico do turno. */
+export type EventoDoPasso =
+  | { tipo: "agente"; agente: AgenteIa }
+  | { tipo: "texto"; delta: string }
+  | { tipo: "chamadas"; agente: EspecialistaIa; texto: string; chamadas: ChamadaDeFerramenta[]; notas: string[] }
+  | { tipo: "resposta"; agente: AgenteIa; texto: string; notas: string[] }
+  | { tipo: "erro"; message: string };
+
+export type PedidoDeTesteDoProvedor = { kind: ProvedorIa; apiKey: string; baseUrl: string; model: string };
+
+// Catálogo de ferramentas. Os nomes e os campos seguem a API, para o backend repassar sem traduzir.
+
+const idDoSistema = z.uuid();
+const dataDoSistema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Data no formato AAAA-MM-DD.");
+const anoDoSistema = z.number().int().min(2000).max(2100);
+const mesDoSistema = z.number().int().min(1).max(12).describe("Mês de 1 a 12.");
+const diaDoSistema = z.number().int().min(1).max(31);
+const horaDoSistema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).describe("Hora no formato HH:MM, 24 horas.");
+const centavosPositivos = z
+  .number()
+  .int()
+  .positive()
+  .max(2_147_483_647)
+  .describe("Valor em centavos, sempre positivo. R$ 12,50 vira 1250.");
+const resumoDoQueApaga = z
+  .string()
+  .trim()
+  .min(3)
+  .max(160)
+  .describe("Em português, o que será apagado, para a pessoa confirmar. Ex.: 'o lançamento Aluguel de outubro'.");
+
+const camposDoLancamento = z.object({
+  sessionId: idDoSistema.describe("Sessão onde o lançamento entra. Descubra com listar_grupos_e_sessoes."),
+  name: z.string().trim().min(1).max(160).describe("Nome curto do lançamento, como 'Aluguel'."),
+  description: z.string().trim().max(160).optional().describe("Detalhe opcional."),
+  justification: z.string().trim().max(160).optional().describe("Por que existe. Se a pessoa não disser, deixe vazio."),
+  date: dataDoSistema.describe("Data do lançamento (AAAA-MM-DD)."),
+  mode: z.enum(MODOS_TRANSACAO).describe("inflows = entrada de dinheiro; outflows = saída."),
+  category: z
+    .enum(CATEGORIAS_TRANSACAO)
+    .describe(
+      "unique = única (avulsa); additional = extra (sempre entrada); installment = parcela (sempre saída, exige installments e installmentNumber); loan = empréstimo (exige installments, installmentNumber, dueDate e interestRate); fixed = fixa (recorrente, exige recurrence, recurrenceInterval e nextDueDate). Sessão do tipo 'valor' só aceita unique.",
+    ),
+  cents: centavosPositivos,
+  status: z
+    .enum(STATUS_TRANSACAO)
+    .optional()
+    .describe("pending = pendente (padrão); completed = paga; cancelled = cancelada; refunded = estornada."),
+  priority: z.enum(PRIORIDADES_TRANSACAO).optional().describe("low, normal, high ou nopriority. Padrão: nopriority."),
+  installments: z.number().int().min(1).max(360).optional().describe("Total de parcelas."),
+  installmentNumber: z.number().int().min(1).max(360).optional().describe("Parcela atual."),
+  dueDate: dataDoSistema.optional().describe("Vencimento do empréstimo."),
+  interestRate: z.number().min(0).max(1000).optional().describe("Taxa de juros do empréstimo, em % ao mês."),
+  nextDueDate: dataDoSistema.optional().describe("Próximo vencimento da fixa."),
+  recurrence: z
+    .enum(RECORRENCIAS)
+    .optional()
+    .describe("Recorrência da fixa: weekly, monthly, quarterly, semi_annual, annual ou customize."),
+  recurrenceInterval: z.number().int().min(1).max(3660).optional().describe("Intervalo da recorrência. Mensal = 1."),
+});
+
+const camposDoCompromisso = z.object({
+  title: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(160).optional(),
+  location: z.string().trim().max(160).optional(),
+  allDay: z.boolean().optional().describe("Dia inteiro. Sem hora, use true."),
+  year: anoDoSistema,
+  month: mesDoSistema,
+  day: diaDoSistema,
+  time: horaDoSistema.nullable().optional().describe("Hora de início. Obrigatória se não for o dia inteiro."),
+  endTime: horaDoSistema.nullable().optional().describe("Hora de fim. Obrigatória se não for o dia inteiro."),
+  calendar: z.enum(AGENDAS).describe("Agenda: Pessoal ou Trabalho."),
+  category: z
+    .enum(CATEGORIAS_COMPROMISSO)
+    .describe("time = acontece uma vez; fixed = se repete todo mês no mesmo dia; periodical = vai de uma data até outra."),
+  endYear: anoDoSistema.nullable().optional().describe("Fim do período (só periodical)."),
+  endMonth: mesDoSistema.nullable().optional(),
+  endDay: diaDoSistema.nullable().optional(),
+  entryId: idDoSistema.nullable().optional().describe("Lançamento ligado a este compromisso, se houver."),
+  sessionId: idDoSistema.nullable().optional().describe("Sessão do gasto do compromisso, se houver."),
+});
+
+export type FerramentaDoAssistente = {
+  nome: string;
+  agentes: readonly EspecialistaIa[];
+  descricao: string;
+  /** Apaga ou encerra algo. O backend pede confirmação antes, se o comportamento mandar. */
+  destrutiva: boolean;
+  /** Só lê. */
+  leitura: boolean;
+  esquema: z.ZodObject;
+  /** Frase curta do que foi feito, para a tela. */
+  rotulo: (args: Record<string, unknown>) => string;
+};
+
+function ferramenta<T extends z.ZodObject>(definicao: {
+  nome: string;
+  agentes: readonly EspecialistaIa[];
+  descricao: string;
+  destrutiva?: boolean;
+  leitura?: boolean;
+  esquema: T;
+  rotulo: (args: z.infer<T>) => string;
+}): FerramentaDoAssistente {
+  return {
+    nome: definicao.nome,
+    agentes: definicao.agentes,
+    descricao: definicao.descricao,
+    destrutiva: definicao.destrutiva ?? false,
+    leitura: definicao.leitura ?? false,
+    esquema: definicao.esquema,
+    rotulo: (args) => definicao.rotulo(args as z.infer<T>),
+  };
+}
+
+const vazio = z.object({});
+const todosLeem = ["financas", "agenda", "organizacao", "metas", "extratos", "analise"] as const;
+const entreAspas = (texto: unknown) => `“${String(texto ?? "").slice(0, 60)}”`;
+const peloId = z.object({ id: idDoSistema });
+const peloIdApagando = z.object({ id: idDoSistema, resumo: resumoDoQueApaga });
+
+const ROTULO_DO_STATUS_PARA_ACAO: Record<StatusTransacao, string> = {
+  pending: "Marcou o lançamento como pendente",
+  completed: "Marcou o lançamento como pago",
+  cancelled: "Cancelou o lançamento",
+  refunded: "Marcou o lançamento como estornado",
+};
+
+export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
+  ferramenta({
+    nome: "listar_grupos_e_sessoes",
+    agentes: todosLeem,
+    descricao: "Lista os grupos e as sessões, com ids, tipo e categorias aceitas. Use antes de lançar ou acumular.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou grupos e sessões",
+  }),
+  // Finanças
+  ferramenta({
+    nome: "consultar_lancamentos",
+    agentes: ["financas", "analise", "extratos", "agenda"],
+    descricao: "Busca lançamentos por período, grupo, categoria ou texto. Traz ids e valores.",
+    leitura: true,
+    esquema: z.object({
+      year: anoDoSistema.optional(),
+      month: mesDoSistema.optional(),
+      day: diaDoSistema.optional(),
+      groupId: idDoSistema.optional(),
+      category: z.enum(CATEGORIAS_TRANSACAO).optional(),
+      q: z.string().max(160).optional().describe("Texto para procurar no nome."),
+    }),
+    rotulo: (args) => (args.q ? `Procurou lançamentos com ${entreAspas(args.q)}` : "Consultou lançamentos"),
+  }),
+  ferramenta({
+    nome: "consultar_mes_financeiro",
+    agentes: ["financas", "analise"],
+    descricao: "Resumo do mês atual: entradas, saídas, sessões e lançamentos com a situação de cada um.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou o mês financeiro",
+  }),
+  ferramenta({
+    nome: "criar_lancamento",
+    agentes: ["financas"],
+    descricao: "Cria um lançamento (entrada ou saída) numa sessão.",
+    esquema: camposDoLancamento,
+    rotulo: (args) => `Criou o lançamento ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "editar_lancamento",
+    agentes: ["financas"],
+    descricao: "Edita um lançamento. Mande todos os campos, com os valores atuais nos que não mudam.",
+    esquema: camposDoLancamento.extend({ id: idDoSistema }),
+    rotulo: (args) => `Editou o lançamento ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "alterar_status_lancamento",
+    agentes: ["financas"],
+    descricao: "Marca o lançamento como pendente, pago, cancelado ou estornado.",
+    esquema: z.object({ id: idDoSistema, status: z.enum(STATUS_TRANSACAO) }),
+    rotulo: (args) => ROTULO_DO_STATUS_PARA_ACAO[args.status],
+  }),
+  ferramenta({
+    nome: "atualizar_ocorrencia",
+    agentes: ["financas"],
+    descricao: "Muda uma ocorrência (parcela ou mês) de um lançamento: situação, vencimento ou valor previsto.",
+    esquema: z.object({
+      id: idDoSistema,
+      number: z.number().int().min(1).describe("Número da ocorrência."),
+      status: z.enum(STATUS_TRANSACAO).optional(),
+      dueDate: dataDoSistema.optional(),
+      plannedCents: z.number().int().optional().describe("Valor previsto em centavos."),
+    }),
+    rotulo: (args) => `Atualizou a ocorrência ${args.number}`,
+  }),
+  ferramenta({
+    nome: "excluir_ocorrencia",
+    agentes: ["financas"],
+    descricao: "Apaga uma ocorrência de um lançamento.",
+    destrutiva: true,
+    esquema: z.object({ id: idDoSistema, number: z.number().int().min(1), resumo: resumoDoQueApaga }),
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "excluir_lancamento",
+    agentes: ["financas"],
+    descricao: "Apaga um lançamento.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "adiantar_parcelas",
+    agentes: ["financas"],
+    descricao: "Adianta as parcelas restantes de um parcelamento.",
+    esquema: peloId,
+    rotulo: () => "Adiantou as parcelas",
+  }),
+  ferramenta({
+    nome: "cancelar_parcelas",
+    agentes: ["financas"],
+    descricao: "Cancela as parcelas restantes de um parcelamento.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Cancelou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "adiantar_emprestimo",
+    agentes: ["financas"],
+    descricao: "Quita adiantado o restante de um empréstimo.",
+    esquema: peloId,
+    rotulo: () => "Adiantou o empréstimo",
+  }),
+  ferramenta({
+    nome: "cancelar_emprestimo",
+    agentes: ["financas"],
+    descricao: "Cancela o restante de um empréstimo.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Cancelou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "cancelar_fixo_no_mes",
+    agentes: ["financas"],
+    descricao: "Cancela uma fixa só em um mês.",
+    destrutiva: true,
+    esquema: z.object({ id: idDoSistema, year: anoDoSistema, month: mesDoSistema, resumo: resumoDoQueApaga }),
+    rotulo: (args) => `Cancelou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "suspender_fixo_no_mes",
+    agentes: ["financas"],
+    descricao: "Suspende uma fixa em um mês, sem cancelar.",
+    esquema: z.object({ id: idDoSistema, year: anoDoSistema, month: mesDoSistema }),
+    rotulo: (args) => `Suspendeu a fixa em ${args.month}/${args.year}`,
+  }),
+  ferramenta({
+    nome: "atualizar_valor_dos_fixos",
+    agentes: ["financas"],
+    descricao: "Muda o valor de uma ou mais fixas.",
+    esquema: z.object({
+      updates: z.array(z.object({ id: idDoSistema, cents: centavosPositivos })).min(1).max(50),
+    }),
+    rotulo: (args) => (args.updates.length === 1 ? "Mudou o valor da fixa" : `Mudou o valor de ${args.updates.length} fixas`),
+  }),
+  ferramenta({
+    nome: "associar_compromisso",
+    agentes: ["financas", "agenda"],
+    descricao: "Liga um lançamento a um compromisso da agenda.",
+    esquema: z.object({
+      id: idDoSistema.describe("Id do lançamento."),
+      commitmentId: idDoSistema.describe("Id do compromisso."),
+    }),
+    rotulo: () => "Ligou o lançamento ao compromisso",
+  }),
+  // Organização
+  ferramenta({
+    nome: "criar_grupo",
+    agentes: ["organizacao"],
+    descricao: "Cria um grupo.",
+    esquema: z.object({ name: z.string().trim().min(1).max(80), description: z.string().trim().max(160).optional() }),
+    rotulo: (args) => `Criou o grupo ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "editar_grupo",
+    agentes: ["organizacao"],
+    descricao: "Renomeia um grupo ou muda a descrição.",
+    esquema: z.object({ id: idDoSistema, name: z.string().trim().min(1).max(80), description: z.string().trim().max(160) }),
+    rotulo: (args) => `Editou o grupo ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "excluir_grupo",
+    agentes: ["organizacao"],
+    descricao: "Apaga um grupo vazio.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "criar_sessao",
+    agentes: ["organizacao"],
+    descricao: "Cria uma sessão dentro de um grupo.",
+    esquema: z.object({
+      groupId: idDoSistema,
+      name: z.string().trim().min(1).max(80),
+      description: z.string().trim().max(160).optional(),
+      justification: z.string().trim().max(160).optional(),
+      kind: z
+        .enum(TIPOS_SESSAO)
+        .describe("valor = recebe um lançamento único; acumulo = junta vários lançamentos de qualquer categoria."),
+    }),
+    rotulo: (args) => `Criou a sessão ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "editar_sessao",
+    agentes: ["organizacao"],
+    descricao: "Edita uma sessão ou muda de grupo.",
+    esquema: z.object({
+      id: idDoSistema,
+      groupId: idDoSistema,
+      name: z.string().trim().min(1).max(80),
+      description: z.string().trim().max(160),
+      justification: z.string().trim().max(160),
+    }),
+    rotulo: (args) => `Editou a sessão ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "excluir_sessao",
+    agentes: ["organizacao"],
+    descricao: "Apaga uma sessão sem lançamentos.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "consultar_virada_do_ano",
+    agentes: ["organizacao"],
+    descricao: "Mostra o que fica e o que sai na virada do ano.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou a virada do ano",
+  }),
+  ferramenta({
+    nome: "confirmar_virada_do_ano",
+    agentes: ["organizacao"],
+    descricao: "Decide quais grupos e sessões continuam no ano novo. O que não for listado sai.",
+    destrutiva: true,
+    esquema: z.object({
+      year: anoDoSistema,
+      groupIds: z.array(idDoSistema),
+      sessionIds: z.array(idDoSistema),
+      resumo: resumoDoQueApaga,
+    }),
+    rotulo: (args) => `Fechou a virada de ${args.year}`,
+  }),
+  // Agenda
+  ferramenta({
+    nome: "consultar_agenda",
+    agentes: ["agenda", "analise", "financas"],
+    descricao: "Lista os compromissos de um mês, com ids.",
+    leitura: true,
+    esquema: z.object({ year: anoDoSistema, month: mesDoSistema }),
+    rotulo: (args) => `Consultou a agenda de ${args.month}/${args.year}`,
+  }),
+  ferramenta({
+    nome: "criar_compromisso",
+    agentes: ["agenda"],
+    descricao: "Cria um compromisso na agenda.",
+    esquema: camposDoCompromisso,
+    rotulo: (args) => `Criou o compromisso ${entreAspas(args.title)}`,
+  }),
+  ferramenta({
+    nome: "editar_compromisso",
+    agentes: ["agenda"],
+    descricao: "Edita um compromisso. Mande todos os campos, com os valores atuais nos que não mudam.",
+    esquema: camposDoCompromisso.extend({ id: idDoSistema }),
+    rotulo: (args) => `Editou o compromisso ${entreAspas(args.title)}`,
+  }),
+  ferramenta({
+    nome: "mover_compromisso",
+    agentes: ["agenda"],
+    descricao: "Muda o compromisso de dia.",
+    esquema: z.object({ id: idDoSistema, year: anoDoSistema, month: mesDoSistema, day: diaDoSistema }),
+    rotulo: (args) => `Moveu o compromisso para ${args.day}/${args.month}/${args.year}`,
+  }),
+  ferramenta({
+    nome: "alterar_status_compromisso",
+    agentes: ["agenda"],
+    descricao: "Marca o compromisso como feito ou não feito.",
+    esquema: z.object({ id: idDoSistema, status: z.enum(STATUS_COMPROMISSO) }),
+    rotulo: (args) => (args.status === "done" ? "Marcou o compromisso como feito" : "Reabriu o compromisso"),
+  }),
+  ferramenta({
+    nome: "excluir_compromisso",
+    agentes: ["agenda"],
+    descricao: "Apaga um compromisso.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "sincronizar_google_calendar",
+    agentes: ["agenda"],
+    descricao: "Busca e envia as mudanças para o Google Calendar conectado.",
+    esquema: vazio,
+    rotulo: () => "Sincronizou com o Google Calendar",
+  }),
+  // Metas
+  ferramenta({
+    nome: "consultar_metas",
+    agentes: ["metas", "analise"],
+    descricao: "Lista as metas com o valor guardado, o alvo e o prazo.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou as metas",
+  }),
+  ferramenta({
+    nome: "criar_meta",
+    agentes: ["metas"],
+    descricao: "Cria uma meta de economia. O prazo é opcional, mas mês e ano andam juntos.",
+    esquema: z.object({
+      name: z.string().trim().min(1).max(80),
+      targetCents: centavosPositivos.describe("Quanto quer juntar, em centavos."),
+      savedCents: z.number().int().min(0).max(2_147_483_647).optional().describe("Quanto já guardou, em centavos."),
+      dueYear: anoDoSistema.nullable().optional(),
+      dueMonth: mesDoSistema.nullable().optional(),
+    }),
+    rotulo: (args) => `Criou a meta ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "excluir_meta",
+    agentes: ["metas"],
+    descricao: "Apaga uma meta.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  // Extratos
+  ferramenta({
+    nome: "consultar_extratos",
+    agentes: ["extratos", "analise"],
+    descricao: "Lista os extratos importados, com ids e situação.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou os extratos",
+  }),
+  ferramenta({
+    nome: "consultar_linhas_do_extrato",
+    agentes: ["extratos"],
+    descricao: "Mostra as linhas de um extrato.",
+    leitura: true,
+    esquema: z.object({ id: idDoSistema, somenteErros: z.boolean().optional() }),
+    rotulo: () => "Consultou as linhas do extrato",
+  }),
+  ferramenta({
+    nome: "consultar_conferencia",
+    agentes: ["extratos"],
+    descricao: "Mostra a conferência do mês: linhas do extrato e os lançamentos candidatos de cada uma.",
+    leitura: true,
+    esquema: z.object({ year: anoDoSistema, month: mesDoSistema }),
+    rotulo: (args) => `Consultou a conferência de ${args.month}/${args.year}`,
+  }),
+  ferramenta({
+    nome: "cruzar_linha",
+    agentes: ["extratos"],
+    descricao: "Liga uma linha do extrato a um lançamento.",
+    esquema: z.object({
+      statementId: idDoSistema,
+      line: z.number().int().min(1),
+      entryId: idDoSistema,
+      valor: z.enum(["extrato", "lancamento"]).optional().describe("Qual valor vale no mês, se forem diferentes."),
+    }),
+    rotulo: (args) => `Cruzou a linha ${args.line}`,
+  }),
+  ferramenta({
+    nome: "desfazer_cruzamento",
+    agentes: ["extratos"],
+    descricao: "Desfaz o cruzamento de uma linha.",
+    esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1) }),
+    rotulo: (args) => `Desfez o cruzamento da linha ${args.line}`,
+  }),
+  ferramenta({
+    nome: "acumular_linha",
+    agentes: ["extratos"],
+    descricao: "Lança uma linha do extrato numa sessão de acúmulo.",
+    esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }),
+    rotulo: (args) => `Lançou a linha ${args.line}`,
+  }),
+  ferramenta({
+    nome: "acumular_linhas",
+    agentes: ["extratos"],
+    descricao: "Lança várias linhas do extrato, cada uma numa sessão.",
+    esquema: z.object({
+      items: z
+        .array(z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }))
+        .min(1)
+        .max(500),
+    }),
+    rotulo: (args) => `Lançou ${args.items.length} linhas`,
+  }),
+  ferramenta({
+    nome: "reprocessar_extrato",
+    agentes: ["extratos"],
+    descricao: "Lê de novo um extrato que falhou.",
+    esquema: peloId,
+    rotulo: () => "Reprocessou o extrato",
+  }),
+  ferramenta({
+    nome: "excluir_extrato",
+    agentes: ["extratos"],
+    descricao: "Apaga um extrato importado.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  // Análise
+  ferramenta({
+    nome: "consultar_painel",
+    agentes: ["analise", "financas"],
+    descricao: "Totais e itens do dia, do mês ou do ano, como no Dashboard.",
+    leitura: true,
+    esquema: z.object({
+      scope: z.enum(ESCOPOS_PAINEL).describe("dia, mes ou ano."),
+      year: anoDoSistema,
+      month: mesDoSistema.optional(),
+      day: diaDoSistema.optional(),
+    }),
+    rotulo: () => "Consultou o painel",
+  }),
+  ferramenta({
+    nome: "consultar_relatorio",
+    agentes: ["analise"],
+    descricao: "Relatório do ano por mês e por categoria.",
+    leitura: true,
+    esquema: z.object({ year: anoDoSistema.optional() }),
+    rotulo: (args) => (args.year ? `Consultou o relatório de ${args.year}` : "Consultou o relatório"),
+  }),
+  ferramenta({
+    nome: "consultar_visao_do_ano",
+    agentes: ["analise", "financas"],
+    descricao: "Visão geral das finanças do ano.",
+    leitura: true,
+    esquema: z.object({ year: anoDoSistema }),
+    rotulo: (args) => `Consultou a visão de ${args.year}`,
+  }),
+  ferramenta({
+    nome: "consultar_eventos",
+    agentes: ["analise"],
+    descricao: "Histórico do que aconteceu no sistema.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou o histórico",
+  }),
+];
+
+/** Ferramentas que o backend não executa: o orquestrador e o grafo tratam. */
+export const FERRAMENTA_PERGUNTAR = "perguntar";
+export const FERRAMENTA_ENCAMINHAR = "encaminhar";
+
+export const ESQUEMA_PERGUNTAR = z.object({
+  pergunta: z.string().trim().min(3).max(300).describe("A pergunta, curta e direta."),
+  opcoes: z
+    .array(
+      z.object({
+        rotulo: z.string().trim().min(1).max(60).describe("Texto do botão."),
+        descricao: z.string().trim().max(160).optional().describe("Explicação curta da opção."),
+      }),
+    )
+    .min(2)
+    .max(6)
+    .describe("De 2 a 6 opções. A pessoa também pode escrever outra resposta."),
+});
+
+export const ESQUEMA_ENCAMINHAR = z.object({
+  agente: z.enum(ESPECIALISTAS_IA).describe("O especialista que deve continuar."),
+  motivo: z.string().trim().min(3).max(200).describe("O que ele deve fazer, em uma frase."),
+});
+
+export const FERRAMENTAS_POR_NOME = new Map(FERRAMENTAS_DO_ASSISTENTE.map((item) => [item.nome, item]));
+
+export function ferramentasDo(agente: EspecialistaIa) {
+  return FERRAMENTAS_DO_ASSISTENTE.filter((item) => item.agentes.includes(agente));
 }

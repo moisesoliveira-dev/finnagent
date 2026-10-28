@@ -39,7 +39,7 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
 
   return {
     async organizar(pedido) {
-      return comModelo({ apiKey: pedido.apiKey, model: pedido.model }, async () => {
+      return comModelo({ apiKey: pedido.apiKey, model: pedido.model, baseUrl: pedido.baseUrl }, async () => {
         const resultado = await grafo.invoke(
           {
             filename: pedido.filename,

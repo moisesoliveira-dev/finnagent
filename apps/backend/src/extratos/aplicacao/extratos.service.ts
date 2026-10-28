@@ -12,6 +12,7 @@ import type {
   VinculoCruzado,
 } from "@finnagent/contracts";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
+import { IaService } from "../../assistente/aplicacao/ia.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import {
@@ -52,6 +53,7 @@ export class ExtratosService {
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
     private readonly financas: FinancasService,
     private readonly agenda: AgendaService,
+    private readonly ia: IaService,
   ) {}
 
   listar(tenantId: string): Promise<ExtratosResposta> {
@@ -355,17 +357,32 @@ export class ExtratosService {
     this.bytes(content);
     const mediaType = tipoDaMidia(filename);
     if (!mediaType) throw new PedidoInvalido("Envie uma imagem ou um PDF do extrato.");
-    const segredos = await this.configuracoes.segredos(tenantId);
-    if (!segredos?.aiModel) throw new PedidoInvalido("Cadastre um modelo de IA nas configurações.");
+    const modelo = await this.modeloDaLeitura(tenantId);
     const lines = await this.organizador.organizar({
       tenantId,
       filename: nomeDoArquivo(filename),
       mediaType,
       content,
-      model: segredos.aiModel,
-      ...(segredos?.aiApiKey ? { apiKey: segredos.aiApiKey } : {}),
+      ...modelo,
     });
     return leituraDasLinhas(lines);
+  }
+
+  /** O modelo da função "Leitura de extratos" da IA; sem ela, a chave e o modelo antigos das preferências. */
+  private async modeloDaLeitura(tenantId: string) {
+    const leitura = await this.ia.modeloDaLeitura(tenantId);
+    if (leitura) {
+      return {
+        model: leitura.model,
+        ...(leitura.apiKey ? { apiKey: leitura.apiKey } : {}),
+        ...(leitura.kind !== "openai" && leitura.baseUrl ? { baseUrl: leitura.baseUrl } : {}),
+      };
+    }
+    const segredos = await this.configuracoes.segredos(tenantId);
+    if (!segredos?.aiModel) {
+      throw new PedidoInvalido("Escolha um modelo para a leitura de extratos em Configurações, Inteligência artificial.");
+    }
+    return { model: segredos.aiModel, ...(segredos.aiApiKey ? { apiKey: segredos.aiApiKey } : {}) };
   }
 
   private ler(filename: string, content: string, mapping: MapeamentoExtrato | null) {
