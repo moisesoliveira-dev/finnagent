@@ -38,6 +38,7 @@ import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
 import { Money } from "../../components/ui/money";
 import { Troca } from "../../components/ui/movimento";
+import { Icone } from "../../components/ui/icone";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
@@ -106,6 +107,7 @@ export default function Financas() {
   const [saving, setSaving] = useState(false);
   const [vencimentos, setVencimentos] = useState<PadroesDeVencimento>(PADROES_DE_VENCIMENTO_INICIAIS);
   const [calendario, setCalendario] = useState<CalendarioDeDiasUteis>(CALENDARIO_NACIONAL);
+  const [atualizando, setAtualizando] = useState(false);
 
   function carregar() {
     return api<FinancasVista>("/api/financas")
@@ -120,6 +122,15 @@ export default function Financas() {
         toast.erro(error.message);
         return null;
       });
+  }
+
+  // Recarrega a tela sob demanda: um lançamento criado em outra aba, como o do assistente, não chega sozinho.
+  async function atualizar() {
+    if (atualizando) return;
+    setAtualizando(true);
+    const resposta = await carregar();
+    if (resposta) toast.sucesso("Finanças atualizadas.");
+    setAtualizando(false);
   }
 
   useEffect(() => {
@@ -357,6 +368,16 @@ export default function Financas() {
                 setVisao(id);
               }}
             />
+            <Button variant="default" carregando={atualizando} onClick={atualizar}>
+              {atualizando ? (
+                "Atualizando"
+              ) : (
+                <>
+                  <Icone name="refresh" />
+                  Atualizar
+                </>
+              )}
+            </Button>
             <Button variant="primary" onClick={abrirLancamento}>
               Novo lançamento
             </Button>
