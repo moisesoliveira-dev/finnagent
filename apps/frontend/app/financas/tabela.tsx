@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { motion } from "motion/react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { api } from "./api";
 import { useToast } from "../../components/ui/toast";
 import { CATEGORIAS_TRANSACAO, type BaseResposta, type LinhaBase } from "@finnagent/contracts";
@@ -8,11 +9,12 @@ import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
 import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
-import { List } from "../../components/ui/list";
+import { Dialogo } from "../../components/ui/dialogo";
 import { Money } from "../../components/ui/money";
-import { campo } from "../../components/ui/cn";
+import { ItemAnimado, ListaAnimada, Seta, Troca, useCurva } from "../../components/ui/movimento";
+import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
-import { doisDigitos } from "./reais";
+import { Vazio } from "../../components/ui/vazio";
 import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, rotuloDaSituacao, tomDaPrioridade, tomDaSituacao } from "./rotulos";
 
 const field = campo;
@@ -34,12 +36,14 @@ const MESES = [
 
 type Filtro = {
   year: number;
-  month: number | null;
-  day: number | null;
+  month: number;
   groupId: string;
   category: string;
   q: string;
 };
+
+type Sessao = { chave: string; nome: string; linhas: LinhaBase[]; totalCents: number };
+type Grupo = { nome: string; sessoes: Sessao[]; totalCents: number };
 
 export function TabelaLancamentos({
   year,
@@ -53,17 +57,26 @@ export function TabelaLancamentos({
   onAtualizar: () => Promise<void>;
 }) {
   const toast = useToast();
+  const curva = useCurva();
+  const marca = useId();
+  // A Base mostra um mês por vez: começa no mês de hoje e o backend corrige se ele estiver fora do workflow.
   const [filtro, setFiltro] = useState<Filtro>({
     year,
-    month: null,
-    day: null,
+    month: new Date().getMonth() + 1,
     groupId: "",
     category: "",
     q: "",
   });
   const [busca, setBusca] = useState("");
-  const [dados, setDados] = useState<BaseResposta | null>(null);
+  const [lida, setLida] = useState<{ chave: string; dados: BaseResposta } | null>(null);
   const [falhou, setFalhou] = useState(false);
+  const [deslize, setDeslize] = useState(0);
+  const [aberta, setAberta] = useState<string | null>(null);
+  const [fechadas, setFechadas] = useState<Record<string, boolean>>({});
+
+  const chave = `${parametros(filtro)}#${versao}`;
+  const dados = lida?.dados ?? null;
+  const buscando = lida?.chave !== chave && !falhou;
 
   useEffect(() => {
     const espera = setTimeout(() => {
@@ -77,12 +90,12 @@ export function TabelaLancamentos({
     api<BaseResposta>(`/api/financas/base?${parametros(filtro)}`)
       .then((resposta) => {
         if (!ativo) return;
-        setDados(resposta);
+        setLida({ chave, dados: resposta });
         setFalhou(false);
+        // Sem mês na resposta (o pedido caiu fora do workflow): fica no primeiro mês que existe.
+        const mes = resposta.month ?? resposta.months[0] ?? filtro.month;
         setFiltro((atual) =>
-          atual.year === resposta.year && atual.month === resposta.month && atual.day === resposta.day
-            ? atual
-            : { ...atual, year: resposta.year, month: resposta.month, day: resposta.day },
+          atual.year === resposta.year && atual.month === mes ? atual : { ...atual, year: resposta.year, month: mes },
         );
       })
       .catch((error: Error) => {
@@ -93,7 +106,12 @@ export function TabelaLancamentos({
     return () => {
       ativo = false;
     };
-  }, [filtro, versao, toast]);
+    // `chave` já resume o filtro e a versão.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chave, toast]);
+
+  const grupos = useMemo(() => agrupar(dados?.rows ?? []), [dados]);
+  const sessaoAberta = aberta ? (grupos.flatMap((grupo) => grupo.sessoes).find((item) => item.chave === aberta) ?? null) : null;
 
   async function excluir(linha: LinhaBase) {
     try {
@@ -109,19 +127,27 @@ export function TabelaLancamentos({
     }
   }
 
-  if (!dados) {
-    return falhou ? null : (
-      <Carregando texto="Carregando lançamentos." linhas={6} />
-    );
+  function escolherMes(mes: number) {
+    setDeslize(Math.sign(mes - filtro.month));
+    setAberta(null);
+    setFiltro((atual) => ({ ...atual, month: mes }));
   }
 
-  const linhas = dados.rows;
-  const rotuloTotal =
-    dados.day != null ? "Total do dia" : dados.month == null ? "Total do ano" : "Total do mês";
+  function editar(linha: LinhaBase) {
+    setAberta(null);
+    onEditar(linha.entryId, linha.number);
+  }
+
+  if (!dados) {
+    return falhou ? null : <Carregando texto="Carregando lançamentos." linhas={6} />;
+  }
+
+  const mes = dados.month ?? filtro.month;
+  const totalLinhas = dados.rows.length;
 
   return (
     <div className="grid min-w-0 gap-4">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Ano"
           value={dados.year}
@@ -131,43 +157,6 @@ export function TabelaLancamentos({
           {dados.years.map((item) => (
             <option key={item} value={item}>
               {item}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Mês"
-          value={dados.month ?? ""}
-          onChange={(event) =>
-            setFiltro((atual) => ({
-              ...atual,
-              month: event.target.value === "" ? null : Number(event.target.value),
-            }))
-          }
-          className={field}
-        >
-          <option value="">Todos os meses</option>
-          {dados.months.map((mes) => (
-            <option key={mes} value={mes}>
-              {MESES[mes - 1]}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Dia"
-          value={dados.day ?? ""}
-          disabled={dados.days.length === 0}
-          onChange={(event) =>
-            setFiltro((atual) => ({
-              ...atual,
-              day: event.target.value === "" ? null : Number(event.target.value),
-            }))
-          }
-          className={field}
-        >
-          <option value="">Todos os dias</option>
-          {dados.days.map((item) => (
-            <option key={item} value={item}>
-              {doisDigitos(item)}
             </option>
           ))}
         </select>
@@ -203,157 +192,222 @@ export function TabelaLancamentos({
           onChange={(event) => setBusca(event.target.value)}
           placeholder="Buscar nome, descrição ou justificativa"
           aria-label="Buscar"
-          className={`${field} min-w-0 flex-1`}
+          className={cn(field, "min-w-0 flex-1")}
         />
       </div>
-      <div className="min-w-0 tab:hidden">
-        <List>
-          {linhas.length === 0 ? (
-            <li className="min-w-0 border-b border-line px-4 py-6 text-sm text-ink-2">
-              <p className="max-w-prose">Nenhum lançamento com esses filtros.</p>
-            </li>
-          ) : (
-            linhas.map((linha) => (
-              <li
-                key={`${linha.entryId}-${linha.number}`}
-                className="grid min-w-0 gap-3 border-b border-line px-4 py-3"
+
+      <div className="min-w-0 overflow-x-auto">
+        <div role="group" aria-label="Mês" className="flex w-max min-w-full border-b border-line">
+          {dados.months.map((item) => {
+            const ativo = item === mes;
+            return (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={ativo}
+                onClick={() => escolherMes(item)}
+                className={cn(
+                  "etiqueta-botao relative flex min-h-10 items-center px-3 whitespace-nowrap transition-colors",
+                  ativo ? "text-brand" : "text-ink-2 hover:text-ink",
+                  focusRing,
+                )}
               >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <time className="text-sm text-ink-2" dateTime={linha.dueDate}>
-                      {dataCurta(linha.dueDate)}
-                    </time>
-                    <div className="font-medium wrap-break-word">{linha.name || linha.description}</div>
-                  </div>
-                  <div className="shrink-0">
-                    <Money cents={linha.cents} />
-                  </div>
-                </div>
-                <div className="flex min-w-0 flex-wrap gap-2">
-                  <Chip>{ROTULO_CATEGORIA[linha.category]}</Chip>
-                  <Chip tone={tomDaSituacao(linha.situation)}>{rotuloDaSituacao(linha.situation)}</Chip>
-                  <Chip tone={tomDaPrioridade(linha.priority)}>{ROTULO_PRIORIDADE[linha.priority]}</Chip>
-                </div>
-                <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">
-                  {linha.groupName} · {linha.sessionName}
-                </p>
-                {linha.description || linha.installment ? (
-                  <p className="min-w-0 max-w-prose text-sm wrap-break-word">
-                    <Descricao linha={linha} />
-                  </p>
+                {MESES[item - 1]?.slice(0, 3)}
+                {ativo ? (
+                  <motion.span
+                    layoutId={marca}
+                    className="absolute inset-x-0 bottom-0 border-b-2 border-brand"
+                    transition={curva}
+                  />
                 ) : null}
-                {linha.justification ? (
-                  <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">{linha.justification}</p>
-                ) : null}
-                <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                  <Excluir linha={linha} onExcluir={excluir} />
-                  <Button
-                    variant="quiet"
-                    className="size-10 px-0"
-                    aria-label="Editar"
-                    onClick={() => onEditar(linha.entryId, linha.number)}
-                  >
-                    <Icone name="edit" />
-                  </Button>
-                </div>
-              </li>
-            ))
-          )}
-          <li className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 font-semibold">
-            <span className="min-w-0">{rotuloTotal}</span>
-            <span className="shrink-0">
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <motion.div
+        animate={{ opacity: buscando ? 0.5 : 1 }}
+        transition={curva}
+        aria-busy={buscando}
+        className="grid min-w-0 gap-4"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-lg">
+            {MESES[mes - 1]} de {dados.year}
+          </h2>
+          <p className="flex items-baseline gap-3 text-sm text-ink-2">
+            <span>{totalLinhas === 1 ? "1 lançamento" : `${totalLinhas} lançamentos`}</span>
+            <span className="etiqueta">Total do mês</span>
+            <span className="text-base">
               <Money cents={dados.totalCents} acumulado />
             </span>
-          </li>
-        </List>
-      </div>
-      <div className="hidden min-w-0 overflow-x-auto rounded-lg border border-line bg-surface tab:block">
-        <table className="w-full border-separate border-spacing-0 text-sm">
-          <caption className="sr-only">Lançamentos filtrados</caption>
-          <thead>
-            <tr>
-              {["Data", "Nome", "Categoria", "Status", "Prioridade", "Grupo", "Sessão", "Descrição", "Justificativa"].map((coluna) => (
-                <th
-                  key={coluna}
-                  scope="col"
-                  className="border-b border-line bg-surface px-3 py-3 text-left align-top etiqueta text-ink-2"
-                >
-                  {coluna}
-                </th>
-              ))}
-              <th
-                scope="col"
-                className="border-b border-line bg-surface px-3 py-3 text-right align-top etiqueta whitespace-nowrap text-ink-2"
-              >
-                Valor
-              </th>
-              <th scope="col" className="border-b border-line bg-surface px-3 py-3 text-right">
-                <span className="sr-only">Ações</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="px-4 py-6 text-ink-2">
-                  Nenhum lançamento com esses filtros.
-                </td>
-              </tr>
-            ) : (
-              linhas.map((linha) => (
-                <tr key={`${linha.entryId}-${linha.number}`}>
-                  <td className="border-b border-line px-3 py-3 whitespace-nowrap">
-                    <time dateTime={linha.dueDate}>{dataCurta(linha.dueDate)}</time>
-                  </td>
-                  <td className="border-b border-line px-3 py-3">{linha.name || linha.description}</td>
-                  <td className="border-b border-line px-3 py-3">
-                    <Chip>{ROTULO_CATEGORIA[linha.category]}</Chip>
-                  </td>
-                  <td className="border-b border-line px-3 py-3">
-                    <Chip tone={tomDaSituacao(linha.situation)}>{rotuloDaSituacao(linha.situation)}</Chip>
-                  </td>
-                  <td className="border-b border-line px-3 py-3">
-                    <Chip tone={tomDaPrioridade(linha.priority)}>{ROTULO_PRIORIDADE[linha.priority]}</Chip>
-                  </td>
-                  <td className="border-b border-line px-3 py-3">{linha.groupName}</td>
-                  <td className="border-b border-line px-3 py-3">{linha.sessionName}</td>
-                  <td className="border-b border-line px-3 py-3">
-                    <Descricao linha={linha} />
-                  </td>
-                  <td className="border-b border-line px-3 py-3">{linha.justification}</td>
-                  <td className="border-b border-line px-3 py-3 text-right whitespace-nowrap">
-                    <Money cents={linha.cents} />
-                  </td>
-                  <td className="border-b border-line px-3 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
+          </p>
+        </div>
+
+        <Troca id={`${dados.year}-${mes}`} direcao={deslize} className="grid min-w-0 gap-4">
+          {grupos.length === 0 ? (
+            <Vazio>Nenhum lançamento em {MESES[mes - 1]?.toLowerCase()} com esses filtros.</Vazio>
+          ) : (
+            grupos.map((grupo) => {
+              const fechado = fechadas[grupo.nome] === true;
+              return (
+                <section key={grupo.nome} aria-label={grupo.nome} className="min-w-0 border border-line bg-surface">
+                  <button
+                    type="button"
+                    aria-expanded={!fechado}
+                    onClick={() => setFechadas((atual) => ({ ...atual, [grupo.nome]: !fechado }))}
+                    className={cn(
+                      "flex w-full min-w-0 items-center gap-3 bg-surface-2 px-4 py-3 text-left",
+                      focusRing,
+                    )}
+                  >
+                    <Seta aberto={!fechado} />
+                    <span className="min-w-0 flex-1 truncate font-medium">{grupo.nome}</span>
+                    <Money cents={grupo.totalCents} />
+                  </button>
+                  {fechado ? null : (
+                    <ListaAnimada className="min-w-0">
+                      {grupo.sessoes.map((sessao) => (
+                        <ItemAnimado key={sessao.chave} className="min-w-0 border-t border-line">
+                          <button
+                            type="button"
+                            onClick={() => setAberta(sessao.chave)}
+                            aria-label={`${sessao.nome}: ver ${sessao.linhas.length} ${sessao.linhas.length === 1 ? "lançamento" : "lançamentos"}`}
+                            className={cn(
+                              "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-brand-soft",
+                              focusRing,
+                            )}
+                          >
+                            <span className="grid min-w-0 flex-1 gap-1">
+                              <span className="truncate font-medium">{sessao.nome}</span>
+                              <span className="text-xs text-ink-2">
+                                {sessao.linhas.length === 1 ? "1 lançamento" : `${sessao.linhas.length} lançamentos`}
+                              </span>
+                            </span>
+                            <Money cents={sessao.totalCents} />
+                            <span aria-hidden="true" className="text-ink-2">
+                              ›
+                            </span>
+                          </button>
+                        </ItemAnimado>
+                      ))}
+                    </ListaAnimada>
+                  )}
+                </section>
+              );
+            })
+          )}
+        </Troca>
+      </motion.div>
+
+      <Dialogo
+        aberto={sessaoAberta !== null}
+        largura="larga"
+        onClose={() => setAberta(null)}
+        aria-labelledby="titulo-da-sessao"
+      >
+        {sessaoAberta ? (
+          <>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="etiqueta text-ink-2">
+                  {MESES[mes - 1]} de {dados.year}
+                </p>
+                <h2 id="titulo-da-sessao" className="text-lg wrap-break-word">
+                  {sessaoAberta.nome}
+                </h2>
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
+                  <span>Total da sessão</span>
+                  <span className="whitespace-nowrap">
+                    <Money cents={sessaoAberta.totalCents} acumulado />
+                  </span>
+                </p>
+              </div>
+              <Button variant="quiet" onClick={() => setAberta(null)}>
+                Fechar
+              </Button>
+            </div>
+            <div className="dialog-corpo">
+              <ListaAnimada className="border border-line">
+                {sessaoAberta.linhas.map((linha) => (
+                  <ItemAnimado
+                    key={`${linha.entryId}-${linha.number}`}
+                    className="grid min-w-0 gap-2 border-b border-line px-4 py-3 last:border-b-0"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <time className="text-sm text-ink-2" dateTime={linha.dueDate}>
+                          {dataCurta(linha.dueDate)}
+                        </time>
+                        <div className="font-medium wrap-break-word">{linha.name || linha.description}</div>
+                      </div>
+                      <div className="shrink-0">
+                        <Money cents={linha.cents} />
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap gap-2">
+                      <Chip>{ROTULO_CATEGORIA[linha.category]}</Chip>
+                      <Chip tone={tomDaSituacao(linha.situation)}>{rotuloDaSituacao(linha.situation)}</Chip>
+                      <Chip tone={tomDaPrioridade(linha.priority)}>{ROTULO_PRIORIDADE[linha.priority]}</Chip>
+                    </div>
+                    {linha.description || linha.installment ? (
+                      <p className="min-w-0 max-w-prose text-sm wrap-break-word">
+                        <Descricao linha={linha} />
+                      </p>
+                    ) : null}
+                    {linha.justification ? (
+                      <p className="min-w-0 max-w-prose text-sm wrap-break-word text-ink-2">{linha.justification}</p>
+                    ) : null}
+                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                       <Excluir linha={linha} onExcluir={excluir} />
                       <Button
                         variant="quiet"
                         className="size-10 px-0"
                         aria-label="Editar"
-                        onClick={() => onEditar(linha.entryId, linha.number)}
+                        onClick={() => editar(linha)}
                       >
                         <Icone name="edit" />
                       </Button>
                     </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row" colSpan={10} className="px-3 py-3 text-left font-semibold">
-                {rotuloTotal}
-              </th>
-              <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">
-                <Money cents={dados.totalCents} acumulado />
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+                  </ItemAnimado>
+                ))}
+              </ListaAnimada>
+            </div>
+          </>
+        ) : null}
+      </Dialogo>
     </div>
+  );
+}
+
+// Grupos e sessões em ordem alfabética; a soma de cada um deixa de fora o cancelado e o estornado, como o total do mês.
+function agrupar(linhas: LinhaBase[]): Grupo[] {
+  const grupos = new Map<string, Map<string, LinhaBase[]>>();
+  for (const linha of linhas) {
+    const sessoes = grupos.get(linha.groupName) ?? new Map<string, LinhaBase[]>();
+    sessoes.set(linha.sessionName, [...(sessoes.get(linha.sessionName) ?? []), linha]);
+    grupos.set(linha.groupName, sessoes);
+  }
+  return [...grupos.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+    .map(([nome, sessoes]) => {
+      const lista = [...sessoes.entries()]
+        .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+        .map(([sessao, itens]) => ({
+          chave: `${nome}\u0000${sessao}`,
+          nome: sessao,
+          linhas: itens,
+          totalCents: somar(itens),
+        }));
+      return { nome, sessoes: lista, totalCents: lista.reduce((soma, item) => soma + item.totalCents, 0) };
+    });
+}
+
+function somar(linhas: LinhaBase[]) {
+  return linhas.reduce(
+    (soma, linha) => (linha.situation === "cancelled" || linha.situation === "refunded" ? soma : soma + linha.cents),
+    0,
   );
 }
 
@@ -379,9 +433,7 @@ function Excluir({ linha, onExcluir }: { linha: LinhaBase; onExcluir: (linha: Li
 }
 
 function parametros(filtro: Filtro) {
-  const busca = new URLSearchParams({ year: String(filtro.year) });
-  if (filtro.month != null) busca.set("month", String(filtro.month));
-  if (filtro.day != null) busca.set("day", String(filtro.day));
+  const busca = new URLSearchParams({ year: String(filtro.year), month: String(filtro.month) });
   if (filtro.groupId) busca.set("groupId", filtro.groupId);
   if (filtro.category) busca.set("category", filtro.category);
   if (filtro.q.trim()) busca.set("q", filtro.q.trim());
