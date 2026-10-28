@@ -64,6 +64,48 @@ export async function callBackend(path: string, init?: RequestInit) {
   }
 }
 
+/**
+ * Repassa uma resposta que chega aos poucos (NDJSON), sem esperar o fim. Sem prazo e sem repetir:
+ * o assistente pode levar um tempo e uma escrita não se repete. Se a pessoa parar na tela,
+ * o cancelamento segue até o backend, que para o modelo.
+ */
+export async function streamBackend(path: string, request: Request) {
+  const base = process.env.API_URL;
+  if (!base) return Response.json({ message: "API_URL não está definida." }, { status: 503 });
+  const token = await lerToken();
+  if (!token && !loginDispensado(process.env)) return semSessao();
+  const url = new URL(path, base.endsWith("/") ? base : `${base}/`);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: await request.text(),
+      cache: "no-store",
+      signal: request.signal,
+    });
+    if (response.status === 401) return semSessao();
+    if (!response.ok || !response.body) {
+      return new Response(await response.text(), {
+        status: response.status,
+        headers: { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store" },
+      });
+    }
+    return new Response(response.body, {
+      status: 200,
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-store",
+        "x-accel-buffering": "no",
+      },
+    });
+  } catch {
+    return Response.json({ message: "O backend não respondeu." }, { status: 503 });
+  }
+}
+
 /** Sessão ausente, vencida ou revogada: responde 401 e já apaga o cookie para a tela voltar ao login. */
 function semSessao() {
   const resposta = Response.json({ message: "Sua sessão expirou. Entre de novo." }, { status: 401 });

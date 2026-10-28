@@ -5,14 +5,15 @@ import { idDeModelo } from "@finnagent/contracts";
 import { ModeloIndisponivel, PedidoInvalido } from "../dominio/erros.js";
 import type { ArquivoDeExtrato, LeitorDeExtrato, ModeloDeExtrato } from "../portas/leitor.js";
 
-const contexto = new AsyncLocalStorage<{ apiKey: string; model: string }>();
+const contexto = new AsyncLocalStorage<{ apiKey: string; model: string; baseUrl: string }>();
 
-export function comModelo<T>(opcoes: { apiKey?: string; model?: string }, fn: () => Promise<T>) {
+export function comModelo<T>(opcoes: { apiKey?: string; model?: string; baseUrl?: string }, fn: () => Promise<T>) {
   const atual = contexto.getStore();
   return contexto.run(
     {
       apiKey: opcoes.apiKey || atual?.apiKey || "",
       model: opcoes.model || atual?.model || "",
+      baseUrl: opcoes.baseUrl || atual?.baseUrl || "",
     },
     fn,
   );
@@ -65,6 +66,7 @@ export class OpenAiExtrato implements LeitorDeExtrato, ModeloDeExtrato {
     return initChatModel(model, {
       modelProvider: "openai",
       apiKey,
+      ...(atual?.baseUrl ? { configuration: { baseURL: atual.baseUrl } } : {}),
       ...(comTemperatura ? { temperature: 0 } : {}),
     });
   }

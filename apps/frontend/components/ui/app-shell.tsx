@@ -11,6 +11,7 @@ import { useCurva } from "./movimento";
 
 const items = [
   { href: "/", label: "Dashboard" },
+  { href: "/assistente", label: "Assistente" },
   { href: "/agenda", label: "Agenda" },
   { href: "/financas", label: "Finanças" },
   { href: "/grupos", label: "Grupos" },
@@ -88,7 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Prumo
         </div>
         <ul className="flex gap-1 tab:flex-col">
-          {items.slice(0, 3).map((item) => (
+          {items.slice(0, 4).map((item) => (
             <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
           ))}
           <Item href="/metas" label="Metas" current={pathname === "/metas"} />
@@ -115,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ))}
             </ul>
           </li>
-          {items.slice(3).map((item) => (
+          {items.slice(4).map((item) => (
             <Item key={item.href} href={item.href} label={item.label} current={pathname === item.href} />
           ))}
           <Item href="/configuracoes" label="Configurações" current={pathname === "/configuracoes"} />

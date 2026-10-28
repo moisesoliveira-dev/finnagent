@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AssistenteModule } from "../assistente/assistente.module.js";
 import { AgendaModule } from "../agenda/agenda.module.js";
 import { ConfiguracoesModule } from "../configuracoes/configuracoes.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
@@ -11,7 +12,7 @@ import { EXTRATOS_REPOSITORIO } from "./portas/extratos-repositorio.js";
 import { ORGANIZADOR_DE_EXTRATO } from "./portas/organizador-de-extrato.js";
 
 @Module({
-  imports: [PersistenciaModule, FinancasModule, AgendaModule, ConfiguracoesModule],
+  imports: [PersistenciaModule, FinancasModule, AgendaModule, ConfiguracoesModule, AssistenteModule],
   exports: [ExtratosService],
   controllers: [ExtratosController],
   providers: [

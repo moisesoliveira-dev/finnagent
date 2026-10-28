@@ -12,6 +12,7 @@ import { SessaoGuard } from "./sessao.guard.js";
 @Module({
   imports: [PersistenciaModule],
   controllers: [AuthController, PerfilController, UsuariosController],
+  exports: [AuthService],
   providers: [
     PrismaAuthRepositorio,
     { provide: AUTH_REPOSITORIO, useExisting: PrismaAuthRepositorio },

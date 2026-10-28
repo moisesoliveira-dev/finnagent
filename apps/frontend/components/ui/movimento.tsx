@@ -20,6 +20,7 @@ export function useCurva() {
 
 const ABAS = [
   "/",
+  "/assistente",
   "/agenda",
   "/financas",
   "/grupos",
