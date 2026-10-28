@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
   LIMITE_EXTRATO_BYTES,
@@ -16,7 +17,10 @@ import {
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
-import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
+import { ItemAnimado, ListaAnimada, useCurva } from "../../components/ui/movimento";
+import { Icone } from "../../components/ui/icone";
+import { Vazio } from "../../components/ui/vazio";
+import { Abas } from "../eventos/ferramentas";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
 import { campo, cn, focusRing } from "../../components/ui/cn";
@@ -82,8 +86,38 @@ function tom(status: StatusExtrato) {
   return "neg" as const;
 }
 
+// Barra de saúde da leitura: o que entrou limpo em azul e o que deu erro em vermelho, crescendo da esquerda.
+function Saude({ lidas, erros }: { lidas: number; erros: number }) {
+  const curva = useCurva();
+  const total = Math.max(lidas, 1);
+  const limpas = Math.max(lidas - erros, 0);
+  return (
+    <div
+      role="img"
+      aria-label={`${limpas} linhas lidas sem erro e ${erros} com erro`}
+      className="flex h-2 w-full gap-1 bg-surface-2"
+    >
+      <motion.span
+        className="origin-left bg-brand"
+        style={{ width: `${(limpas / total) * 100}%` }}
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={curva}
+      />
+      <motion.span
+        className="origin-left bg-neg"
+        style={{ width: `${(erros / total) * 100}%` }}
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={curva}
+      />
+    </div>
+  );
+}
+
 export default function Extratos() {
   const toast = useToast();
+  const curva = useCurva();
   const [dados, setDados] = useState<ExtratosResposta | null>(null);
   const [falhou, setFalhou] = useState(false);
   const [conta, setConta] = useState("");
@@ -306,13 +340,15 @@ export default function Extratos() {
         }
       />
 
-      <button
+      <motion.button
         type="button"
         className={cn(
-          "mb-6 grid w-full justify-items-center gap-1 rounded-lg border-2 border-dashed border-line bg-surface px-4 py-8 text-center hover:border-brand hover:bg-brand-soft",
+          "group mb-6 flex w-full min-w-0 items-center gap-4 border border-dashed border-line bg-surface p-4 text-left transition-colors hover:border-brand hover:bg-brand-soft tab:p-6",
           focusRing,
           sobre && "border-brand bg-brand-soft",
         )}
+        animate={{ scale: sobre ? 1.01 : 1 }}
+        transition={curva}
         onClick={() => abrir()}
         onDragOver={(event) => {
           event.preventDefault();
@@ -326,103 +362,163 @@ export default function Extratos() {
           abrir(file);
         }}
       >
-        <span className="font-bold">Arraste o extrato aqui</span>
-        <span className="text-sm text-ink-2">ou clique para escolher · OFX, CSV, foto ou PDF, até 5 MB</span>
-      </button>
+        <motion.span
+          aria-hidden="true"
+          className="grid size-12 shrink-0 place-items-center border border-line bg-surface-2 text-brand group-hover:border-brand"
+          animate={{ y: sobre ? -4 : 0 }}
+          transition={curva}
+        >
+          <Icone name="upload" />
+        </motion.span>
+        <span className="grid min-w-0 flex-1 gap-2">
+          <span className="font-display text-lg">{sobre ? "Solte para importar" : "Arraste o extrato aqui"}</span>
+          <span className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+            <span>ou clique para escolher</span>
+            {["OFX", "CSV", "Foto", "PDF"].map((formato) => (
+              <Chip key={formato}>{formato}</Chip>
+            ))}
+            <span>até 5 MB</span>
+          </span>
+        </span>
+      </motion.button>
 
       {!dados && !falhou ? <Carregando texto="Carregando extratos." linhas={3} /> : null}
 
       {dados ? (
         <>
-          <dl className="mb-6 flex flex-wrap gap-x-8 gap-y-4 border-y border-line py-4" aria-label="Resumo das importações">
-            <Stat label="Extratos">{extratos.length}</Stat>
-            <Stat label="Linhas lidas">{lidas}</Stat>
-            <Stat label="Linhas com erro">
-              <span className={erros ? "text-neg" : undefined}>{erros}</span>
-            </Stat>
-            <Stat label="Última importação">{ultima ? quando(ultima) : "—"}</Stat>
-          </dl>
+          <section aria-label="Resumo das importações" className="mb-6 grid min-w-0 gap-4 border border-line bg-surface p-4">
+            <dl className="flex flex-wrap gap-x-8 gap-y-4">
+              <Stat label="Extratos">{extratos.length}</Stat>
+              <Stat label="Linhas lidas">{lidas}</Stat>
+              <Stat label="Linhas com erro">
+                <span className={erros ? "text-neg" : undefined}>{erros}</span>
+              </Stat>
+              <Stat label="Última importação">{ultima ? quando(ultima) : "—"}</Stat>
+            </dl>
+            <Saude lidas={lidas} erros={erros} />
+          </section>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            <select className={cn(field, "w-auto")} aria-label="Conta" value={conta} onChange={(event) => setConta(event.target.value)}>
-              <option value="">Todas as contas</option>
-              {contas.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <select className={cn(field, "w-auto")} aria-label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="">Todos os status</option>
-              {STATUS_EXTRATO.map((item) => (
-                <option key={item} value={item}>
-                  {ROTULO[item]}
-                </option>
-              ))}
-            </select>
-            <input
-              className={cn(field, "min-w-0 flex-1")}
-              type="search"
-              placeholder="Buscar pelo nome do arquivo"
-              aria-label="Buscar"
-              value={busca}
-              onChange={(event) => setBusca(event.target.value)}
+          <div className="mb-4 grid min-w-0 gap-3">
+            <Abas
+              rotulo="Conta"
+              valor={conta || null}
+              onEscolher={(id) => setConta(id ?? "")}
+              opcoes={[
+                { id: null, nome: "Todas", total: extratos.length },
+                ...contas.map((item) => ({
+                  id: item.id,
+                  nome: item.name,
+                  total: extratos.filter((extrato) => extrato.accountId === item.id).length,
+                })),
+              ]}
             />
+            <div className="flex flex-wrap gap-2">
+              <select className={cn(field, "w-auto")} aria-label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
+                <option value="">Todos os status</option>
+                {STATUS_EXTRATO.map((item) => (
+                  <option key={item} value={item}>
+                    {ROTULO[item]}
+                  </option>
+                ))}
+              </select>
+              <input
+                className={cn(field, "min-w-0 flex-1")}
+                type="search"
+                placeholder="Buscar pelo nome do arquivo"
+                aria-label="Buscar"
+                value={busca}
+                onChange={(event) => setBusca(event.target.value)}
+              />
+            </div>
           </div>
 
-          <ListaAnimada className="overflow-hidden rounded-lg border border-line bg-surface" aria-live="polite">
-            {filtrados.length ? (
-              filtrados.map((item) => (
-                <ItemAnimado key={item.id} className="grid gap-3 border-b border-line p-4 last:border-b-0 tab:grid-cols-[minmax(0,1fr)_auto] tab:items-center">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 font-medium break-all">
-                      {item.filename} <Chip>{item.format.toUpperCase()}</Chip>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-ink-2">
-                      <span>{item.accountName}</span>
-                      <span>{periodo(item)}</span>
-                      <span>{item.status === "processando" ? "— linhas" : `${item.lineCount} linhas`}</span>
-                      <span>Importado em {quando(item.importedAt)}</span>
-                    </div>
-                    {item.errorCount ? (
-                      <div className="mt-2">
-                        <Chip tone="neg">{item.errorCount} linhas com erro</Chip>
-                      </div>
-                    ) : null}
-                    {item.status === "processando" ? <p className="mt-2 text-sm text-ink-2">Lendo o arquivo.</p> : null}
-                    {item.message && item.status !== "processando" ? (
-                      <p className="mt-2 text-sm text-neg">{item.message}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 tab:flex-nowrap tab:justify-end">
-                    <Chip tone={tom(item.status)}>{ROTULO[item.status]}</Chip>
-                    <Button variant="quiet" disabled={item.status === "processando" || ocupado === item.id} onClick={() => void verLinhas(item, false)}>
-                      Ver linhas
-                    </Button>
-                    {item.errorCount || item.status === "falhou" ? (
-                      <Button variant="quiet" disabled={ocupado === item.id} onClick={() => void reprocessar(item)}>
-                        Reprocessar
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="quiet"
-                      disabled={ocupado === item.id}
-                      onClick={() => {
-                        setExcluir(item);
-                        exclusao.current?.showModal();
-                      }}
+          {filtrados.length ? (
+            <ListaAnimada className="grid min-w-0 gap-4 tab:grid-cols-2 desk:grid-cols-3" aria-live="polite">
+              {filtrados.map((item) => (
+                <ItemAnimado
+                  key={item.id}
+                  whileHover={{ y: -2 }}
+                  className="grid min-w-0 content-start gap-4 border border-line bg-surface p-4"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "etiqueta grid size-12 shrink-0 place-items-center border",
+                        item.status === "importado" ? "border-transparent bg-brand-soft text-brand" : "border-line bg-surface-2 text-ink-2",
+                        item.status === "falhou" && "border-neg bg-transparent text-neg",
+                      )}
                     >
-                      Excluir
-                    </Button>
+                      {item.format.toUpperCase()}
+                    </span>
+                    <div className="grid min-w-0 flex-1 gap-1">
+                      <div className="font-medium break-all">{item.filename}</div>
+                      <div className="text-sm text-ink-2">{item.accountName}</div>
+                    </div>
+                    <Chip tone={tom(item.status)}>{ROTULO[item.status]}</Chip>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                      <span className="tabular-nums">{periodo(item)}</span>
+                      <span className="text-ink-2 tabular-nums">
+                        {item.status === "processando" ? "— linhas" : `${item.lineCount} linhas`}
+                      </span>
+                    </div>
+                    {item.status === "processando" ? (
+                      <p className="text-sm text-ink-2">Lendo o arquivo.</p>
+                    ) : (
+                      <Saude lidas={item.lineCount} erros={item.errorCount} />
+                    )}
+                    {item.errorCount ? (
+                      <Chip tone="neg" className="w-fit">
+                        {item.errorCount} linhas com erro
+                      </Chip>
+                    ) : null}
+                    {item.message && item.status !== "processando" ? <p className="text-sm text-neg">{item.message}</p> : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+                    <span className="etiqueta text-ink-2">{quando(item.importedAt)}</span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="quiet" disabled={item.status === "processando" || ocupado === item.id} onClick={() => void verLinhas(item, false)}>
+                        Ver linhas
+                      </Button>
+                      {item.errorCount || item.status === "falhou" ? (
+                        <Button
+                          variant="quiet"
+                          className="size-10 px-0"
+                          aria-label="Reprocessar"
+                          title="Reprocessar"
+                          disabled={ocupado === item.id}
+                          onClick={() => void reprocessar(item)}
+                        >
+                          <Icone name="refresh" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="quiet"
+                        className="size-10 px-0"
+                        aria-label="Excluir"
+                        title="Excluir"
+                        disabled={ocupado === item.id}
+                        onClick={() => {
+                          setExcluir(item);
+                          exclusao.current?.showModal();
+                        }}
+                      >
+                        <Icone name="remove" />
+                      </Button>
+                    </div>
                   </div>
                 </ItemAnimado>
-              ))
-            ) : (
-              <li className="px-6 py-6 text-center text-ink-2">
-                {extratos.length ? "Nenhum extrato com esses filtros." : "Nenhum extrato ainda. Importe um OFX, um CSV ou uma foto do extrato."}
-              </li>
-            )}
-          </ListaAnimada>
+              ))}
+            </ListaAnimada>
+          ) : (
+            <Vazio>
+              {extratos.length ? "Nenhum extrato com esses filtros." : "Nenhum extrato ainda. Importe um OFX, um CSV ou uma foto do extrato."}
+            </Vazio>
+          )}
         </>
       ) : null}
 
