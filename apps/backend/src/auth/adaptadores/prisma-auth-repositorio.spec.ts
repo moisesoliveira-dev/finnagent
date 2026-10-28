@@ -144,7 +144,7 @@ describe("eventos de autenticação no outbox", () => {
     const saiu = montar({ apagadas: 1 });
     await saiu.repositorio.removerSessao("h", "sair");
     expect(saiu.eventos).toHaveLength(1);
-    expect(saiu.eventos[0]).toMatchObject({ operation: "encerrar-sessao", payload: { userId: "u1", motivo: "sair" } });
+    expect(saiu.eventos[0]).toMatchObject({ operation: "encerrar-sessao-de-acesso", payload: { userId: "u1", motivo: "sair" } });
 
     const expirou = montar({ apagadas: 1 });
     await expirou.repositorio.removerSessao("h", "expirada");
