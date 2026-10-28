@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { ConfiguracoesModule } from './configuracoes/configuracoes.module.js';
 import { DadosModule } from './dados/dados.module.js';
 import { EventosModule } from './eventos/eventos.module.js';
+import { FeriadosHttpModule } from './feriados/feriados-http.module.js';
 import { ExtratosModule } from './extratos/extratos.module.js';
 import { FinancasModule } from './financas/financas.module.js';
 import { GruposModule } from './grupos/grupos.module.js';
@@ -21,6 +22,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
     AuthModule,
     GruposModule,
     FinancasModule,
+    FeriadosHttpModule,
     AgendaModule,
     ExtratosModule,
     EventosModule,

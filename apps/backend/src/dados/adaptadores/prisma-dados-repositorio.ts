@@ -35,6 +35,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           statementLines,
           statementAliases,
           goals,
+          holidays,
           preferencia,
           workflow,
         ] = await Promise.all([
@@ -53,6 +54,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           tx.statementLine.findMany(onde),
           tx.statementAlias.findMany(onde),
           tx.goal.findMany({ ...onde, orderBy: { id: "asc" } }),
+          tx.holiday.findMany({ ...onde, orderBy: { id: "asc" } }),
           tx.preference.findUnique({ where: { tenantId } }),
           tx.workflow.findUnique({ where: { tenantId } }),
         ]);
@@ -76,6 +78,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           statementLines: statementLines.map(({ tenantId: _, ...resto }) => resto),
           statementAliases: statementAliases.map(({ tenantId: _, ...resto }) => resto),
           goals: goals.map(({ tenantId: _, ...resto }) => resto),
+          holidays: holidays.map(({ id, name, day, month }) => ({ id, name, day, month })),
           preferences: preferencia
             ? {
                 name: preferencia.name,
@@ -94,6 +97,9 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
                 history: preferencia.history,
                 aiModels: preferencia.aiModels,
                 aiModel: preferencia.aiModel,
+                dueDefaults: preferencia.dueDefaults,
+                showHolidays: preferencia.showHolidays,
+                showOptionalHolidays: preferencia.showOptionalHolidays,
               }
             : null,
           workflow: workflow ? { year: workflow.year, month: workflow.month, day: workflow.day } : null,
@@ -157,6 +163,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           com(dados.statementAliases),
         );
         await gravar(dados.goals.length, (data) => tx.goal.createMany({ data }), com(dados.goals));
+        await gravar(dados.holidays.length, (data) => tx.holiday.createMany({ data }), com(dados.holidays));
         // Credenciais do Google e chave da IA são de quem usa a conta; só as preferências vêm do arquivo.
         if (dados.preferences) {
           await tx.preference.upsert({
@@ -197,6 +204,7 @@ async function apagar(tx: Prisma.TransactionClient, tenantId: string) {
   await tx.session.deleteMany(onde);
   await tx.group.deleteMany(onde);
   await tx.goal.deleteMany(onde);
+  await tx.holiday.deleteMany(onde);
   await tx.yearStay.deleteMany(onde);
   await tx.calendar.deleteMany(onde);
 }

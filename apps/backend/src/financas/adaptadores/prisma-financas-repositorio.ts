@@ -5,7 +5,14 @@ import {
   aplicarStatusNoConjunto,
   categoriaDeCompromisso,
   centavosComSinal,
+  AJUSTES_DE_DIA_UTIL,
+  CONTAGENS_DE_DIA_UTIL,
+  REGRA_SEM_AJUSTE,
+  TIPOS_DE_REGRA,
   gradeDoLancamento,
+  mesmaRegra,
+  type CalendarioDeDiasUteis,
+  type RegraDeVencimento,
   parcelaAtual,
   proximoVencimento,
   statusAgregado,
@@ -117,7 +124,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     return row ? lancamentoDe(row) : null;
   }
 
-  async criar(tenantId: string, pedido: NovoLancamento) {
+  async criar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.entry.findFirst({
@@ -156,7 +163,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           position: (ultimo._max.position ?? -1) + 1,
           ...gravacao(pedido),
           amounts: { create: meses },
-          occurrences: { create: gradeDoPedido(pedido).map(dadosAninhados) },
+          occurrences: { create: gradeDoPedido(pedido, calendario).map(dadosAninhados) },
         },
         include: {
           amounts: { where: { tenantId } },
@@ -177,7 +184,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     });
   }
 
-  async atualizar(tenantId: string, pedido: NovoLancamento) {
+  async atualizar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await this.buscar(tx, tenantId, pedido.id);
@@ -214,7 +221,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           installments: pedido.installments,
           ...atributos(pedido),
           ...(pedido.category === "fixed" && !regenerar ? {} : { suspendedCents: 0 }),
-          ...(regenerar ? resumoGravado(pedido, gradeDoPedido(pedido)) : {}),
+          ...(regenerar ? resumoGravado(pedido, gradeDoPedido(pedido, calendario)) : {}),
         },
       });
       await tx.entryAmount.deleteMany({ where: { entryId: pedido.id, tenantId } });
@@ -227,7 +234,10 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         await tx.entryAdjustment.deleteMany({ where: { entryId: pedido.id, tenantId } });
       }
       if (regenerar) {
-        await this.substituir(tx, tenantId, pedido.id, gradeDoPedido(pedido));
+        await this.substituir(tx, tenantId, pedido.id, gradeDoPedido(pedido, calendario));
+      } else if (!mesmaRegra(regraDaLinha(atual), pedido.dueRule)) {
+        // Só a regra mudou: as pendentes ganham as datas novas, as pagas ficam como estão.
+        await this.redatarNaTransacao(tx, tenantId, calendario, pedido.id);
       }
       const salvo = await this.buscar(tx, tenantId, pedido.id);
       if (!salvo) throw new Error("Lançamento ausente depois de gravar a atualização.");
@@ -539,6 +549,75 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     });
   }
 
+  async redatar(tenantId: string, calendario: CalendarioDeDiasUteis, entryId?: string) {
+    return this.banco().$transaction((tx) => this.redatarNaTransacao(tx, tenantId, calendario, entryId), {
+      timeout: 60_000,
+    });
+  }
+
+  /** Recalcula as datas das ocorrências pendentes pela regra; as pagas, canceladas e estornadas não mudam. */
+  private async redatarNaTransacao(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    calendario: CalendarioDeDiasUteis,
+    entryId?: string,
+  ) {
+    const linhas = await tx.entry.findMany({
+      where: {
+        tenantId,
+        ...(entryId ? { id: entryId } : { OR: [{ dueRule: { not: "dia" } }, { dueShift: { not: "manter" } }] }),
+      },
+      include: {
+        amounts: { where: { tenantId } },
+        adjustments: { where: { tenantId } },
+        occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
+      },
+    });
+    let mudaram = 0;
+    for (const linha of linhas) {
+      if ((linha.occurrences ?? []).length === 0) {
+        // Lançamento antigo, ainda sem ocorrências gravadas: grava a grade já com o calendário da conta,
+        // para os feriados locais valerem também nele.
+        const grade = gradeDoLancamento(contratoDaLinha(linha), calendario);
+        if (grade.length === 0) continue;
+        await tx.entryOccurrence.createMany({ data: grade.map((item) => dadosOcorrencia(tenantId, linha.id, item)) });
+        const proximo = linha.category === "fixed" ? proximoVencimento(grade) : null;
+        if (proximo) {
+          await tx.entry.updateMany({ where: { id: linha.id, tenantId }, data: { nextDueOn: dataPrisma(proximo) } });
+        }
+        continue;
+      }
+      const grade = new Map(gradeDoLancamento(contratoDaLinha(linha), calendario).map((item) => [item.number, item.dueDate]));
+      const novas: Array<{ number: number; de: string; para: string }> = [];
+      for (const ocorrencia of linha.occurrences ?? []) {
+        const data = grade.get(ocorrencia.number);
+        const atual = dataIso(ocorrencia.dueOn);
+        if (ocorrencia.status !== "pending" || !data || data === atual) continue;
+        await tx.entryOccurrence.updateMany({
+          where: { tenantId, entryId: linha.id, number: ocorrencia.number, status: "pending" },
+          data: { dueOn: dataPrisma(data) },
+        });
+        novas.push({ number: ocorrencia.number, de: atual, para: data });
+      }
+      if (novas.length === 0) continue;
+      mudaram += 1;
+      if (linha.category === "fixed") {
+        const proxima = novas[0]?.para;
+        const lista = (linha.occurrences ?? []).map((item) => {
+          const nova = novas.find((mudanca) => mudanca.number === item.number);
+          return { ...ocorrenciaDe(item), dueDate: nova ? nova.para : dataIso(item.dueOn) };
+        });
+        const proximo = proximoVencimento(lista) ?? proxima;
+        await tx.entry.updateMany({
+          where: { id: linha.id, tenantId },
+          data: { nextDueOn: proximo ? dataPrisma(proximo) : null },
+        });
+      }
+      await gravarOutbox(tx, tenantId, "redatar-vencimentos", linha.id, { id: linha.id, ocorrencias: novas }, marcaDe(novas));
+    }
+    return mudaram;
+  }
+
   private async materializar(tx: Prisma.TransactionClient, tenantId: string, atual: Linha) {
     const gravadas = atual.occurrences ?? [];
     if (gravadas.length > 0) return gravadas.map(ocorrenciaDe);
@@ -728,6 +807,10 @@ type Linha = {
   commitmentId: string | null;
   recurrence: string | null;
   recurrenceInterval: number | null;
+  dueRule: string;
+  dueOrder: number | null;
+  dueShift: string;
+  dueCount: string;
   amounts: { year: number; month: number; cents: number }[];
   adjustments: { year: number; month: number; effect: string }[];
   occurrences?: OcorrenciaGravada[];
@@ -757,8 +840,13 @@ function baseDaLinha(atual: Linha) {
   };
 }
 
-function atributos(pedido: NovoLancamento) {
+function atributos(pedido: Omit<NovoLancamento, "dueRule"> & { dueRule?: RegraDeVencimento }) {
+  const regra = pedido.dueRule ?? REGRA_SEM_AJUSTE;
   return {
+    dueRule: regra.tipo,
+    dueOrder: regra.ordem,
+    dueShift: regra.ajuste,
+    dueCount: regra.contagem,
     name: pedido.name,
     occurredOn: dataPrisma(pedido.date),
     mode: pedido.mode,
@@ -775,7 +863,7 @@ function atributos(pedido: NovoLancamento) {
   };
 }
 
-function gravacao(pedido: NovoLancamento) {
+function gravacao(pedido: Parameters<typeof atributos>[0]) {
   return {
     ...atributos(pedido),
     suspendedCents: 0,
@@ -809,6 +897,7 @@ function igual(atual: Linha, pedido: NovoLancamento) {
     (atual.nextDueOn ? dataIso(atual.nextDueOn) : null) === pedido.nextDueDate &&
     atual.recurrence === pedido.recurrence &&
     atual.recurrenceInterval === pedido.recurrenceInterval &&
+    mesmaRegra(regraDaLinha(atual), pedido.dueRule) &&
     atual.amounts.length === meses.length;
   if (!campos) return false;
   return meses.every((mes) =>
@@ -857,6 +946,7 @@ function lancamentoDe(row: Linha): Lancamento {
     commitmentId: row.commitmentId,
     recurrence: row.recurrence as Recorrencia | null,
     recurrenceInterval: row.recurrenceInterval,
+    dueRule: regraDaLinha(row),
     synced: (row.statementLines?.length ?? 0) > 0,
     adjustments: row.adjustments.map((ajuste) => ({
       year: ajuste.year,
@@ -869,8 +959,9 @@ function lancamentoDe(row: Linha): Lancamento {
   };
 }
 
-function contratoDaLinha(row: Linha) {
+function contratoDaLinha(row: Omit<Linha, "session" | "statementLines">) {
   return {
+    dueRule: regraDaLinha(row),
     type: row.type as TipoLancamento,
     day: row.day,
     cents: row.cents,
@@ -919,8 +1010,19 @@ function termosDoPedido(pedido: NovoLancamento) {
   };
 }
 
-function gradeDoPedido(pedido: NovoLancamento) {
+/** A regra gravada; valor estranho no banco vira o dia como está. */
+function regraDaLinha(row: { dueRule: string; dueOrder: number | null; dueShift: string; dueCount: string }): RegraDeVencimento {
+  return {
+    tipo: TIPOS_DE_REGRA.find((item) => item === row.dueRule) ?? "dia",
+    ordem: row.dueOrder,
+    ajuste: AJUSTES_DE_DIA_UTIL.find((item) => item === row.dueShift) ?? "manter",
+    contagem: CONTAGENS_DE_DIA_UTIL.find((item) => item === row.dueCount) ?? "bancaria",
+  };
+}
+
+function gradeDoPedido(pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
   return gradeDoLancamento({
+    dueRule: pedido.dueRule,
     type: pedido.type,
     day: pedido.day,
     cents: pedido.cents,
@@ -932,7 +1034,7 @@ function gradeDoPedido(pedido: NovoLancamento) {
     recurrence: pedido.recurrence,
     recurrenceInterval: pedido.recurrenceInterval,
     adjustments: [],
-  });
+  }, calendario);
 }
 
 function resumoGravado(pedido: NovoLancamento, lista: Ocorrencia[]) {

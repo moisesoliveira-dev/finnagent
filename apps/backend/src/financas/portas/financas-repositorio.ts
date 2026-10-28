@@ -4,8 +4,10 @@ import type {
   FinancasResposta,
   Lancamento,
   ModoTransacao,
+  CalendarioDeDiasUteis,
   PrioridadeTransacao,
   Recorrencia,
+  RegraDeVencimento,
   StatusTransacao,
   TipoLancamento,
   TipoTransacao,
@@ -38,6 +40,7 @@ export type NovoLancamento = {
   nextDueDate: string | null;
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
+  dueRule: RegraDeVencimento;
 };
 
 export type FalhaDeLancamento =
@@ -65,14 +68,22 @@ export interface FinancasRepositorio {
   semearLancamentos(tenantId: string): Promise<void>;
   listar(tenantId: string, incluirEncerradas?: boolean): Promise<FinancasResposta>;
   obter(tenantId: string, id: string): Promise<Lancamento | null>;
+  /** O calendário decide as datas dos vencimentos pela regra (feriados nacionais e os locais da conta). */
   criar(
     tenantId: string,
     pedido: NovoLancamento,
+    calendario: CalendarioDeDiasUteis,
   ): Promise<Lancamento | FalhaDeLancamento>;
   atualizar(
     tenantId: string,
     pedido: NovoLancamento,
+    calendario: CalendarioDeDiasUteis,
   ): Promise<Lancamento | FalhaDeLancamento>;
+  /**
+   * Recalcula as datas das ocorrências ainda pendentes pela regra de cada lançamento; as pagas ficam.
+   * Sem `entryId`, passa pelos lançamentos da conta que têm regra. Devolve quantos mudaram.
+   */
+  redatar(tenantId: string, calendario: CalendarioDeDiasUteis, entryId?: string): Promise<number>;
   atualizarStatus(
     tenantId: string,
     id: string,

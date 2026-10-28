@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
+import type { Feriado } from "@finnagent/contracts";
 import { cn, focusRing } from "../../components/ui/cn";
+import { feriadosNoDia, NomeDoFeriado } from "./feriados";
 import { diasDoMes, itensNoDia, rotuloDoDia, type ItemDia } from "./itens";
 
 const semana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -10,6 +12,7 @@ export function GradeMes({
   selected,
   today,
   itens,
+  feriados,
   onSelect,
   onOpen,
   onContext,
@@ -20,6 +23,7 @@ export function GradeMes({
   selected: number;
   today: number | null;
   itens: ItemDia[];
+  feriados: Feriado[];
   onSelect: (day: number) => void;
   onOpen: (day: number) => void;
   onContext: (day: number, x: number, y: number) => void;
@@ -59,6 +63,7 @@ export function GradeMes({
           }
           const day = celula.numero;
           const doDia = itensNoDia(itens, day);
+          const feriadosDoDia = feriadosNoDia(feriados, day);
           const compromissos = doDia.filter((item) => item.kind === "compromisso");
           const lancamentos = doDia.filter((item) => item.kind === "lancamento");
           return (
@@ -91,17 +96,22 @@ export function GradeMes({
               <button
                 type="button"
                 aria-pressed={day === selected}
-                aria-label={`${rotuloDoDia(year, month, day)}, ${doDia.length} itens`}
+                aria-label={[rotuloDoDia(year, month, day), ...feriadosDoDia.map((item) => item.nome), `${doDia.length} itens`].join(", ")}
                 className={cn(
                   "grid size-6 place-items-center self-start rounded-sm text-sm font-semibold",
                   focusRing,
                   day === today && "bg-brand text-brand-ink!",
+                  // No celular não cabe o nome: o número sublinhado marca o feriado.
+                  feriadosDoDia.length > 0 && "underline decoration-2 underline-offset-2 tab:no-underline",
                 )}
                 onClick={() => onSelect(day)}
               >
                 {day}
               </button>
               <span className="hidden min-w-0 flex-col gap-1 tab:flex">
+                {feriadosDoDia.map((item) => (
+                  <NomeDoFeriado key={item.nome} feriado={item} />
+                ))}
                 {compromissos.slice(0, 3).map((item) => (
                   <div
                     key={`${item.id}-chip`}
@@ -156,7 +166,7 @@ export function GradeMes({
       </div>
       <p className="mt-3 max-w-prose text-sm text-ink-2">
         Clique no dia para ver os compromissos. Arraste um compromisso para outro dia. “R$” indica uma transação
-        vinculada.
+        vinculada. O nome do feriado aparece no dia; no celular, o número do dia fica sublinhado.
       </p>
     </section>
   );

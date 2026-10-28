@@ -1,5 +1,7 @@
 import {
+  REGRA_SEM_AJUSTE,
   ajustarTransacao,
+  normalizarRegra,
   centavosComSinal,
   tipoDaCategoria,
   type CategoriaTransacao,
@@ -7,6 +9,7 @@ import {
   type ModoTransacao,
   type PrioridadeTransacao,
   type Recorrencia,
+  type RegraDeVencimento,
   type StatusTransacao,
   type TipoTransacao,
 } from "@finnagent/contracts";
@@ -34,6 +37,8 @@ export type PedidoLancamento = {
   nextDueDate: string | null;
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
+  /** null: use o padrão da categoria nas configurações (o serviço resolve antes de validar). */
+  dueRule: RegraDeVencimento | null;
 };
 
 export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {
@@ -48,6 +53,11 @@ export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {
     nextDueDate: regra.recurrence ? pedido.nextDueDate : null,
     recurrence: regra.recurrence ? pedido.recurrence : null,
     recurrenceInterval: regra.recurrence ? pedido.recurrenceInterval : null,
+    dueRule: normalizarRegra(
+      ajustado.category,
+      regra.recurrence ? pedido.recurrence : null,
+      pedido.dueRule ?? REGRA_SEM_AJUSTE,
+    ),
   };
 }
 
@@ -85,6 +95,7 @@ export function pedidoDaEdicao(
 ): PedidoLancamento {
   const base = {
     ...pedido,
+    dueRule: pedido.dueRule ?? atual.dueRule ?? REGRA_SEM_AJUSTE,
     category: atual.category,
     mode: atual.mode,
     transactionType: atual.transactionType,
@@ -110,6 +121,7 @@ export function novoLancamento(pedido: PedidoLancamento): NovoLancamento {
   return {
     ...pedido,
     cents: centavosComSinal(pedido.cents, pedido.mode),
+    dueRule: pedido.dueRule ?? REGRA_SEM_AJUSTE,
     type: tipoDaCategoria(pedido.category),
     day: partes.day,
     startYear: partes.year,

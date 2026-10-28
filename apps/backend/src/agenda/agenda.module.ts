@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { FeriadosModule } from "../feriados/feriados.module.js";
 import { ConfiguracoesModule } from "../configuracoes/configuracoes.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
 import { GruposModule } from "../grupos/grupos.module.js";
@@ -11,7 +12,7 @@ import { AGENDA_REPOSITORIO } from "./portas/agenda-repositorio.js";
 import { GOOGLE_AGENDA } from "./portas/google-agenda.js";
 
 @Module({
-  imports: [PersistenciaModule, FinancasModule, GruposModule, ConfiguracoesModule],
+  imports: [PersistenciaModule, FinancasModule, GruposModule, ConfiguracoesModule, FeriadosModule],
   exports: [AgendaService],
   controllers: [AgendaController],
   providers: [

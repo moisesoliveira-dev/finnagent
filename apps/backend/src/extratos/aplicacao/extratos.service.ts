@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
+import { REGRA_SEM_AJUSTE } from "@finnagent/contracts";
 import type {
   ConferenciaResposta,
   ExtratosResposta,
@@ -291,6 +292,7 @@ export class ExtratosService {
       nextDueDate: null,
       recurrence: null,
       recurrenceInterval: null,
+      dueRule: REGRA_SEM_AJUSTE,
     });
     try {
       await this.cruzar(tenantId, statementId, line, criado.id, gravada.description);

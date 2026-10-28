@@ -15,6 +15,7 @@ function pedido(parcial: Partial<PedidoLancamento> = {}): PedidoLancamento {
     id: notebook.id,
     sessionId: notebook.sessionId,
     name: "Compra",
+    dueRule: null,
     description: "",
     justification: "",
     date: "2026-04-10",

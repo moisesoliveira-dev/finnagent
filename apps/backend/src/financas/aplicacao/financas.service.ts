@@ -1,5 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import {
+  ajustarTransacao,
+  regraPadrao,
   ocorrenciasDoLancamento,
   termosTravados,
   type BaseResposta,
@@ -43,6 +46,7 @@ export class FinancasService {
   constructor(
     @Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
+    private readonly feriados: FeriadosService,
   ) {}
 
   async listar(tenantId: string, incluirEncerradas = false): Promise<FinancasResposta> {
@@ -69,8 +73,17 @@ export class FinancasService {
     return montarGeral(await this.listar(tenantId), year);
   }
 
-  registrar(tenantId: string, pedido: PedidoLancamento) {
-    return this.criar(tenantId, this.validado(pedido));
+  async registrar(tenantId: string, pedido: PedidoLancamento) {
+    if (pedido.dueRule) return this.criar(tenantId, this.validado(pedido));
+    // Sem regra escolhida, vale o padrão da categoria nas configurações.
+    const { vencimentos } = await this.configuracoes.obter(tenantId);
+    const modo = ajustarTransacao(pedido).mode;
+    return this.criar(tenantId, this.validado({ ...pedido, dueRule: regraPadrao(vencimentos, pedido.category, modo) }));
+  }
+
+  /** Depois de mudar os feriados locais: as pendentes de quem tem regra ganham as datas novas. */
+  async redatarVencimentos(tenantId: string) {
+    return this.financas.redatar(tenantId, await this.feriados.calendario(tenantId));
   }
 
   async editar(tenantId: string, pedido: PedidoLancamento) {
@@ -94,7 +107,7 @@ export class FinancasService {
   }
 
   async criar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
-    const resultado = await this.financas.criar(tenantId, pedido);
+    const resultado = await this.financas.criar(tenantId, pedido, await this.feriados.calendario(tenantId));
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outro lançamento.");
     }
@@ -117,7 +130,7 @@ export class FinancasService {
   }
 
   async atualizar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
-    const resultado = await this.financas.atualizar(tenantId, pedido);
+    const resultado = await this.financas.atualizar(tenantId, pedido, await this.feriados.calendario(tenantId));
     if (resultado === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
     if (resultado === "sessao-ausente") throw new NaoEncontrado("Sessão não encontrada.");
     if (resultado === "sessao-encerrada") throw new Conflito("Essa sessão já foi encerrada.");
