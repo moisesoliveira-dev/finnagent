@@ -25,6 +25,9 @@ const valida = {
   aiModel: "",
   aiApiKey: "",
   limparChaveIa: false,
+  vencimentos: { fixa_entrada: "antecipar", fixa_saida: "adiar", parcela: "adiar", emprestimo: "adiar" },
+  feriadosNaAgenda: true,
+  facultativosNaAgenda: true,
 };
 
 describe("configurações", () => {
