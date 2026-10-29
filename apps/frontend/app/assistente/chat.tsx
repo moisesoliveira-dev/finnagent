@@ -148,8 +148,11 @@ export function Chat() {
         throw new Error(erro.message || "O assistente não respondeu.");
       }
       let assistenteId: string | null = null;
+      let conversaId = atual?.id ?? null;
+      let terminou = false;
       for await (const evento of lerEventos(resposta)) {
         if (evento.tipo === "conversa") {
+          conversaId = evento.conversa.id;
           setAtual(evento.conversa);
           setConversas((lista) => [evento.conversa, ...lista.filter((item) => item.id !== evento.conversa.id)]);
           marcarNaUrl(evento.conversa.id);
@@ -163,7 +166,15 @@ export function Chat() {
         const id: string | null = assistenteId;
         setMensagens((lista) => aplicarEvento(lista, id, evento).mensagens);
         if (evento.tipo === "inicio") assistenteId = evento.assistenteId;
-        if (evento.tipo === "fim") assistenteId = null;
+        if (evento.tipo === "fim") {
+          assistenteId = null;
+          terminou = true;
+        }
+      }
+      // A conexão pode cair no meio (proxy, rede, reinício do serviço): sem o `fim`, a tela mostraria um turno pela metade.
+      if (!terminou && !controle.signal.aborted) {
+        toast.erro("A conexão caiu antes do fim da resposta. Mostrei o que ficou salvo; envie de novo se faltar algo.");
+        if (conversaId) await abrir(conversaId, true);
       }
     } catch (error) {
       if (controle.signal.aborted) {
