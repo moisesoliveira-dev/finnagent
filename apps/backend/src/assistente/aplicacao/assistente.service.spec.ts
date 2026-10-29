@@ -133,6 +133,7 @@ const excluirMeta = { id: "c-apagar", nome: "excluir_meta", args: { id: META, re
 const realidade: RealidadeDaConta = {
   base: async () => ({ entries: [], hoje: "2026-10-28", padroes: PADROES_DE_VENCIMENTO_INICIAIS, calendario: CALENDARIO_NACIONAL }),
   linhaDoExtrato: async () => null,
+  linhasDoExtrato: async () => new Map(),
 };
 
 function plano(passos: Array<{ ferramenta: string; descricao: string; args: Record<string, unknown> }>, id = "p1"): ChamadaDeFerramenta {
@@ -415,7 +416,7 @@ describe("orquestrador do assistente", () => {
   });
 
   it("mostra o texto já escrito enquanto o turno segue, e grava ao terminar o passo", async () => {
-    const assistente = servico(new MotorQueEscreve());
+    const assistente = servico(new MotorQueEscreve([]));
     const primeiro = assistente.conversar(quem, { texto: "oi" }, emitir);
     await vi.waitFor(() => expect(conversas.dados.size).toBe(1));
     const id = [...conversas.dados.keys()][0] as string;
