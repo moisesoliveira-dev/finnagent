@@ -92,6 +92,9 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.11.1(supports-color@8.1.1)
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -7356,7 +7359,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/coverage-v8@4.1.11)(vite@8.3.2(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/coverage-v8@4.1.11)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
   '@vitest/expect@4.1.11':
     dependencies:
