@@ -257,6 +257,7 @@ model StatementLine {
 
   @@id([statementId, line])
   @@index([tenantId])
+  @@index([tenantId, postedOn])
   @@map("statement_lines")
 }
 
