@@ -21,6 +21,7 @@ import {
   type PedidoDeMensagem,
   type PerguntaDoAssistente,
 } from "@finnagent/contracts";
+import { semOpcaoGenerica } from "../dominio/opcoes.js";
 import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import {
   historicoParaOModelo,
@@ -324,15 +325,16 @@ export class AssistenteService {
       const restantes = chamadas.slice(indice + 1);
       if (chamada.nome === FERRAMENTA_PERGUNTAR) {
         const lido = ESQUEMA_PERGUNTAR.safeParse(chamada.args);
-        if (!lido.success) {
-          this.resultado(turno, chamada, "Pergunta inválida: mande a pergunta e de 2 a 6 opções.");
+        const opcoes = lido.success ? semOpcaoGenerica(lido.data.opcoes) : [];
+        if (!lido.success || opcoes.length < 2) {
+          this.resultado(turno, chamada, "Pergunta inválida: mande a pergunta e de 2 a 6 opções concretas, sem botão \"Outra resposta\": a tela já tem esse campo.");
           continue;
         }
         this.pausar(turno, "pergunta", chamada, restantes, {
           id: chamada.id,
           tipo: "pergunta",
           texto: lido.data.pergunta,
-          opcoes: lido.data.opcoes,
+          opcoes,
           resposta: null,
         });
         return;

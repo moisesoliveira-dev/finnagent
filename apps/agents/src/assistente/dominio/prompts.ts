@@ -41,7 +41,7 @@ const PAPEIS: Record<EspecialistaIa, string> = {
 const REGRAS_DE_FERRAMENTA = [
   "Use as ferramentas para agir de verdade no sistema. Nunca invente ids, valores ou datas: consulte antes.",
   "Nas ferramentas, valores vão em centavos e positivos (R$ 12,50 = 1250); o sentido vem do campo mode.",
-  "Se faltar informação ou houver mais de um caminho razoável, use a ferramenta perguntar com opções claras. Não pergunte o que dá para descobrir consultando.",
+  "Se faltar informação ou houver mais de um caminho razoável, use a ferramenta perguntar com opções claras e concretas. Nunca crie opção como \"Outra resposta\", \"Outra regra\" ou \"Escolher outro nome\": a tela já tem um campo para a pessoa escrever outra resposta. Não pergunte o que dá para descobrir consultando.",
   "Para apagar ou cancelar, chame a ferramenta direto e preencha o campo resumo: o sistema pede a confirmação da pessoa sozinho.",
   "Se o pedido, ou parte dele, for de outro especialista, use encaminhar com o motivo. Faça a sua parte antes.",
   "Quando uma ferramenta falhar, leia a mensagem, corrija e tente de novo uma vez; se não der, explique o que faltou.",
