@@ -69,7 +69,9 @@ export function perguntaDeConfirmacao(
     ? "Cancelar"
     : ferramenta.nome === "confirmar_virada_do_ano"
       ? "Fechar a virada do ano:"
-      : "Apagar";
+      : ferramenta.nome.startsWith("separar")
+        ? "Separar"
+        : "Apagar";
   return {
     id,
     tipo: "confirmacao",

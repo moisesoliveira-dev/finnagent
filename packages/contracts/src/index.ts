@@ -2322,6 +2322,8 @@ export type FerramentaDoAssistente = {
   destrutiva: boolean;
   /** Só lê. */
   leitura: boolean;
+  /** Mexe com dinheiro: a pessoa confirma antes, mesmo que o comportamento dispense a confirmação de exclusão. */
+  exigeConfirmacao: boolean;
   esquema: z.ZodObject;
   /** Frase curta do que foi feito, para a tela. */
   rotulo: (args: Record<string, unknown>) => string;
@@ -2333,6 +2335,7 @@ function ferramenta<T extends z.ZodObject>(definicao: {
   descricao: string;
   destrutiva?: boolean;
   leitura?: boolean;
+  exigeConfirmacao?: boolean;
   esquema: T;
   rotulo: (args: z.infer<T>) => string;
 }): FerramentaDoAssistente {
@@ -2342,6 +2345,7 @@ function ferramenta<T extends z.ZodObject>(definicao: {
     descricao: definicao.descricao,
     destrutiva: definicao.destrutiva ?? false,
     leitura: definicao.leitura ?? false,
+    exigeConfirmacao: definicao.exigeConfirmacao ?? false,
     esquema: definicao.esquema,
     rotulo: (args) => definicao.rotulo(args as z.infer<T>),
   };
@@ -2645,7 +2649,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_metas",
     agentes: ["metas", "analise"],
-    descricao: "Lista as metas com o valor guardado, o alvo e o prazo.",
+    descricao:
+      "Lista as metas, na ordem de prioridade, com o valor guardado, o alvo, o prazo, quanto cada uma pede da sobra do mês e a divisão da sobra que a pessoa já escolheu (porcentagem, valor e se foi aprovada). Traz também a sobra do mês e quanto já foi separado.",
     leitura: true,
     esquema: vazio,
     rotulo: () => "Consultou as metas",
@@ -2662,6 +2667,40 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       dueMonth: mesDoSistema.nullable().optional(),
     }),
     rotulo: (args) => `Criou a meta ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "dividir_sobra_das_metas",
+    agentes: ["metas"],
+    descricao:
+      "Propõe a divisão da sobra deste mês entre as metas, em porcentagem (a soma não passa de 100). Só propõe: nada é separado até a pessoa aprovar a parte de cada meta, na tela de Metas. Mande todas as metas que devem ficar na divisão; quem não vier sai dela, e a parte já aprovada não muda.",
+    esquema: z.object({
+      percents: z
+        .array(z.object({ id: idDoSistema.describe("Id da meta."), percent: z.number().int().min(0).max(100) }))
+        .min(1)
+        .max(50),
+    }),
+    rotulo: () => "Propôs a divisão da sobra entre as metas",
+  }),
+  ferramenta({
+    nome: "organizar_prioridade_das_metas",
+    agentes: ["metas"],
+    descricao:
+      "Muda a ordem de prioridade das metas: a primeira recebe antes da sobra do mês. Mande os ids de todas as metas, na nova ordem.",
+    esquema: z.object({ ids: z.array(idDoSistema).min(1).max(500) }),
+    rotulo: () => "Reorganizou a prioridade das metas",
+  }),
+  ferramenta({
+    nome: "separar_valor_da_meta",
+    agentes: ["metas"],
+    descricao:
+      "Separa um valor para a meta agora: lança uma saída na sessão dela. Mexe com dinheiro, então a pessoa sempre confirma antes. Valor em centavos, positivo.",
+    exigeConfirmacao: true,
+    esquema: z.object({
+      id: idDoSistema.describe("Id da meta."),
+      cents: centavosPositivos,
+      resumo: z.string().trim().min(3).max(160).describe("O que será feito, para a pessoa confirmar. Ex.: R$ 300,00 para a meta Viagem."),
+    }),
+    rotulo: (args) => `Separou ${args.resumo}`,
   }),
   ferramenta({
     nome: "excluir_meta",

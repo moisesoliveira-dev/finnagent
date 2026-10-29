@@ -210,6 +210,32 @@ describe("orquestrador do assistente", () => {
     expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["excluir_meta"]);
   });
 
+  it("separar valor para a meta pede confirmação sempre, mesmo com a confirmação de exclusão desligada", async () => {
+    const separar = {
+      id: "c-separar",
+      nome: "separar_valor_da_meta",
+      args: { id: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01", cents: 30_000, resumo: "R$ 300,00 para a meta Viagem" },
+    };
+    const executor = new Executor();
+    const motor = new Motor([{ final: chamadas("metas", [separar]) }, { final: resposta("metas", "Separei.") }]);
+    const assistente = servico(motor, executor, ia({ confirmarExclusao: false }));
+    await assistente.conversar(quem, { texto: "separe 300 para a viagem" }, emitir);
+    expect(executor.chamadas).toHaveLength(0);
+    const id = [...conversas.dados.keys()][0];
+    expect(conversas.dados.get(id)?.pendencia?.aguardando.chamada.nome).toBe("separar_valor_da_meta");
+    expect(eventos.some((item) => item.tipo === "fim" && JSON.stringify(item).includes("Separar R$ 300,00 para a meta Viagem?"))).toBe(true);
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "c-separar", escolha: "Confirmar" } }, emitir);
+    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["separar_valor_da_meta"]);
+  });
+
+  it("dividir a sobra e organizar a prioridade não pedem confirmação: só propõem", async () => {
+    const dividir = { id: "c-dividir", nome: "dividir_sobra_das_metas", args: { percents: [{ id: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01", percent: 60 }] } };
+    const executor = new Executor();
+    const motor = new Motor([{ final: chamadas("metas", [dividir]) }, { final: resposta("metas", "Propus.") }]);
+    await servico(motor, executor).conversar(quem, { texto: "divida a sobra" }, emitir);
+    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["dividir_sobra_das_metas"]);
+  });
+
   it("faz a pergunta com opções e devolve a escolha como resultado", async () => {
     const perguntar = { id: "p1", nome: "perguntar", args: { pergunta: "Em qual sessão?", opcoes: [{ rotulo: "Casa" }, { rotulo: "Lazer" }] } };
     const motor = new Motor([{ final: chamadas("financas", [perguntar]) }, { final: resposta("financas", "Lancei em Lazer.") }]);

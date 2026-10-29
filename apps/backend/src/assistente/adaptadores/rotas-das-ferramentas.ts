@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 type Args = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export type Rota = {
-  metodo: "GET" | "POST" | "PATCH" | "DELETE";
+  metodo: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   caminho: (args: Args) => string;
   consulta?: (args: Args) => Record<string, string | number | boolean | undefined | null>;
   corpo?: (args: Args, fuso: string) => unknown;
@@ -165,6 +165,15 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   excluir_compromisso: { metodo: "DELETE", caminho: (a) => `compromissos/${id(a.id)}` },
   sincronizar_google_calendar: { metodo: "POST", caminho: () => "agenda/sincronizar" },
   consultar_metas: { metodo: "GET", caminho: () => "metas" },
+  dividir_sobra_das_metas: {
+    metodo: "PUT",
+    caminho: () => "metas/divisao",
+    corpo: (a) => ({
+      percents: Object.fromEntries(((a.percents as Array<{ id: string; percent: number }>) ?? []).map((item) => [item.id, item.percent])),
+    }),
+  },
+  organizar_prioridade_das_metas: { metodo: "PUT", caminho: () => "metas/ordem", corpo: (a) => ({ ids: a.ids }) },
+  separar_valor_da_meta: { metodo: "POST", caminho: (a) => `metas/${id(a.id)}/separar`, corpo: (a) => ({ cents: a.cents }) },
   criar_meta: {
     metodo: "POST",
     caminho: () => "metas",
