@@ -1,5 +1,6 @@
 import {
   categoriaDeCompromisso,
+  ocorrenciasDoLancamento,
   type CategoriaTransacao,
   type Lancamento,
   type OrigemDaProposta,
@@ -51,6 +52,53 @@ export function cabeNaLinha(linha: LinhaParaCruzar, item: LancamentoCruzavel) {
 }
 
 // `cabeNaLinha` já barra extra com saída; esta checagem protege quem chamar `valorDoMes` direto.
+const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
+/** A ocorrência do mês que o cruzamento paga: a pendente, ou a já contada se não houver pendente. */
+export function ocorrenciaContada(entry: Lancamento, date: string) {
+  const chave = date.slice(0, 7);
+  const lista = ocorrenciasDoLancamento(entry).filter(
+    (item) => item.dueDate.startsWith(chave) && (item.status === "pending" || item.status === "completed"),
+  );
+  return lista.find((item) => item.status === "pending") ?? lista[0] ?? null;
+}
+
+export function valorContado(entry: Lancamento, date: string) {
+  const item = ocorrenciaContada(entry, date);
+  if (!item) return null;
+  return item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
+}
+
+/**
+ * O valor que o cruzamento põe no mês, e a frase que o cartão mostra. Recusa extra em saída e
+ * fixa, parcela ou empréstimo divergentes sem a escolha da pessoa.
+ */
+export function preparoDoCruzamento(
+  category: CategoriaTransacao,
+  planejado: number,
+  extrato: number,
+  escolha?: ValorDoMes,
+): { cents: number; nota: string } | string {
+  const centavos = valorDoMes(category, planejado, extrato, escolha);
+  if (centavos === "extra") return "Adicional só cruza com entrada.";
+  if (centavos === "escolha") {
+    return `Os valores divergem (${reais.format(extrato / 100)} no extrato, ${reais.format(planejado / 100)} no lançamento). Pergunte à pessoa qual vale neste mês e mande valor "extrato" ou "lancamento".`;
+  }
+  return { cents: centavos, nota: notaDoCruzamento(category, planejado, extrato, centavos) };
+}
+
+function notaDoCruzamento(category: CategoriaTransacao, planejado: number, extrato: number, centavos: number) {
+  if (category === "additional") return "Adicional, no valor do extrato.";
+  if (!categoriaDeCompromisso(category)) {
+    return planejado === extrato ? "" : `Única: neste mês vale o extrato, ${reais.format(extrato / 100)}.`;
+  }
+  if (planejado === extrato) return "";
+  if (centavos === extrato) {
+    return `Neste mês vale o extrato, ${reais.format(extrato / 100)}. O lançamento está em ${reais.format(planejado / 100)}.`;
+  }
+  return `Neste mês vale o lançamento, ${reais.format(planejado / 100)}. O extrato está em ${reais.format(extrato / 100)}.`;
+}
+
 export function valorDoMes(
   category: CategoriaTransacao,
   planejado: number,

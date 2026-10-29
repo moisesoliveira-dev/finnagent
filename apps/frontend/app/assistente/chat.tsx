@@ -166,12 +166,13 @@ export function Chat() {
     for (let tentativa = 0; tentativa < 150 && !controle.signal.aborted; tentativa += 1) {
       await new Promise((resolver) => setTimeout(resolver, 2500));
       const conversa = await ler<ConversaCompleta>(`/api/assistente/conversas/${id}`).catch(() => null);
-      if (!conversa || conversa.emAndamento) continue;
+      if (!conversa) continue;
       const { mensagens: lista, ...resumo } = conversa;
       if (atualId.current === id) {
         setAtual(resumo);
         setMensagens(lista);
       }
+      if (conversa.emAndamento) continue;
       return lista.at(-1)?.role === "assistant";
     }
     return false;

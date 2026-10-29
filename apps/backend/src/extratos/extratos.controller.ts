@@ -56,19 +56,23 @@ export class ExtratosController {
     @Query("year") year: string | undefined,
     @Query("month") month: string | undefined,
     @Query("abrir") abrir: string | undefined,
+    @Query("pagina") pagina: string | undefined,
   ) {
     const pedido = z
       .object({
         year: z.coerce.number().int().min(2000).max(2100),
         month: z.coerce.number().int().min(1).max(12),
         abrir: z.enum(["pendente"]).optional(),
+        pagina: z.coerce.number().int().min(1).max(100).optional(),
       })
-      .safeParse({ year, month, abrir });
+      .safeParse({ year, month, abrir, pagina });
     if (!pedido.success) throw new BadRequestException("Informe o mês.");
     const { year: ano, month: mes } = pedido.data;
     const tenantId = this.tenant(tenant);
     return this.executar(() =>
-      pedido.data.abrir ? this.extratos.abrirConferencia(tenantId, ano, mes) : this.extratos.conferencia(tenantId, ano, mes),
+      pedido.data.abrir
+        ? this.extratos.abrirConferencia(tenantId, ano, mes)
+        : this.extratos.conferencia(tenantId, ano, mes, pedido.data.pagina),
     );
   }
 

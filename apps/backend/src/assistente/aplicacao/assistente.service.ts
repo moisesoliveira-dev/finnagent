@@ -23,6 +23,7 @@ import {
   type FuncaoDeModelo,
   type ModeloResolvido,
   type ParteDaMensagem,
+  type ValorDoMes,
   type PedidoDeMensagem,
   type PerguntaDoAssistente,
 } from "@finnagent/contracts";
@@ -35,7 +36,8 @@ import {
   tituloDe,
 } from "../dominio/conversa.js";
 import { AssistenteIndisponivel, SemModelo } from "../dominio/erros.js";
-import { fatosDoPlano } from "../dominio/fatos-do-plano.js";
+import { fatosDoPlano, type CruzamentoMedido } from "../dominio/fatos-do-plano.js";
+import { preparoDoCruzamento, valorContado } from "../../extratos/dominio/cruzar.js";
 import { validarPlano, type PlanoValidado } from "../dominio/plano.js";
 import { interpretarMensagem, interpretarTitulo } from "../dominio/pedido.js";
 import { CONTEXTO_DO_ASSISTENTE, type Contexto, type ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
@@ -48,6 +50,31 @@ import { EXECUTOR_DE_FERRAMENTAS, type ExecutorDeFerramentas } from "../portas/e
 import { MOTOR_DE_IA, type MotorDeIa } from "../portas/motor-de-ia.js";
 import { REALIDADE_DA_CONTA, type RealidadeDaConta } from "../portas/realidade-da-conta.js";
 import { IaService } from "./ia.service.js";
+
+function linhasDoPasso(ferramenta: string, args: Record<string, unknown>) {
+  if (ferramenta === "cruzar_linha" || ferramenta === "acumular_linha") {
+    const linha = linhaDe(args);
+    return linha ? [linha] : [];
+  }
+  if (ferramenta !== "acumular_linhas" || !Array.isArray(args.items)) return null;
+  return args.items.flatMap((item) => {
+    const linha = linhaDe(item);
+    return linha ? [linha] : [];
+  });
+}
+
+function linhaDe(valor: unknown) {
+  if (!valor || typeof valor !== "object") return null;
+  const item = valor as Record<string, unknown>;
+  if (typeof item.statementId !== "string" || typeof item.line !== "number") return null;
+  const valorMes: ValorDoMes | undefined = item.valor === "extrato" || item.valor === "lancamento" ? item.valor : undefined;
+  return {
+    statementId: item.statementId,
+    line: item.line,
+    entryId: typeof item.entryId === "string" ? item.entryId : "",
+    valor: valorMes,
+  };
+}
 
 export type Emitir = (evento: EventoDoChat) => void;
 
@@ -127,6 +154,8 @@ class Turno {
 export class AssistenteService {
   /** Turnos rodando agora, por conversa. Vive na memória: uma réplica por serviço. */
   private readonly emCurso = new Map<string, AbortController>();
+  /** O texto que o turno já escreveu, para a tela mostrar ao voltar enquanto o processo segue vivo. */
+  private readonly turnos = new Map<string, Turno>();
 
   constructor(
     @Inject(CONVERSAS_REPOSITORIO) private readonly conversas: ConversasRepositorio,
@@ -148,7 +177,12 @@ export class AssistenteService {
   async obter(tenantId: string, userId: string, id: string): Promise<ConversaCompleta> {
     const conversa = await this.conversas.obter(tenantId, userId, id);
     if (!conversa) throw new NaoEncontrado("Conversa não encontrada.");
-    return { ...conversa.resumo, emAndamento: this.emCurso.has(id), mensagens: conversa.mensagens };
+    const turno = this.turnos.get(id);
+    const parcial = turno && turno.partes.length ? turno.mensagem() : null;
+    const mensagens = parcial
+      ? [...conversa.mensagens.filter((item) => item.id !== parcial.id), parcial]
+      : conversa.mensagens;
+    return { ...conversa.resumo, emAndamento: this.emCurso.has(id), mensagens };
   }
 
   async renomear(tenantId: string, userId: string, id: string, corpo: unknown) {
@@ -191,9 +225,11 @@ export class AssistenteService {
         chave = turno.conversaId;
         this.emCurso.set(chave, parar);
       }
+      this.turnos.set(turno.conversaId, turno);
       await this.rodar(turno, resposta, modelos, comportamento, contexto, quem, emitir, parar.signal);
     } finally {
       if (chave && this.emCurso.get(chave) === parar) this.emCurso.delete(chave);
+      if (chave) this.turnos.delete(chave);
     }
   }
 
@@ -226,6 +262,7 @@ export class AssistenteService {
         }
         passos += 1;
         const terminou = await this.passo(turno, modelos, comportamento, contexto, quem, sinal);
+        if (turno.partes.length) await this.conversas.gravarMensagem(quem.tenantId, turno.conversaId, turno.mensagem());
         if (terminou) break;
       }
     } catch (error) {
@@ -420,6 +457,11 @@ export class AssistenteService {
           continue;
         }
         const fatos = await this.medir(quem.tenantId, plano);
+        if (typeof fatos === "string") {
+          log.warn({ conversa: turno.conversaId, motivo: fatos }, "plano recusado");
+          this.resultado(turno, chamada, `${fatos} Nada foi mostrado à pessoa. Corrija e proponha de novo.`);
+          continue;
+        }
         log.info(
           { conversa: turno.conversaId, passos: plano.passos.map((item) => item.ferramenta), alertas: fatos.alertas.length },
           "plano proposto",
@@ -468,14 +510,63 @@ export class AssistenteService {
     }
   }
 
-  /** Os fatos do plano pelo próprio sistema. Se a conta não puder ser lida, o plano segue sem eles. */
-  private async medir(tenantId: string, plano: PlanoValidado): Promise<FatosDoPlano> {
+  /** Os fatos do plano pelo próprio sistema. Recusa o plano quando uma linha do extrato foge da regra. */
+  private async medir(tenantId: string, plano: PlanoValidado): Promise<FatosDoPlano | string> {
     try {
-      return fatosDoPlano(plano.passos, await this.realidade.base(tenantId));
+      const base = await this.realidade.base(tenantId);
+      const cruzamentos = await this.cruzamentosDoPlano(tenantId, plano, base.entries);
+      if (typeof cruzamentos === "string") return cruzamentos;
+      return fatosDoPlano(plano.passos, base, cruzamentos);
     } catch (error) {
       log.warn({ err: error instanceof Error ? error.message : String(error) }, "não foi possível medir o plano");
       return { mes: null, passos: [], alertas: [] };
     }
+  }
+
+  private async cruzamentosDoPlano(
+    tenantId: string,
+    plano: PlanoValidado,
+    entries: Awaited<ReturnType<RealidadeDaConta["base"]>>["entries"],
+  ): Promise<CruzamentoMedido[] | string> {
+    const medidos: CruzamentoMedido[] = [];
+    for (const [indice, passo] of plano.passos.entries()) {
+      const numero = indice + 1;
+      const linhas = linhasDoPasso(passo.ferramenta, passo.args);
+      if (!linhas) continue;
+      for (const item of linhas) {
+        const linha = await this.realidade.linhaDoExtrato(tenantId, item.statementId, item.line);
+        if (!linha) return `Passo ${numero}: a linha ${item.line} do extrato não foi encontrada.`;
+        if (linha.entryId) return `Passo ${numero}: a linha ${item.line} já foi cruzada.`;
+        if (passo.ferramenta === "cruzar_linha") {
+          const entry = entries.find((atual) => atual.id === item.entryId);
+          if (!entry) return `Passo ${numero}: o lançamento não está na conta.`;
+          const planejado = valorContado(entry, linha.date);
+          if (planejado === null) return `Passo ${numero}: esse lançamento não tem ocorrência livre neste mês.`;
+          const preparo = preparoDoCruzamento(entry.category, planejado, linha.cents, item.valor);
+          if (typeof preparo === "string") return `Passo ${numero}: ${preparo}`;
+          medidos.push({
+            passo: numero,
+            data: linha.date,
+            escolhido: preparo.cents,
+            planejado,
+            entryId: entry.id,
+            nome: entry.name || linha.description,
+            nota: preparo.nota,
+          });
+          continue;
+        }
+        medidos.push({
+          passo: numero,
+          data: linha.date,
+          escolhido: linha.cents,
+          planejado: null,
+          entryId: null,
+          nome: linha.description,
+          nota: "Única nova, no valor do extrato.",
+        });
+      }
+    }
+    return medidos;
   }
 
   /** Executa o plano aprovado, passo a passo. Para no primeiro que falha; os seguintes ficam como não feitos. */

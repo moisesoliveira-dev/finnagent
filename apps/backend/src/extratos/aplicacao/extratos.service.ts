@@ -1,16 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { REGRA_SEM_AJUSTE } from "@finnagent/contracts";
-import type {
-  ConferenciaResposta,
-  ExtratosResposta,
-  Lancamento,
-  LinhaConferencia,
-  LinhasExtrato,
-  MapeamentoExtrato,
-  PreviaExtrato,
-  ValorDoMes,
-  VinculoCruzado,
+import {
+  LINHAS_DA_CONFERENCIA_POR_PAGINA,
+  type ConferenciaResposta,
+  type ExtratosResposta,
+  type Lancamento,
+  type LinhaConferencia,
+  type LinhasExtrato,
+  type MapeamentoExtrato,
+  type PreviaExtrato,
+  type ValorDoMes,
+  type VinculoCruzado,
 } from "@finnagent/contracts";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { IaService } from "../../assistente/aplicacao/ia.service.js";
@@ -170,7 +171,7 @@ export class ExtratosService {
     return this.conferencia(tenantId, pendente?.year ?? year, pendente?.month ?? month);
   }
 
-  async conferencia(tenantId: string, year: number, month: number): Promise<ConferenciaResposta> {
+  async conferencia(tenantId: string, year: number, month: number, pagina?: number): Promise<ConferenciaResposta> {
     const abertas = await this.financas.listar(tenantId);
     const base = await this.financas.listar(tenantId, true);
     const linhas = await this.extratos.listarLinhasNoMes(tenantId, year, month);
@@ -215,7 +216,15 @@ export class ExtratosService {
       };
     });
     const pending = lines.filter((linha) => !linha.entryId).length;
-    return { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
+    const resposta = { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
+    if (!pagina) return resposta;
+    const semLancamento = lines.filter((linha) => !linha.entryId);
+    const inicio = (pagina - 1) * LINHAS_DA_CONFERENCIA_POR_PAGINA;
+    return {
+      ...resposta,
+      lines: semLancamento.slice(inicio, inicio + LINHAS_DA_CONFERENCIA_POR_PAGINA),
+      page: { number: pagina, size: LINHAS_DA_CONFERENCIA_POR_PAGINA, total: semLancamento.length },
+    };
   }
 
   async confirmar(tenantId: string, statementId: string, line: number, entryId: string, valor?: ValorDoMes) {

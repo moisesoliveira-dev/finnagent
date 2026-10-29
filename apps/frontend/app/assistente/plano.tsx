@@ -83,16 +83,20 @@ export function CartaoDePlano({
           {plano.passos.map((passo, indice) => {
             const fato = fatosPorPasso.get(indice + 1);
             return (
-              <ItemAnimado key={`${indice}-${passo.ferramenta}`} className="grid gap-1 border border-line p-3">
+              <ItemAnimado key={`${indice}-${passo.ferramenta}`} className="grid min-w-0 gap-1 border border-line p-3">
                 <p className="flex gap-2 text-sm">
                   <span className="etiqueta shrink-0 text-ink-2">{indice + 1}</span>
                   <span className={cn("min-w-0", passo.destrutiva && "text-neg")}>{passo.descricao}</span>
                 </p>
                 {fato ? (
-                  <p className="pl-6 text-xs text-ink-2">
-                    <span className={fato.valorCents >= 0 ? "text-pos" : "text-neg"}>{formatarReais(fato.valorCents)}</span>
-                    {fato.recorrente ? " por mês" : ""} · {fato.datas.map((item) => (item.data === item.base ? data(item.data) : `${data(item.data)} (em vez de ${data(item.base)}${item.feriado ? `, ${item.feriado}` : ""})`)).join(" · ")}
-                  </p>
+                  <div className="grid min-w-0 gap-2 pl-6">
+                    <p className="text-xs text-ink-2">
+                      <span className={fato.valorCents >= 0 ? "text-pos" : "text-neg"}>{formatarReais(fato.valorCents)}</span>
+                      {fato.recorrente ? " por mês" : ""}
+                      {fato.datas.length ? ` · ${fato.datas.map((item) => (item.data === item.base ? data(item.data) : `${data(item.data)} (em vez de ${data(item.base)}${item.feriado ? `, ${item.feriado}` : ""})`)).join(" · ")}` : ""}
+                    </p>
+                    {fato.nota ? <p className="max-w-prose text-sm text-ink-2">{fato.nota}</p> : null}
+                  </div>
                 ) : null}
               </ItemAnimado>
             );

@@ -1,4 +1,4 @@
-import type { PedidoDePasso } from "@finnagent/contracts";
+import { LINHAS_DA_CONFERENCIA_POR_PAGINA, type PedidoDePasso } from "@finnagent/contracts";
 import { CONVENCOES_FINANCEIRAS, MODO_DO_CONSULTOR } from "./consultor.js";
 
 type Contexto = PedidoDePasso["contexto"];
@@ -24,7 +24,11 @@ const AREAS = [
   "- Lançamentos: entrada ou saída, nas categorias única, extra, fixa (recorrente), parcela e empréstimo. Fixa, parcela e empréstimo aceitam dueRule: o dia fixo com ajuste (antecipar ou adiar quando cai em fim de semana ou feriado) ou o Nº dia útil, bancário ou CLT. Sem dueRule vale o padrão da conta, mas siga a convenção do tipo quando ela for clara. Para mexer num lançamento, ache o id com consultar_lancamentos.",
   "- Metas: cada meta tem uma sessão no grupo Metas, onde o valor separado fica em negativo. As metas têm prioridade na sobra do mês, na ordem que a pessoa escolhe; a divisão da sobra é em porcentagem e você só propõe: quem aprova cada parte é a pessoa, na tela de Metas, e você não tem como aprovar. Separar valor é um passo de plano.",
   "- Agenda: compromisso não guarda valor. Se o pedido tem um valor, ele vira lançamento numa sessão; se a pessoa quiser na agenda também, o plano cria o compromisso ligado ao lançamento (entryId \"@passo:N\"). Compromisso sem valor (consulta, reunião, lembrete) não precisa de sessão.",
-  "- Extratos: os extratos já importados podem ser conferidos, cruzados com lançamentos e lançados em sessões de acúmulo. Importar arquivo novo só pela tela de Extratos.",
+  `- Extratos: a conferência vem em páginas de ${LINHAS_DA_CONFERENCIA_POR_PAGINA} linhas ainda sem lançamento (consultar_conferencia, pagina a partir de 1). Importar arquivo novo só pela tela. Trate a linha pela categoria, e não lance uma série como única:`,
+  "- Única, ou linha sem série correspondente: o valor do extrato é o daquele mês. Sem lançamento, acumular_linha cria a única. Com lançamento único, cruze; o sistema usa o valor do extrato.",
+  "- Fixa, parcela e empréstimo: cruze com o lançamento da série. Não use acumular_linha. Se o valor do extrato for diferente do planejado, pergunte qual vale neste mês e mande cruzar_linha com valor \"extrato\" ou \"lancamento\". Sem essa escolha o plano é recusado. Se os valores forem iguais, não pergunte.",
+  "- Extra (adicional): só cruza com linha positiva, em sessão de acúmulo. Não associe extra a saída.",
+  "- O cartão mostra qual valor vale no mês. A pessoa aprova ali.",
   "- Análise: para perguntas sobre os números, consulte e responda com valores concretos e o que eles querem dizer para a vida da pessoa.",
 ].join("\n");
 
