@@ -92,7 +92,7 @@ export function Compositor({
         </AnimatePresence>
       </div>
       <p className="flex flex-wrap justify-between gap-2 text-sm text-ink-2">
-        <span>{aviso || "Enter envia. Shift+Enter quebra a linha. Ações que apagam pedem sua confirmação."}</span>
+        <span>{aviso || "Enter envia. Shift+Enter quebra a linha. Nada muda sem você aprovar o plano."}</span>
         {restante < 400 ? <span className={cn(restante < 0 && "text-neg")}>{restante} caracteres</span> : null}
       </p>
     </form>

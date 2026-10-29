@@ -38,8 +38,8 @@ export function Vazio({
         />
         <h2 className="font-display text-xl tab:text-2xl">{nome ? `Como posso ajudar, ${nome}?` : "Como posso ajudar?"}</h2>
         <p className="max-w-prose text-ink-2">
-          Peça em português, como pediria a alguém. Uma equipe de especialistas faz o trabalho no sistema por você e pergunta
-          quando precisar escolher.
+          Peça em português, como pediria a alguém. O consultor entende o pedido, mostra o plano com o efeito no seu mês e
+          só muda algo depois que você aprova.
         </p>
       </Passo>
 

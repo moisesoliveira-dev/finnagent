@@ -43,7 +43,8 @@ async function carregarInicio(): Promise<Inicio> {
     ler<ConversaResumo[]>("/api/assistente/conversas"),
     ler<UsuarioDaConta>("/api/auth/eu").catch(() => null),
   ]);
-  const pedida = new URLSearchParams(window.location.search).get("c");
+  // Voltando para a aba sem ?c=, abre a conversa que o servidor ainda está respondendo: ela não se perde.
+  const pedida = new URLSearchParams(window.location.search).get("c") ?? conversas.find((item) => item.emAndamento)?.id ?? null;
   const aberta = pedida && conversas.some((item) => item.id === pedida)
     ? await ler<ConversaCompleta>(`/api/assistente/conversas/${pedida}`).catch(() => null)
     : null;
@@ -57,7 +58,9 @@ export function Chat() {
   const [configuracao, setConfiguracao] = useState<ConfiguracaoDeIa | null>(null);
   const [nome, setNome] = useState("");
   const [conversas, setConversas] = useState<ConversaResumo[]>([]);
-  const [atual, setAtual] = useState<ConversaResumo | null>(null);
+  const [atual, setAtualEstado] = useState<ConversaResumo | null>(null);
+  // Em que conversa o turno em curso está (null: ainda não começou ou nenhum). A tela só mostra o andamento nela.
+  const [turnoEm, setTurnoEm] = useState<string | null>(null);
   const [mensagens, setMensagens] = useState<MensagemDoChat[]>([]);
   const [trabalhando, setTrabalhando] = useState(false);
   const [agente, setAgente] = useState<AgenteIa | null>(null);
@@ -67,10 +70,21 @@ export function Chat() {
   const parar = useRef<AbortController | null>(null);
   const conversaDoTurno = useRef<string | null>(null);
   const pediuParar = useRef(false);
+  // A pessoa saiu da aba ou abriu outra conversa: a tela solta a conexão, mas o servidor segue. Não é "parar".
+  const soltou = useRef(false);
+  const atualId = useRef<string | null>(null);
   const seguir = useRef(true);
   const fim = useRef<HTMLDivElement>(null);
   const listaNoCelular = useRef<HTMLDialogElement>(null);
   const confirmarApagar = useRef<HTMLDialogElement>(null);
+
+  function setAtual(conversa: ConversaResumo | null) {
+    atualId.current = conversa?.id ?? null;
+    setAtualEstado(conversa);
+  }
+
+  // O andamento só aparece na conversa em que o turno roda.
+  const aqui = trabalhando && (turnoEm === null || turnoEm === atual?.id);
 
   const configurado = Boolean(configuracao?.assistente.padrao || configuracao?.assistente.funcoes.coordenador);
 
@@ -90,7 +104,9 @@ export function Chat() {
     let vivo = true;
     carregarInicio()
       .then((inicio) => {
-        if (vivo) aplicarInicio(inicio);
+        if (!vivo) return;
+        aplicarInicio(inicio);
+        if (inicio.aberta?.emAndamento) void seguirTurno(inicio.aberta.id);
       })
       .catch(() => {
         if (vivo) {
@@ -100,9 +116,19 @@ export function Chat() {
       });
     return () => {
       vivo = false;
+      soltou.current = true;
       parar.current?.abort();
     };
+    // seguirTurno só lê estado novo por refs; roda uma vez ao abrir a tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aplicarInicio]);
+
+  // Conversa rodando em segundo plano: mantém a lista em dia até o servidor terminar.
+  useEffect(() => {
+    if (!conversas.some((item) => item.emAndamento) || trabalhando) return;
+    const espera = setTimeout(() => void recarregarLista(), 4000);
+    return () => clearTimeout(espera);
+  }, [conversas, trabalhando]);
 
   // Acompanha a resposta enquanto ela chega, a menos que a pessoa tenha subido para ler.
   useEffect(() => {
@@ -142,15 +168,52 @@ export function Chat() {
       const conversa = await ler<ConversaCompleta>(`/api/assistente/conversas/${id}`).catch(() => null);
       if (!conversa || conversa.emAndamento) continue;
       const { mensagens: lista, ...resumo } = conversa;
-      setAtual(resumo);
-      setMensagens(lista);
+      if (atualId.current === id) {
+        setAtual(resumo);
+        setMensagens(lista);
+      }
       return lista.at(-1)?.role === "assistant";
     }
     return false;
   }
 
+  /** Voltou para uma conversa que o servidor ainda responde: mostra que ele continua e espera o resultado. */
+  async function seguirTurno(id: string) {
+    const controle = new AbortController();
+    parar.current = controle;
+    conversaDoTurno.current = id;
+    soltou.current = false;
+    pediuParar.current = false;
+    setTurnoEm(id);
+    setTrabalhando(true);
+    setAgente("coordenador");
+    try {
+      await acompanhar(id, controle);
+    } finally {
+      if (parar.current === controle) {
+        parar.current = null;
+        conversaDoTurno.current = null;
+        setTurnoEm(null);
+        setTrabalhando(false);
+        setAgente(null);
+      }
+      await recarregarLista();
+    }
+  }
+
+  /** Sai da conversa que está rodando sem pará-la: o servidor termina o que começou. */
+  function soltarTurno() {
+    if (!parar.current) return;
+    soltou.current = true;
+    parar.current.abort();
+  }
+
   async function conversar(corpo: { texto: string } | { resposta: { perguntaId: string; escolha: string } }) {
-    if (trabalhando) return;
+    if (trabalhando) {
+      toast.alerta("O assistente ainda está trabalhando. Espere ele terminar ou pare a resposta.");
+      return;
+    }
+    soltou.current = false;
     setTrabalhando(true);
     setAgente("coordenador");
     seguir.current = true;
@@ -164,6 +227,7 @@ export function Chat() {
     const controle = new AbortController();
     parar.current = controle;
     conversaDoTurno.current = atual?.id ?? null;
+    setTurnoEm(atual?.id ?? null);
     pediuParar.current = false;
     try {
       const resposta = await fetch("/api/assistente/mensagens", {
@@ -184,6 +248,7 @@ export function Chat() {
           if (evento.tipo === "conversa") {
             conversaId = evento.conversa.id;
             conversaDoTurno.current = conversaId;
+            setTurnoEm(conversaId);
             if (pediuParar.current) pedirParada();
             setAtual(evento.conversa);
             setConversas((lista) => [evento.conversa, ...lista.filter((item) => item.id !== evento.conversa.id)]);
@@ -194,9 +259,11 @@ export function Chat() {
             toast.erro(evento.message);
             continue;
           }
-          if (evento.tipo === "agente") setAgente(evento.agente);
+          // Se a pessoa abriu outra conversa no meio, o andamento não entra nela.
+          const naTela = !conversaId || atualId.current === conversaId;
+          if (evento.tipo === "agente" && naTela) setAgente(evento.agente);
           const id: string | null = assistenteId;
-          setMensagens((lista) => aplicarEvento(lista, id, evento).mensagens);
+          if (naTela) setMensagens((lista) => aplicarEvento(lista, id, evento).mensagens);
           if (evento.tipo === "inicio") assistenteId = evento.assistenteId;
           if (evento.tipo === "fim") {
             assistenteId = null;
@@ -209,7 +276,7 @@ export function Chat() {
       }
       if (terminou && pediuParar.current) toast.alerta("Parei. O que já foi feito continua feito.");
       // Sem o `fim`, a conexão caiu (proxy, rede, servidor lento), mas o turno segue no servidor.
-      if (!terminou && !controle.signal.aborted) {
+      if (!terminou && !controle.signal.aborted && !soltou.current) {
         if (!conversaId) {
           toast.erro("A conexão caiu antes de a conversa começar. Envie de novo.");
         } else {
@@ -219,7 +286,9 @@ export function Chat() {
         }
       }
     } catch (error) {
-      if (controle.signal.aborted) {
+      if (soltou.current) {
+        // A pessoa saiu da conversa ou da aba: o servidor segue, não há nada a avisar.
+      } else if (controle.signal.aborted) {
         toast.alerta("Parei. O que já foi feito continua feito.");
       } else {
         toast.erro(error instanceof Error ? error.message : "O assistente não respondeu.");
@@ -229,21 +298,27 @@ export function Chat() {
         }
       }
     } finally {
-      parar.current = null;
-      conversaDoTurno.current = null;
-      setTrabalhando(false);
-      setAgente(null);
-      await recarregarLista();
+      // Outra retomada pode já ter assumido o lugar desta: só quem é dono do controle limpa o estado.
+      if (parar.current === controle) {
+        parar.current = null;
+        conversaDoTurno.current = null;
+        setTurnoEm(null);
+        setTrabalhando(false);
+        setAgente(null);
+      }
+      if (!soltou.current) await recarregarLista();
       // Depois de parar no meio, o servidor guardou o que deu tempo: a tela mostra o mesmo.
-      if (controle.signal.aborted && atual?.id) await abrir(atual.id, true);
+      if (controle.signal.aborted && !soltou.current && atual?.id) await abrir(atual.id, true);
     }
   }
 
   async function abrir(id: string, forcar = false) {
-    if ((trabalhando && !forcar) || (id === atual?.id && !forcar)) {
+    if (id === atual?.id && !forcar) {
       listaNoCelular.current?.close();
       return;
     }
+    // Trocar de conversa não para o assistente: ele continua no servidor e a lista mostra "Trabalhando".
+    if (!forcar && trabalhando && turnoEm !== id) soltarTurno();
     try {
       const conversa = await ler<ConversaCompleta>(`/api/assistente/conversas/${id}`);
       const { mensagens: lista, ...resumo } = conversa;
@@ -251,6 +326,7 @@ export function Chat() {
       setMensagens(lista);
       seguir.current = true;
       marcarNaUrl(id);
+      if (conversa.emAndamento && !(parar.current && conversaDoTurno.current === id)) void seguirTurno(id);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível abrir a conversa.");
     } finally {
@@ -259,6 +335,7 @@ export function Chat() {
   }
 
   function nova() {
+    if (trabalhando) soltarTurno();
     setAtual(null);
     setMensagens([]);
     setRascunho("");
@@ -285,7 +362,7 @@ export function Chat() {
     <Conversas
       conversas={conversas}
       atual={atual?.id ?? null}
-      trabalhando={trabalhando}
+      trabalhando={false}
       onNova={nova}
       onAbrir={(id) => void abrir(id)}
       onApagar={(conversa) => {
@@ -332,7 +409,7 @@ export function Chat() {
               Conversas
             </Button>
             {mensagens.length ? (
-              <Button variant="quiet" onClick={nova} disabled={trabalhando}>
+              <Button variant="quiet" onClick={nova}>
                 Nova
               </Button>
             ) : null}
@@ -355,7 +432,7 @@ export function Chat() {
                 <Mensagem
                   key={mensagem.id}
                   mensagem={mensagem}
-                  viva={trabalhando && mensagem.id === ultimaDoAssistente?.id && mensagem === mensagens[mensagens.length - 1]}
+                  viva={aqui && mensagem.id === ultimaDoAssistente?.id && mensagem === mensagens[mensagens.length - 1]}
                   agenteAtual={agente}
                   podeResponder={!trabalhando && mensagem.id === ultimaDoAssistente?.id}
                   onResponder={(perguntaId, escolha) => void conversar({ resposta: { perguntaId, escolha } })}
@@ -363,6 +440,11 @@ export function Chat() {
               ))}
             </ul>
           )}
+          {aqui && mensagens.at(-1)?.role === "user" ? (
+            <p className="etiqueta text-brand" aria-live="polite">
+              O assistente continua trabalhando nesta conversa
+            </p>
+          ) : null}
           <div ref={fim} />
         </div>
 
@@ -388,7 +470,7 @@ export function Chat() {
             </AnimatePresence>
             <Compositor
               valor={rascunho}
-              trabalhando={trabalhando}
+              trabalhando={aqui}
               desativado={!carregando && !configurado}
               aviso=""
               onMudar={setRascunho}

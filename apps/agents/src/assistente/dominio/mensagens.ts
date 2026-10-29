@@ -118,29 +118,6 @@ function completarResultados(mensagens: BaseMessage[]) {
   return saida;
 }
 
-/** A triagem lê a conversa como texto, sem ferramentas: funciona em qualquer provedor. */
-export function conversaParaTriagem(mensagens: MensagemDoModelo[]) {
-  const linhas = mensagens
-    .filter((item) => item.role !== "tool" && item.content.trim())
-    .slice(-8)
-    .map((item) => `${item.role === "user" ? "Pessoa" : nomeDe(item.agente)}: ${cortar(item.content.trim(), 600)}`);
-  return linhas.join("\n");
-}
-
-const SEM_ACENTO = /[̀-ͯ]/g;
-
-/** Lê a palavra escolhida pela triagem. Na dúvida, ninguém age: a conversa segue sem ferramentas. */
-export function escolhaDaTriagem(texto: string) {
-  const limpo = texto.normalize("NFD").replace(SEM_ACENTO, "").toLowerCase();
-  const palavras = limpo.match(/[a-z]+/g) ?? [];
-  for (const palavra of palavras) {
-    const achado = ESPECIALISTAS_IA.find((item) => item === palavra);
-    if (achado) return achado;
-    if (palavra === "nenhum") return null;
-  }
-  return null;
-}
-
 export function textoDe(conteudo: unknown): string {
   if (typeof conteudo === "string") return conteudo;
   if (!Array.isArray(conteudo)) return "";

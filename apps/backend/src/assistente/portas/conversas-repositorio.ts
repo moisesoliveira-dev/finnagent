@@ -7,6 +7,7 @@ import type {
   MensagemDoModelo,
   ParteDaMensagem,
 } from "@finnagent/contracts";
+import type { PlanoValidado } from "../dominio/plano.js";
 
 export const CONVERSAS_REPOSITORIO = Symbol("CONVERSAS_REPOSITORIO");
 
@@ -21,7 +22,8 @@ export type Pendencia = {
   agenteAtivo: EspecialistaIa | null;
   turno: MensagemDoModelo[];
   partes: ParteDaMensagem[];
-  aguardando: { tipo: "pergunta" | "confirmacao"; chamada: ChamadaDeFerramenta };
+  /** plano: o turno espera a aprovação; o plano validado (com os ids já dados) fica guardado para executar. */
+  aguardando: { tipo: "pergunta" | "confirmacao" | "plano"; chamada: ChamadaDeFerramenta; plano?: PlanoValidado };
   restantes: ChamadaDeFerramenta[];
 };
 

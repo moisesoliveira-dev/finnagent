@@ -3,11 +3,10 @@
 import { motion } from "motion/react";
 import { useState } from "react";
 import {
-  ESPECIALISTAS_IA,
+  FERRAMENTAS_DO_ASSISTENTE,
   INFO_DA_LEITURA,
   INFO_DOS_AGENTES,
   INFO_DOS_PROVEDORES,
-  ferramentasDo,
   type ConfiguracaoDeIa,
   type ConfiguracaoDoAssistente,
   type EscolhaDeModelo,
@@ -38,7 +37,8 @@ function CartaoDeAgente({
   const [aberto, setAberto] = useState(false);
   const propria = rascunho.funcoes[funcao] ?? null;
   const efetiva = rotuloDaEscolha(propria ?? rascunho.padrao, configuracao.provedores);
-  const ferramentas = funcao === "leitor" || funcao === "coordenador" ? [] : ferramentasDo(funcao);
+  // O consultor é o único agente do chat e tem todas as ferramentas.
+  const ferramentas = funcao === "coordenador" ? FERRAMENTAS_DO_ASSISTENTE : [];
   const idDaLista = `ferramentas-${funcao}`;
   const leitor = funcao === "leitor";
 
@@ -98,7 +98,9 @@ function CartaoDeAgente({
                   />
                   <span>
                     {ferramenta.descricao}
-                    {ferramenta.destrutiva ? <span className="text-neg"> Pede confirmação.</span> : null}
+                    {ferramenta.leitura ? null : (
+                      <span className={ferramenta.destrutiva ? "text-neg" : "text-brand"}> Só com plano aprovado.</span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -132,9 +134,8 @@ export function Agentes({
       <div className="grid max-w-prose gap-1">
         <h2 className="font-display text-lg">Agentes</h2>
         <p className="text-sm text-ink-2">
-          O assistente é uma equipe. O coordenador lê o pedido e passa para o especialista certo, e eles passam a vez entre
-          si quando o pedido mistura áreas. Cada um pode usar um modelo diferente: um modelo rápido e barato no coordenador
-          e um mais forte na análise, por exemplo.
+          O assistente é um consultor só, com todas as funções do Prumo. Ele consulta o que precisa, propõe um plano do que
+          vai mudar e só executa depois que você aprova. Use nele um modelo forte, que siga bem as ferramentas.
         </p>
       </div>
 
@@ -173,35 +174,6 @@ export function Agentes({
             onEscolher={escolher("coordenador")}
           />
         </Passo>
-        {/* As linhas do coordenador até a equipe se desenham quando a seção aparece. */}
-        <motion.span
-          aria-hidden
-          className="mx-auto block h-6 w-px origin-top bg-line"
-          initial={{ scaleY: 0 }}
-          animate={{ scaleY: 1 }}
-          transition={{ duration: 0.4, delay: 0.2 }}
-        />
-        <motion.span
-          aria-hidden
-          className="mx-auto hidden h-px w-2/3 bg-line desk:block"
-          initial={{ scaleX: 0 }}
-          animate={{ scaleX: 1 }}
-          transition={{ duration: 0.5, delay: 0.5 }}
-        />
-        <div className="grid gap-3 pt-6 tab:grid-cols-2 desk:grid-cols-3">
-          {ESPECIALISTAS_IA.map((agente) => (
-            <Passo key={agente}>
-              <CartaoDeAgente
-                funcao={agente}
-                nome={INFO_DOS_AGENTES[agente].nome}
-                resumo={INFO_DOS_AGENTES[agente].resumo}
-                configuracao={configuracao}
-                rascunho={rascunho}
-                onEscolher={escolher(agente)}
-              />
-            </Passo>
-          ))}
-        </div>
       </Cascata>
 
       <div className="grid gap-3 border-t border-line pt-6">

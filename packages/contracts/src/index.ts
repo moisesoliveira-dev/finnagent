@@ -2036,7 +2036,9 @@ export const ESPECIALISTAS_IA = ["financas", "agenda", "organizacao", "metas", "
 export type EspecialistaIa = (typeof ESPECIALISTAS_IA)[number];
 
 export const INFO_DOS_AGENTES: Record<AgenteIa, { nome: string; resumo: string }> = {
-  coordenador: { nome: "Coordenador", resumo: "Entende o pedido e passa para o especialista certo." },
+  // O assistente é um agente só: o consultor entende, propõe o plano e executa. Os demais nomes ficam para as
+  // conversas antigas, que guardaram o especialista em cada mensagem.
+  coordenador: { nome: "Consultor", resumo: "Entende o pedido, propõe o plano e executa depois da sua aprovação." },
   financas: { nome: "Finanças", resumo: "Lançamentos, parcelas, empréstimos, fixos e pagamentos." },
   agenda: { nome: "Agenda", resumo: "Compromissos e a sincronização com o Google Calendar." },
   organizacao: { nome: "Organização", resumo: "Grupos, sessões e a virada do ano." },
@@ -2142,12 +2144,44 @@ export type AcaoDoAssistente = {
 
 export type OpcaoDaPergunta = { rotulo: string; descricao?: string };
 
+/** Um passo do plano como a tela mostra: a frase e se apaga ou encerra algo. */
+export type PassoDoPlano = { ferramenta: string; descricao: string; destrutiva: boolean };
+
+/** As datas reais de um passo que lança dinheiro, já com fim de semana, feriado e regra de vencimento. */
+export type FatoDoPasso = {
+  /** O número do passo, a partir de 1. */
+  passo: number;
+  valorCents: number;
+  recorrente: boolean;
+  datas: Array<{ data: string; base: string; feriado: string | null }>;
+};
+
+/** O que o sistema calcula sobre o plano, sem depender do modelo: datas, a sobra do mês e os alertas. */
+export type FatosDoPlano = {
+  mes: { ano: number; mes: number; sobraAntesCents: number; sobraDepoisCents: number } | null;
+  passos: FatoDoPasso[];
+  alertas: string[];
+};
+
+export type PlanoDoAssistente = {
+  objetivo: string;
+  entendimento: string;
+  suposicoes: string[];
+  passos: PassoDoPlano[];
+  fatos: FatosDoPlano;
+};
+
+export const APROVAR_PLANO = "Aprovar e executar";
+export const CANCELAR_PLANO = "Cancelar";
+
 export type PerguntaDoAssistente = {
   id: string;
-  tipo: "pergunta" | "confirmacao";
+  /** plano: o consultor mostra o que vai fazer; nada muda no sistema antes da aprovação. */
+  tipo: "pergunta" | "confirmacao" | "plano";
   texto: string;
   opcoes: OpcaoDaPergunta[];
   resposta: string | null;
+  plano?: PlanoDoAssistente;
 };
 
 export type ParteDaMensagem =
@@ -2164,7 +2198,8 @@ export type MensagemDoChat = {
   createdAt: string;
 };
 
-export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean };
+/** `emAndamento`: o servidor está respondendo nesta conversa agora, mesmo que a pessoa tenha saído da tela. */
+export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean; emAndamento?: boolean };
 
 /** `emAndamento`: o servidor ainda está respondendo, mesmo que a tela tenha perdido a conexão. */
 export type ConversaCompleta = ConversaResumo & { emAndamento: boolean; mensagens: MensagemDoChat[] };
@@ -2191,7 +2226,8 @@ export type EventoDoChat =
 
 export type ModeloResolvido = { kind: ProvedorIa; apiKey: string; baseUrl: string; model: string };
 
-export type ChamadaDeFerramenta = { id: string; nome: string; args: Record<string, unknown> };
+/** `idGerado`: o id que o passo de um plano dá ao que cria, para os passos seguintes apontarem para ele. */
+export type ChamadaDeFerramenta = { id: string; nome: string; args: Record<string, unknown>; idGerado?: string };
 
 export type MensagemDoModelo =
   | { role: "user"; content: string }
@@ -2211,7 +2247,7 @@ export type PedidoDePasso = {
 export type EventoDoPasso =
   | { tipo: "agente"; agente: AgenteIa }
   | { tipo: "texto"; delta: string }
-  | { tipo: "chamadas"; agente: EspecialistaIa; texto: string; chamadas: ChamadaDeFerramenta[]; notas: string[] }
+  | { tipo: "chamadas"; agente: AgenteIa; texto: string; chamadas: ChamadaDeFerramenta[]; notas: string[] }
   | { tipo: "resposta"; agente: AgenteIa; texto: string; notas: string[] }
   | { tipo: "erro"; message: string };
 
@@ -2833,7 +2869,6 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
 
 /** Ferramentas que o backend não executa: o orquestrador e o grafo tratam. */
 export const FERRAMENTA_PERGUNTAR = "perguntar";
-export const FERRAMENTA_ENCAMINHAR = "encaminhar";
 
 export const ESQUEMA_PERGUNTAR = z.object({
   pergunta: z.string().trim().min(3).max(300).describe("A pergunta, curta e direta."),
@@ -2849,16 +2884,46 @@ export const ESQUEMA_PERGUNTAR = z.object({
     .describe("De 2 a 6 opções. A pessoa também pode escrever outra resposta."),
 });
 
-export const ESQUEMA_ENCAMINHAR = z.object({
-  agente: z.enum(ESPECIALISTAS_IA).describe("O especialista que deve continuar."),
-  motivo: z.string().trim().min(3).max(200).describe("O que ele deve fazer, em uma frase."),
+/** O plano: toda ação que muda o sistema passa por ele, e o backend só executa depois da aprovação. */
+export const FERRAMENTA_PLANO = "propor_plano";
+
+/** As ferramentas que criam algo novo: o passo dá o id, e os seguintes apontam para ele com @passo:N. */
+export const FERRAMENTAS_QUE_CRIAM: ReadonlySet<string> = new Set([
+  "criar_grupo",
+  "criar_sessao",
+  "criar_lancamento",
+  "criar_compromisso",
+  "criar_meta",
+]);
+
+export const ESQUEMA_PLANO = z.object({
+  objetivo: z.string().trim().min(3).max(200).describe("O que a pessoa quer, em uma frase."),
+  entendimento: z
+    .string()
+    .trim()
+    .min(3)
+    .max(600)
+    .describe("Como você interpretou o pedido, como consultor: o que cada valor é e por que o caminho é este."),
+  suposicoes: z
+    .array(z.string().trim().min(3).max(200))
+    .max(8)
+    .default([])
+    .describe("O que você supôs sem a pessoa dizer, uma por item, para ela corrigir antes de aprovar."),
+  passos: z
+    .array(
+      z.object({
+        ferramenta: z.string().trim().min(1).max(80).describe("O nome exato de uma ferramenta que muda o sistema."),
+        descricao: z.string().trim().min(3).max(200).describe("O passo em uma frase, para a pessoa ler."),
+        args: z
+          .record(z.string(), z.unknown())
+          .describe('Os argumentos exatos da ferramenta. Para o id de algo criado num passo anterior, use "@passo:N".'),
+      }),
+    )
+    .min(1)
+    .max(20),
 });
 
 export const FERRAMENTAS_POR_NOME = new Map(FERRAMENTAS_DO_ASSISTENTE.map((item) => [item.nome, item]));
-
-export function ferramentasDo(agente: EspecialistaIa) {
-  return FERRAMENTAS_DO_ASSISTENTE.filter((item) => item.agentes.includes(agente));
-}
 
 // ─── Feriados, dias úteis e regra de vencimento ──────────────────────────────────────────────────
 // Puro: o backend grava as datas com isto e a tela mostra a prévia com a mesma conta.

@@ -36,7 +36,7 @@ export function Conversas({
   const curva = useCurva();
   return (
     <nav aria-label="Conversas" className="grid content-start gap-3">
-      <Button onClick={onNova} disabled={trabalhando} className="w-full justify-start">
+      <Button onClick={onNova} className="w-full justify-start">
         <span aria-hidden className="text-base leading-none">+</span>
         Nova conversa
       </Button>
@@ -65,7 +65,11 @@ export function Conversas({
                   <span className={cn("truncate text-sm", ativa ? "font-semibold text-brand" : "text-ink")}>{conversa.title}</span>
                   <span className="flex items-center gap-2 text-sm text-ink-2">
                     {rotuloDoDia(conversa.updatedAt)}
-                    {conversa.pendente ? <span className="etiqueta text-pending">Esperando você</span> : null}
+                    {conversa.emAndamento ? (
+                      <span className="etiqueta text-brand">Trabalhando</span>
+                    ) : conversa.pendente ? (
+                      <span className="etiqueta text-pending">Esperando você</span>
+                    ) : null}
                   </span>
                 </button>
                 <button

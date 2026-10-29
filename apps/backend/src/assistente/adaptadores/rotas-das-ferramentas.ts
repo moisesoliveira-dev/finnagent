@@ -6,7 +6,8 @@ export type Rota = {
   metodo: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   caminho: (args: Args) => string;
   consulta?: (args: Args) => Record<string, string | number | boolean | undefined | null>;
-  corpo?: (args: Args, fuso: string) => unknown;
+  /** `idGerado`: o id que o passo do plano já deu ao que esta rota cria. */
+  corpo?: (args: Args, fuso: string, idGerado?: string) => unknown;
 };
 
 const id = (valor: unknown) => encodeURIComponent(String(valor));
@@ -81,7 +82,11 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     caminho: () => "painel",
     consulta: (a) => ({ scope: "mes", year: a.year, month: a.month }),
   },
-  criar_lancamento: { metodo: "POST", caminho: () => "lancamentos", corpo: (a) => lancamento(a, randomUUID()) },
+  criar_lancamento: {
+    metodo: "POST",
+    caminho: () => "lancamentos",
+    corpo: (a, _fuso, idGerado) => lancamento(a, idGerado ?? randomUUID()),
+  },
   editar_lancamento: { metodo: "PATCH", caminho: (a) => `lancamentos/${id(a.id)}`, corpo: (a) => lancamento(a, a.id) },
   alterar_status_lancamento: {
     metodo: "PATCH",
@@ -118,7 +123,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_grupo: {
     metodo: "POST",
     caminho: () => "grupos",
-    corpo: (a) => ({ id: randomUUID(), name: a.name, description: a.description ?? "" }),
+    corpo: (a, _fuso, idGerado) => ({ id: idGerado ?? randomUUID(), name: a.name, description: a.description ?? "" }),
   },
   editar_grupo: {
     metodo: "PATCH",
@@ -129,8 +134,8 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_sessao: {
     metodo: "POST",
     caminho: () => "sessoes",
-    corpo: (a) => ({
-      id: randomUUID(),
+    corpo: (a, _fuso, idGerado) => ({
+      id: idGerado ?? randomUUID(),
       groupId: a.groupId,
       name: a.name,
       description: a.description ?? "",
@@ -154,7 +159,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_compromisso: {
     metodo: "POST",
     caminho: () => "compromissos",
-    corpo: (a, fuso) => ({ id: randomUUID(), ...compromisso(a, fuso) }),
+    corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), ...compromisso(a, fuso) }),
   },
   editar_compromisso: { metodo: "PATCH", caminho: (a) => `compromissos/${id(a.id)}`, corpo: (a, fuso) => compromisso(a, fuso) },
   mover_compromisso: {
@@ -182,8 +187,8 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_meta: {
     metodo: "POST",
     caminho: () => "metas",
-    corpo: (a) => ({
-      id: randomUUID(),
+    corpo: (a, _fuso, idGerado) => ({
+      id: idGerado ?? randomUUID(),
       name: a.name,
       targetCents: a.targetCents,
       savedCents: a.savedCents ?? 0,
