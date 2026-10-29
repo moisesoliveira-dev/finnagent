@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ESPECIALISTAS_IA } from "@finnagent/contracts";
+import { ESPECIALISTAS_IA, FERRAMENTAS_POR_NOME } from "@finnagent/contracts";
 import { promptDaConversa, promptDaTriagem, promptDoEspecialista } from "./prompts.js";
 
 const contexto = { hoje: "2026-10-28", usuario: "Ana", fuso: "America/Sao_Paulo" };
@@ -17,7 +17,7 @@ describe("valor sempre numa sessão", () => {
     const prompt = promptDoEspecialista("financas", contexto, "");
     expect(prompt).toContain("Se nenhuma combinar com clareza, ou se mais de uma servir, pergunte qual usar");
     expect(prompt).toContain("Nunca lance numa sessão sem relação com o valor só porque é a única");
-    expect(prompt).toContain("encaminhe para organizacao");
+    expect(prompt).toContain("você mesmo cria, na mesma resposta");
   });
 
   it("agenda passa o valor para finanças, e organização devolve para finanças depois de criar a sessão", () => {
@@ -41,6 +41,17 @@ describe("valor sempre numa sessão", () => {
     expect(metas).toContain("Separar valor sempre pede a confirmação dela");
     expect(promptDaConversa(contexto, "")).toContain("ofereça ajuda para organizar o financeiro");
     expect(promptDaTriagem(contexto)).toContain("Pedido para começar ou organizar o financeiro");
+  });
+
+  it("finanças cria o grupo e a sessão ela mesma e nenhum agente encerra só anunciando o que vai fazer", () => {
+    const financas = promptDoEspecialista("financas", contexto, "");
+    expect(financas).toContain("você mesmo cria, na mesma resposta: criar_grupo");
+    expect(financas).toContain("Não encaminhe isso para organizacao");
+    for (const agente of ESPECIALISTAS_IA) {
+      expect(promptDoEspecialista(agente, contexto, "")).toContain("Nunca encerre só anunciando o que vai fazer");
+    }
+    expect(FERRAMENTAS_POR_NOME.get("criar_sessao")?.agentes).toContain("financas");
+    expect(FERRAMENTAS_POR_NOME.get("criar_grupo")?.agentes).toContain("financas");
   });
 
   it("quem mexe com dinheiro pensa como consultor e conhece as convenções; agenda e extratos não carregam isso", () => {

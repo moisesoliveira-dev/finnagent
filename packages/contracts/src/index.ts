@@ -2515,7 +2515,9 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   // Organização
   ferramenta({
     nome: "criar_grupo",
-    agentes: ["organizacao"],
+    // Finanças também cria: lançar um valor numa sessão que não existe é o caso mais comum, e passar o pedido
+    // para outro agente no meio dele é onde o modelo costumava parar.
+    agentes: ["organizacao", "financas"],
     descricao: "Cria um grupo.",
     esquema: z.object({ name: z.string().trim().min(1).max(80), description: z.string().trim().max(160).optional() }),
     rotulo: (args) => `Criou o grupo ${entreAspas(args.name)}`,
@@ -2537,7 +2539,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   }),
   ferramenta({
     nome: "criar_sessao",
-    agentes: ["organizacao"],
+    agentes: ["organizacao", "financas"],
     descricao: "Cria uma sessão dentro de um grupo.",
     esquema: z.object({
       groupId: idDoSistema,
