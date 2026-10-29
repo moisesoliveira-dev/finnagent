@@ -79,6 +79,15 @@ class Motor implements MotorDeIa {
   }
 }
 
+/** Escreve e espera, para a leitura da conversa ver o texto antes do fim. */
+class MotorQueEscreve extends Motor {
+  async passo(pedido: PedidoDePasso, aoEvento: (evento: EventoDoPasso) => void, sinal?: AbortSignal) {
+    aoEvento({ tipo: "texto", delta: "Estou olhando." });
+    await new Promise<void>((resolve) => sinal?.addEventListener("abort", () => resolve()));
+    return super.passo(pedido, aoEvento);
+  }
+}
+
 /** Motor que espera até mandarem parar, como um modelo lento. */
 class MotorParado extends Motor {
   async passo(pedido: PedidoDePasso, aoEvento: (evento: EventoDoPasso) => void, sinal?: AbortSignal) {
@@ -123,6 +132,7 @@ const excluirMeta = { id: "c-apagar", nome: "excluir_meta", args: { id: META, re
 // Uma conta vazia, com os padrões de vencimento iniciais: o plano é medido contra ela.
 const realidade: RealidadeDaConta = {
   base: async () => ({ entries: [], hoje: "2026-10-28", padroes: PADROES_DE_VENCIMENTO_INICIAIS, calendario: CALENDARIO_NACIONAL }),
+  linhaDoExtrato: async () => null,
 };
 
 function plano(passos: Array<{ ferramenta: string; descricao: string; args: Record<string, unknown> }>, id = "p1"): ChamadaDeFerramenta {
@@ -402,6 +412,20 @@ describe("orquestrador do assistente", () => {
     const ultimo = motor.pedidos[2];
     expect(ultimo.mensagens.map((item) => item.role)).toEqual(["user", "assistant", "user"]);
     expect(ultimo.mensagens[1].content).toContain("(Ações feitas: Criar a meta Viagem.)");
+  });
+
+  it("mostra o texto já escrito enquanto o turno segue, e grava ao terminar o passo", async () => {
+    const assistente = servico(new MotorQueEscreve());
+    const primeiro = assistente.conversar(quem, { texto: "oi" }, emitir);
+    await vi.waitFor(() => expect(conversas.dados.size).toBe(1));
+    const id = [...conversas.dados.keys()][0] as string;
+    await vi.waitFor(async () => {
+      const conversa = await assistente.obter("t1", "u1", id);
+      expect(conversa.mensagens.at(-1)?.partes).toEqual([{ tipo: "texto", texto: "Estou olhando." }]);
+    });
+    await assistente.parar("t1", "u1", id);
+    await primeiro;
+    expect((await assistente.obter("t1", "u1", id)).emAndamento).toBe(false);
   });
 
   it("marca a conversa como em andamento, recusa um segundo turno e para quando mandam parar", async () => {

@@ -28,6 +28,13 @@ describe("prompt do consultor", () => {
     expect(prompt).toContain('o plano cria o compromisso ligado ao lançamento (entryId "@passo:N")');
   });
 
+  it("trata o extrato pela categoria e exige a escolha quando o valor diverge", () => {
+    expect(prompt).toContain("não lance uma série como única");
+    expect(prompt).toContain('mande cruzar_linha com valor "extrato" ou "lancamento"');
+    expect(prompt).toContain("Não associe extra a saída");
+    expect(prompt).toContain("o valor do extrato é o daquele mês");
+  });
+
   it("só propõe a divisão da sobra das metas, e as preferências entram por último", () => {
     expect(prompt).toContain("quem aprova cada parte é a pessoa, na tela de Metas, e você não tem como aprovar");
     expect(prompt).toContain("ofereça ajuda para organizar o financeiro");

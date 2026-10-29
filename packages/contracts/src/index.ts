@@ -1110,6 +1110,9 @@ export type OrigemDaProposta = "nome" | "valor";
 
 export type OrigemDaSessao = "nome" | "compromisso";
 
+/** Linhas sem lançamento que a conferência entrega por página ao consultor. A tela pede o mês inteiro. */
+export const LINHAS_DA_CONFERENCIA_POR_PAGINA = 10;
+
 export type ConferenciaResposta = {
   year: number;
   month: number;
@@ -1117,6 +1120,7 @@ export type ConferenciaResposta = {
   // O mês só está conferido quando há linhas e todas têm lançamento ou sessão.
   checked: boolean;
   lines: LinhaConferencia[];
+  page?: { number: number; size: number; total: number };
 };
 
 export type FalhaDeAcumulo = {
@@ -2154,6 +2158,8 @@ export type FatoDoPasso = {
   valorCents: number;
   recorrente: boolean;
   datas: Array<{ data: string; base: string; feriado: string | null }>;
+  /** Qual valor do extrato vale no mês, quando a linha cruza com um lançamento. */
+  nota?: string;
 };
 
 /** O que o sistema calcula sobre o plano, sem depender do modelo: datas, a sobra do mês e os alertas. */
@@ -2769,20 +2775,25 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_conferencia",
     agentes: ["extratos"],
-    descricao: "Mostra a conferência do mês: linhas do extrato e os lançamentos candidatos de cada uma.",
+    descricao: `Linhas do mês ainda sem lançamento, ${LINHAS_DA_CONFERENCIA_POR_PAGINA} por página, com a categoria e o valor de cada candidato. pagina começa em 1.`,
     leitura: true,
-    esquema: z.object({ year: anoDoSistema, month: mesDoSistema }),
+    esquema: z.object({
+      year: anoDoSistema,
+      month: mesDoSistema,
+      pagina: z.number().int().min(1).max(100).optional().describe("Página, a partir de 1."),
+    }),
     rotulo: (args) => `Consultou a conferência de ${args.month}/${args.year}`,
   }),
   ferramenta({
     nome: "cruzar_linha",
     agentes: ["extratos"],
-    descricao: "Liga uma linha do extrato a um lançamento.",
+    descricao:
+      "Liga uma linha a um lançamento. Única: o extrato vale no mês. Fixa, parcela e empréstimo com valor diferente: mande valor extrato ou lancamento, o que a pessoa escolheu. Extra só em linha positiva.",
     esquema: z.object({
       statementId: idDoSistema,
       line: z.number().int().min(1),
       entryId: idDoSistema,
-      valor: z.enum(["extrato", "lancamento"]).optional().describe("Qual valor vale no mês, se forem diferentes."),
+      valor: z.enum(["extrato", "lancamento"]).optional().describe("Qual valor vale no mês, quando fixa, parcela ou empréstimo divergem."),
     }),
     rotulo: (args) => `Cruzou a linha ${args.line}`,
   }),
@@ -2796,14 +2807,14 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "acumular_linha",
     agentes: ["extratos"],
-    descricao: "Lança uma linha do extrato numa sessão de acúmulo.",
+    descricao: "Cria uma única com o valor do extrato numa sessão. Não use para fixa, parcela ou empréstimo que já existem: cruze.",
     esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }),
     rotulo: (args) => `Lançou a linha ${args.line}`,
   }),
   ferramenta({
     nome: "acumular_linhas",
     agentes: ["extratos"],
-    descricao: "Lança várias linhas do extrato, cada uma numa sessão.",
+    descricao: "Cria uma única por linha, com o valor do extrato, cada uma na sua sessão. Não use para fixa, parcela ou empréstimo que já existem.",
     esquema: z.object({
       items: z
         .array(z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }))

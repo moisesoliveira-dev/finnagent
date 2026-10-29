@@ -206,7 +206,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   consultar_conferencia: {
     metodo: "GET",
     caminho: () => "extratos/conferencia",
-    consulta: (a) => ({ year: a.year, month: a.month }),
+    consulta: (a) => ({ year: a.year, month: a.month, pagina: a.pagina ?? 1 }),
   },
   cruzar_linha: {
     metodo: "POST",

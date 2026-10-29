@@ -36,7 +36,7 @@ Motivo: a pessoa precisa poder mudar de aba ou de conversa sem perder o assisten
 
 Como foi verificado: backend com 315 testes (novo: a lista marca a conversa que ainda responde e desmarca ao fim), tipos e lint limpos, Docker reconstruído. No Chrome, pela interface: enviei uma mensagem que usa ferramenta, saí para Metas no meio e voltei pelo menu sem `?c=`. O servidor terminou o turno sozinho (log `turno do assistente encerrado`, sem `interrompido`), a conversa reabriu com o indicador e a marca "Trabalhando" na lista, e o resultado apareceu no fim, sem toast "Parei" e sem erro de página. Não verificado: trocar de conversa no meio do turno e o comportamento no celular.
 
-Limites conhecidos: o texto que o assistente vai escrevendo não é mostrado ao voltar; a tela só mostra o resultado quando o turno termina, porque o servidor guarda a mensagem ao fim do turno; se o backend reiniciar no meio (deploy ou serverless dormindo), o turno em curso se perde.
+Limites conhecidos: ao voltar, a tela mostra o texto que o turno já tem, enquanto o processo segue vivo. Cada passo concluído fica gravado. Se o processo cair no meio de um passo, esse passo se perde; o que já tinha terminado permanece. O turno em andamento continua na memória de uma réplica.
 
 Arquivos:
 
@@ -61,7 +61,7 @@ Motivo: o assistente parava no meio ao passar o pedido entre agentes e fazia o q
 
 Como foi verificado: backend com tsc, lint do assistente e 321 testes passando. Entre eles estão os novos de `fatos-do-plano.spec.ts`: salário do dia 30 que cai num sábado vem na sexta; conta que cai num feriado vai para o dia útil seguinte; alertas de conta antes da entrada, de fixas acima de 50% e de sobra negativa; referências `@passo:N` são trocadas e são recusadas quando apontam para passo que não cria nada. Também estão os novos do orquestrador: escrita fora do plano é recusada; plano aprovado executa em ordem com os ids encadeados; a execução para no primeiro passo que falha; o ajuste refaz o plano. Agents com tsc e 17 testes passando (um nó só, todas as ferramentas mais `perguntar` e `propor_plano`, sem `encaminhar`). Docker reconstruído, com os cinco serviços de pé, sem migração pendente e `localhost:3000` respondendo. O cartão do plano foi conferido na tela em 1440 e 760 px, com uma conversa de exemplo inserida no Postgres local e apagada depois.
 
-Limites conhecidos: o ciclo com um modelo de verdade não foi testado no local, porque o modelo local não chama ferramentas de forma confiável; falta conferir no servidor com o modelo configurado lá. O tema escuro e a largura de 375 px do cartão não foram conferidos. Os fatos calculados cobrem só `criar_lancamento`; editar ou apagar lançamento num plano não mostra o efeito na sobra. A memória do perfil financeiro fica para depois.
+Limites conhecidos: o ciclo com um modelo de verdade não foi testado no local, porque o modelo local não chama ferramentas de forma confiável; falta conferir no servidor com o modelo configurado lá. O tema escuro e a largura de 375 px do cartão não foram conferidos. A sobra do plano cobre criar, editar, cancelar e apagar lançamento; meta, compromisso e grupo não entram nesse número. A memória do perfil financeiro fica para depois.
 
 Arquivos:
 
@@ -90,3 +90,41 @@ Arquivos:
 - `apps/frontend/app/assistente/vazio.tsx`
 - `apps/frontend/app/assistente/compositor.tsx`
 - `apps/frontend/app/configuracoes/ia/agentes.tsx`
+
+## Regras do extrato no plano
+
+O que foi feito: o consultor recebe as regras da conferência. Única usa o valor do extrato. Fixa, parcela e empréstimo divergentes só entram no plano com a escolha da pessoa, extrato ou lançamento, e o cartão mostra os dois valores e qual vale no mês. Extra só cruza com entrada. Acumular cria única e não serve para uma série que já existe. A conferência que o consultor lê vem em páginas de 10 linhas sem lançamento. A sobra do plano troca o valor planejado pelo valor escolhido.
+
+Motivo: lançar a linha como única e deixar o modelo escolher o valor sozinho não trata fixa, parcela, empréstimo e extra.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/agents/src/assistente/dominio/prompts.spec.ts`
+- `apps/backend/src/extratos/dominio/cruzar.ts`
+- `apps/backend/src/extratos/dominio/cruzar.spec.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/assistente/dominio/fatos-do-plano.ts`
+- `apps/backend/src/assistente/dominio/fatos-do-plano.spec.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts`
+- `apps/backend/src/assistente/portas/realidade-da-conta.ts`
+- `apps/backend/src/assistente/adaptadores/realidade-do-sistema.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/frontend/app/assistente/plano.tsx`
+
+## Sobra do plano e texto do turno
+
+O que foi feito: a sobra do plano passou a contar criar, editar, cancelar e apagar lançamento. Enquanto o turno segue, a conversa devolve o texto que o processo já escreveu e cada passo concluído fica gravado; a tela mostra esse texto sem esperar o fim. Em Configurações, o interruptor de confirmar antes de apagar saiu: criar, editar, apagar e cancelar só acontecem depois do plano aprovado.
+
+Motivo: a sobra só somava lançamento novo, ao voltar a tela não mostrava o texto já escrito, e a confirmação de apagar ainda era um interruptor à parte do plano.
+
+Arquivos:
+
+- `apps/backend/src/assistente/dominio/fatos-do-plano.ts`
+- `apps/backend/src/assistente/dominio/fatos-do-plano.spec.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.spec.ts`
+- `apps/frontend/app/assistente/chat.tsx`
+- `apps/frontend/app/configuracoes/ia/comportamento.tsx`

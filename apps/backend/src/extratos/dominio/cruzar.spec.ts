@@ -3,6 +3,7 @@ import type { Lancamento, Ocorrencia } from "@finnagent/contracts";
 import {
   candidatosDaLinha,
   cruzaveisDoMes,
+  preparoDoCruzamento,
   propostaDaLinha,
   valorDoMes,
   type LancamentoCruzavel,
@@ -139,5 +140,13 @@ describe("valor do mês no cruzamento", () => {
     expect(valorDoMes("additional", 1500, -1500)).toBe("extra");
     expect(valorDoMes("additional", -1500, 1500)).toBe("extra");
     expect(valorDoMes("additional", 1500, 2000)).toBe(2000);
+  });
+
+  it("exige a escolha no preparo da fixa divergente e usa o extrato na única", () => {
+    expect(preparoDoCruzamento("fixed", -3434, -1178)).toContain("Pergunte à pessoa");
+    expect(preparoDoCruzamento("fixed", -3434, -1178, "extrato")).toMatchObject({ cents: -1178 });
+    expect(preparoDoCruzamento("fixed", -3434, -1178, "lancamento")).toMatchObject({ cents: -3434 });
+    expect(preparoDoCruzamento("unique", -10000, -18000)).toMatchObject({ cents: -18000 });
+    expect(preparoDoCruzamento("additional", 1500, -1500)).toBe("Adicional só cruza com entrada.");
   });
 });

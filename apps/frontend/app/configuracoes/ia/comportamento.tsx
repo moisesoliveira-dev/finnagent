@@ -16,7 +16,6 @@ import { Dialogo } from "../../../components/ui/dialogo";
 import { Segmentado } from "../../../components/ui/segmentado";
 import { useToast } from "../../../components/ui/toast";
 import { apagarConversas } from "./api";
-import { Interruptor } from "./pecas";
 
 const PASSOS = [
   { id: "4", label: "4" },
@@ -37,10 +36,25 @@ const RETENCAO: ReadonlyArray<{ id: RetencaoDoChat; label: string }> = [
   { id: "sempre", label: "Sem limite" },
 ];
 
-function Bloco({ titulo, dica, id, children }: { titulo: string; dica: string; id: string; children: React.ReactNode }) {
+function Bloco({
+  titulo,
+  dica,
+  id,
+  children,
+}: {
+  titulo: string;
+  dica: string;
+  id: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className="grid gap-3 border-t border-line py-4 tab:grid-cols-2 tab:items-center tab:gap-6">
-      <div className="grid gap-1">
+    <div
+      className={cn(
+        "grid gap-3 border-t border-line py-4",
+        children != null && "tab:grid-cols-2 tab:items-center tab:gap-6",
+      )}
+    >
+      <div className="grid min-w-0 gap-1">
         <span id={`${id}-titulo`} className="font-semibold">
           {titulo}
         </span>
@@ -48,7 +62,9 @@ function Bloco({ titulo, dica, id, children }: { titulo: string; dica: string; i
           {dica}
         </p>
       </div>
-      <div className="grid min-w-0 justify-items-start gap-2 tab:justify-items-end">{children}</div>
+      {children != null ? (
+        <div className="grid min-w-0 justify-items-start gap-2 tab:justify-items-end">{children}</div>
+      ) : null}
     </div>
   );
 }
@@ -94,18 +110,10 @@ export function Comportamento({
       </div>
 
       <Bloco
-        id="confirmar"
-        titulo="Confirmar antes de apagar"
-        dica="Apagar, cancelar parcelas ou fechar a virada do ano só acontece depois do seu sim. Recomendado ligado."
-      >
-        <Interruptor
-          id="confirmar"
-          ligado={atual.confirmarExclusao}
-          desativado={travado}
-          descricao="confirmar-dica"
-          onMudar={(valor) => mudar("confirmarExclusao", valor)}
-        />
-      </Bloco>
+        id="plano"
+        titulo="Nada muda sem o plano"
+        dica="Criar, editar, apagar e cancelar só acontecem depois que você aprova o plano. Não há um atalho para pular essa aprovação. O plano é a confirmação."
+      />
 
       <Bloco
         id="passos"
