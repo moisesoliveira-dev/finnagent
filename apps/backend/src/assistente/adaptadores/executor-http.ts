@@ -31,7 +31,7 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
       return falha(`Argumentos inválidos (${problemas}). Corrija e tente de novo.`, "Os dados enviados estavam incompletos.");
     }
 
-    const corpo = rota.corpo?.(args.data, credencial.fuso);
+    const corpo = rota.corpo?.(args.data, credencial.fuso, chamada.idGerado);
     let resposta: Response;
     try {
       resposta = await fetch(montarUrl(this.base, rota, args.data), {

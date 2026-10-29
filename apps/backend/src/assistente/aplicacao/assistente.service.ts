@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
+  APROVAR_PLANO,
+  CANCELAR_PLANO,
   ESQUEMA_PERGUNTAR,
   FERRAMENTA_PERGUNTAR,
+  FERRAMENTA_PLANO,
   FERRAMENTAS_POR_NOME,
+  FERRAMENTAS_QUE_CRIAM,
   temperaturaDa,
   type AcaoDoAssistente,
   type AgenteIa,
   type ChamadaDeFerramenta,
   type ComportamentoDoAssistente,
   type ConversaCompleta,
+  type FatosDoPlano,
   type EspecialistaIa,
   type EventoDoChat,
   type EventoDoPasso,
@@ -27,10 +32,11 @@ import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import {
   historicoParaOModelo,
   limiteDaRetencao,
-  perguntaDeConfirmacao,
   tituloDe,
 } from "../dominio/conversa.js";
 import { AssistenteIndisponivel, SemModelo } from "../dominio/erros.js";
+import { fatosDoPlano } from "../dominio/fatos-do-plano.js";
+import { validarPlano, type PlanoValidado } from "../dominio/plano.js";
 import { interpretarMensagem, interpretarTitulo } from "../dominio/pedido.js";
 import { CONTEXTO_DO_ASSISTENTE, type Contexto, type ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
 import {
@@ -40,6 +46,7 @@ import {
 } from "../portas/conversas-repositorio.js";
 import { EXECUTOR_DE_FERRAMENTAS, type ExecutorDeFerramentas } from "../portas/executor-de-ferramentas.js";
 import { MOTOR_DE_IA, type MotorDeIa } from "../portas/motor-de-ia.js";
+import { REALIDADE_DA_CONTA, type RealidadeDaConta } from "../portas/realidade-da-conta.js";
 import { IaService } from "./ia.service.js";
 
 export type Emitir = (evento: EventoDoChat) => void;
@@ -127,13 +134,15 @@ export class AssistenteService {
     @Inject(EXECUTOR_DE_FERRAMENTAS) private readonly executor: ExecutorDeFerramentas,
     @Inject(CONTEXTO_DO_ASSISTENTE) private readonly contexto: ContextoDoAssistente,
     private readonly ia: IaService,
+    @Inject(REALIDADE_DA_CONTA) private readonly realidade: RealidadeDaConta,
   ) {}
 
   async listar(tenantId: string, userId: string) {
     const { comportamento } = await this.ia.modelos(tenantId);
     const limite = limiteDaRetencao(comportamento.retencao);
     if (limite) await this.conversas.limparAntigas(tenantId, limite);
-    return this.conversas.listar(tenantId, userId);
+    const lista = await this.conversas.listar(tenantId, userId);
+    return lista.map((conversa) => ({ ...conversa, emAndamento: this.emCurso.has(conversa.id) }));
   }
 
   async obter(tenantId: string, userId: string, id: string): Promise<ConversaCompleta> {
@@ -368,19 +377,22 @@ export class AssistenteService {
       return true;
     }
 
-    turno.agenteAtivo = final.agente;
     turno.transcricao.push({ role: "assistant", content: final.texto, agente: final.agente, toolCalls: final.chamadas });
     await this.processar(turno, final.chamadas, quem, contexto, comportamento);
     return false;
   }
 
-  /** Executa as chamadas na ordem; para na primeira pergunta ou confirmação e guarda o resto. */
+  /**
+   * As chamadas do modelo, na ordem. Consulta e pergunta rodam direto. O que muda o sistema só entra por um
+   * plano: o modelo propõe, a pessoa aprova e o próprio sistema executa os passos. Uma ferramenta de escrita
+   * chamada fora do plano é recusada, para o modelo não pular a aprovação.
+   */
   private async processar(
     turno: Turno,
     chamadas: ChamadaDeFerramenta[],
     quem: Quem,
     contexto: Contexto,
-    comportamento: ComportamentoDoAssistente,
+    _comportamento: ComportamentoDoAssistente,
   ) {
     for (const [indice, chamada] of chamadas.entries()) {
       const restantes = chamadas.slice(indice + 1);
@@ -400,26 +412,114 @@ export class AssistenteService {
         });
         return;
       }
+      if (chamada.nome === FERRAMENTA_PLANO) {
+        const plano = validarPlano(chamada.args, randomUUID);
+        if (typeof plano === "string") {
+          log.warn({ conversa: turno.conversaId, motivo: plano }, "plano recusado");
+          this.resultado(turno, chamada, `${plano} Nada foi mostrado à pessoa. Corrija e proponha de novo.`);
+          continue;
+        }
+        const fatos = await this.medir(quem.tenantId, plano);
+        log.info(
+          { conversa: turno.conversaId, passos: plano.passos.map((item) => item.ferramenta), alertas: fatos.alertas.length },
+          "plano proposto",
+        );
+        this.pausar(
+          turno,
+          "plano",
+          chamada,
+          restantes,
+          {
+            id: chamada.id,
+            tipo: "plano",
+            texto: plano.objetivo,
+            opcoes: [
+              { rotulo: APROVAR_PLANO, descricao: "Faz agora todos os passos, na ordem." },
+              { rotulo: CANCELAR_PLANO, descricao: "Não faz nada." },
+            ],
+            resposta: null,
+            plano: {
+              objetivo: plano.objetivo,
+              entendimento: plano.entendimento,
+              suposicoes: plano.suposicoes,
+              passos: plano.passos.map((item) => ({ ferramenta: item.ferramenta, descricao: item.descricao, destrutiva: item.destrutiva })),
+              fatos,
+            },
+          },
+          plano,
+        );
+        return;
+      }
       const ferramenta = FERRAMENTAS_POR_NOME.get(chamada.nome);
       if (!ferramenta) {
         this.resultado(turno, chamada, "Ferramenta desconhecida. Use só as ferramentas oferecidas.");
         continue;
       }
-      if (turno.agenteAtivo && !ferramenta.agentes.includes(turno.agenteAtivo)) {
-        this.resultado(turno, chamada, "Essa ferramenta não é deste especialista. Use encaminhar.");
+      if (!ferramenta.leitura) {
+        log.info({ conversa: turno.conversaId, ferramenta: chamada.nome }, "escrita fora do plano recusada");
+        this.resultado(
+          turno,
+          chamada,
+          "Nada foi feito: esta ferramenta muda o sistema e só roda dentro de um plano aprovado. Chame propor_plano com este passo e os outros que o pedido precisa; o sistema mostra à pessoa e executa depois que ela aprovar.",
+        );
         continue;
-      }
-      if (ferramenta.exigeConfirmacao || (ferramenta.destrutiva && comportamento.confirmarExclusao)) {
-        const args = ferramenta.esquema.safeParse(chamada.args);
-        if (!args.success) {
-          await this.executar(turno, chamada, quem, contexto);
-          continue;
-        }
-        this.pausar(turno, "confirmacao", chamada, restantes, perguntaDeConfirmacao(ferramenta, args.data, chamada.id));
-        return;
       }
       await this.executar(turno, chamada, quem, contexto);
     }
+  }
+
+  /** Os fatos do plano pelo próprio sistema. Se a conta não puder ser lida, o plano segue sem eles. */
+  private async medir(tenantId: string, plano: PlanoValidado): Promise<FatosDoPlano> {
+    try {
+      return fatosDoPlano(plano.passos, await this.realidade.base(tenantId));
+    } catch (error) {
+      log.warn({ err: error instanceof Error ? error.message : String(error) }, "não foi possível medir o plano");
+      return { mes: null, passos: [], alertas: [] };
+    }
+  }
+
+  /** Executa o plano aprovado, passo a passo. Para no primeiro que falha; os seguintes ficam como não feitos. */
+  private async executarPlano(turno: Turno, origem: ChamadaDeFerramenta, plano: PlanoValidado, quem: Quem, contexto: Contexto) {
+    const relato: string[] = [];
+    let falhou = 0;
+    for (const [indice, passo] of plano.passos.entries()) {
+      const numero = indice + 1;
+      const chamada: ChamadaDeFerramenta = {
+        id: `${origem.id}:${numero}`,
+        nome: passo.ferramenta,
+        args: passo.args,
+        idGerado: passo.idGerado,
+      };
+      const rotulo = passo.descricao;
+      if (falhou) {
+        turno.acao({ id: chamada.id, ferramenta: passo.ferramenta, rotulo, estado: "cancelada", detalhe: `Não feito: o passo ${falhou} falhou.` });
+        relato.push(`Passo ${numero} (${passo.ferramenta}): não executado.`);
+        continue;
+      }
+      turno.acao({ id: chamada.id, ferramenta: passo.ferramenta, rotulo, estado: "executando", detalhe: "" });
+      const inicio = Date.now();
+      const resultado = await this.executor.executar(chamada, { token: quem.token, fuso: contexto.fuso });
+      const dados = { conversa: turno.conversaId, passo: numero, ferramenta: passo.ferramenta, ms: Date.now() - inicio };
+      if (resultado.ok) log.info(dados, "passo do plano executado");
+      else log.warn({ ...dados, detalhe: resultado.detalhe }, "passo do plano falhou");
+      turno.acao({
+        id: chamada.id,
+        ferramenta: passo.ferramenta,
+        rotulo,
+        estado: resultado.ok ? "feita" : "falhou",
+        detalhe: resultado.ok ? "" : resultado.detalhe,
+      });
+      if (resultado.ok) {
+        relato.push(`Passo ${numero} (${passo.ferramenta}): feito${FERRAMENTAS_QUE_CRIAM.has(passo.ferramenta) ? `, id ${passo.idGerado}` : ""}.`);
+      } else {
+        falhou = numero;
+        relato.push(`Passo ${numero} (${passo.ferramenta}): falhou. ${resultado.conteudo}`);
+      }
+    }
+    const cabeca = falhou
+      ? `A pessoa aprovou o plano, mas o passo ${falhou} falhou e os seguintes não foram feitos. Explique o que faltou e, se der para corrigir, proponha um plano novo só com o que falta.`
+      : "A pessoa aprovou o plano e todos os passos foram feitos.";
+    return `${cabeca}\n${relato.join("\n")}\nConfira o mês com consultar_mes_financeiro e diga em até três frases o que foi feito, o que você supôs e o efeito no mês.`;
   }
 
   private async aplicarResposta(
@@ -432,7 +532,19 @@ export class AssistenteService {
     comportamento: ComportamentoDoAssistente,
   ) {
     turno.responder(aguardando.chamada.id, escolha);
-    if (aguardando.tipo === "pergunta") {
+    if (aguardando.tipo === "plano") {
+      if (escolha === APROVAR_PLANO && aguardando.plano) {
+        this.resultado(turno, aguardando.chamada, await this.executarPlano(turno, aguardando.chamada, aguardando.plano, quem, contexto));
+      } else if (escolha === CANCELAR_PLANO) {
+        this.resultado(turno, aguardando.chamada, "A pessoa não aprovou o plano e nada foi feito. Não faça isso sem um novo pedido.");
+      } else {
+        this.resultado(
+          turno,
+          aguardando.chamada,
+          `A pessoa pediu um ajuste no plano: "${escolha}". Nada foi feito. Refaça o plano com o ajuste e proponha de novo com propor_plano.`,
+        );
+      }
+    } else if (aguardando.tipo === "pergunta") {
       this.resultado(turno, aguardando.chamada, `A pessoa respondeu: ${escolha}`);
     } else if (escolha === "Confirmar") {
       await this.executar(turno, aguardando.chamada, quem, contexto);
@@ -453,10 +565,11 @@ export class AssistenteService {
 
   private pausar(
     turno: Turno,
-    tipo: "pergunta" | "confirmacao",
+    tipo: "pergunta" | "confirmacao" | "plano",
     chamada: ChamadaDeFerramenta,
     restantes: ChamadaDeFerramenta[],
     pergunta: PerguntaDoAssistente,
+    plano?: PlanoValidado,
   ) {
     turno.pergunta(pergunta);
     turno.pendencia = {
@@ -466,7 +579,7 @@ export class AssistenteService {
       agenteAtivo: turno.agenteAtivo,
       turno: turno.transcricao,
       partes: turno.partes,
-      aguardando: { tipo, chamada },
+      aguardando: plano ? { tipo, chamada, plano } : { tipo, chamada },
       restantes,
     };
   }

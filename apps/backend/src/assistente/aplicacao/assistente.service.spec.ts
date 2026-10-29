@@ -1,4 +1,6 @@
 import {
+  APROVAR_PLANO,
+  CANCELAR_PLANO,
   COMPORTAMENTO_PADRAO,
   type ChamadaDeFerramenta,
   type ComportamentoDoAssistente,
@@ -15,6 +17,8 @@ import type { ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
 import type { ConversaGravada, ConversasRepositorio, Pendencia } from "../portas/conversas-repositorio.js";
 import type { Credencial, ExecutorDeFerramentas, ResultadoDaExecucao } from "../portas/executor-de-ferramentas.js";
 import type { MotorDeIa } from "../portas/motor-de-ia.js";
+import type { RealidadeDaConta } from "../portas/realidade-da-conta.js";
+import { CALENDARIO_NACIONAL, PADROES_DE_VENCIMENTO_INICIAIS } from "@finnagent/contracts";
 import { AssistenteService } from "./assistente.service.js";
 import type { IaService } from "./ia.service.js";
 
@@ -113,7 +117,41 @@ const chamadas = (agente: string, lista: ChamadaDeFerramenta[], texto = ""): Eve
   ({ tipo: "chamadas", agente, texto, chamadas: lista, notas: [] }) as EventoDoPasso;
 const resposta = (agente: string, texto: string): EventoDoPasso => ({ tipo: "resposta", agente, texto, notas: [] }) as EventoDoPasso;
 
-const excluirMeta = { id: "c-apagar", nome: "excluir_meta", args: { id: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01", resumo: "a meta Viagem" } };
+const META = "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01";
+const excluirMeta = { id: "c-apagar", nome: "excluir_meta", args: { id: META, resumo: "a meta Viagem" } };
+
+// Uma conta vazia, com os padrões de vencimento iniciais: o plano é medido contra ela.
+const realidade: RealidadeDaConta = {
+  base: async () => ({ entries: [], hoje: "2026-10-28", padroes: PADROES_DE_VENCIMENTO_INICIAIS, calendario: CALENDARIO_NACIONAL }),
+};
+
+function plano(passos: Array<{ ferramenta: string; descricao: string; args: Record<string, unknown> }>, id = "p1"): ChamadaDeFerramenta {
+  return {
+    id,
+    nome: "propor_plano",
+    args: { objetivo: "Organizar o salário", entendimento: "É renda fixa mensal.", suposicoes: ["Antecipa no fim de semana."], passos },
+  };
+}
+
+const salario = [
+  { ferramenta: "criar_grupo", descricao: "Criar o grupo Renda", args: { name: "Renda" } },
+  { ferramenta: "criar_sessao", descricao: "Criar a sessão Salário", args: { groupId: "@passo:1", name: "Salário", kind: "acumulo" } },
+  {
+    ferramenta: "criar_lancamento",
+    descricao: "Lançar o salário todo dia 30",
+    args: {
+      sessionId: "@passo:2",
+      name: "Salário",
+      date: "2026-10-30",
+      mode: "inflows",
+      category: "fixed",
+      cents: 300000,
+      recurrence: "monthly",
+      recurrenceInterval: 1,
+      nextDueDate: "2026-10-30",
+    },
+  },
+];
 
 describe("orquestrador do assistente", () => {
   let conversas: Conversas;
@@ -126,7 +164,7 @@ describe("orquestrador do assistente", () => {
   });
 
   function servico(motor: MotorDeIa, executor: ExecutorDeFerramentas = new Executor(), config = ia()) {
-    return new AssistenteService(conversas, motor, executor, contexto, config);
+    return new AssistenteService(conversas, motor, executor, contexto, config, realidade);
   }
 
   function ultimaMensagem() {
@@ -146,94 +184,148 @@ describe("orquestrador do assistente", () => {
     expect(motor.pedidos[0]).not.toHaveProperty("modelos.leitor");
   });
 
-  it("executa a ferramenta com o token de quem conversa e devolve o resultado ao modelo", async () => {
+  it("consulta direto, com o token de quem conversa, e devolve o resultado ao modelo", async () => {
     const executor = new Executor();
     const motor = new Motor([
-      { agente: "metas", final: chamadas("metas", [{ id: "c1", nome: "criar_meta", args: { name: "Viagem", targetCents: 500000 } }]) },
-      { textos: ["Criei a meta."], final: resposta("metas", "Criei a meta.") },
+      { final: chamadas("coordenador", [{ id: "c1", nome: "consultar_metas", args: {} }]) },
+      { textos: ["Você tem uma meta."], final: resposta("coordenador", "Você tem uma meta.") },
     ]);
-    await servico(motor, executor).conversar(quem, { texto: "crie a meta viagem de 5 mil" }, emitir);
+    await servico(motor, executor).conversar(quem, { texto: "quais são minhas metas?" }, emitir);
     expect(executor.chamadas).toEqual([
-      { chamada: { id: "c1", nome: "criar_meta", args: { name: "Viagem", targetCents: 500000 } }, credencial: { token: "token-da-ana", fuso: "America/Sao_Paulo" } },
+      { chamada: { id: "c1", nome: "consultar_metas", args: {} }, credencial: { token: "token-da-ana", fuso: "America/Sao_Paulo" } },
     ]);
-    expect(motor.pedidos[1].agenteAtivo).toBe("metas");
     expect(motor.pedidos[1].mensagens.at(-1)).toMatchObject({ role: "tool", toolCallId: "c1", content: '{"ok":true}' });
     const acoes = eventos.filter((evento) => evento.tipo === "acao").map((evento) => evento.tipo === "acao" && evento.acao.estado);
     expect(acoes).toEqual(["executando", "feita"]);
-    expect(ultimaMensagem().partes.map((parte) => parte.tipo)).toEqual(["agente", "acao", "texto"]);
   });
 
-  it("pede confirmação antes de apagar e só apaga depois do Confirmar", async () => {
+  it("recusa escrita fora do plano, mesmo com a confirmação de exclusão desligada", async () => {
     const executor = new Executor();
     const motor = new Motor([
-      { agente: "metas", final: chamadas("metas", [excluirMeta]) },
-      { textos: ["Apaguei a meta Viagem."], final: resposta("metas", "Apaguei a meta Viagem.") },
+      {
+        final: chamadas("coordenador", [
+          excluirMeta,
+          { id: "c2", nome: "criar_meta", args: { name: "Viagem", targetCents: 1000 } },
+          { id: "c3", nome: "salvar_configuracoes", args: {} },
+        ]),
+      },
+      { final: resposta("coordenador", "Vou propor um plano.") },
+    ]);
+    await servico(motor, executor, ia({ confirmarExclusao: false })).conversar(quem, { texto: "apague e crie" }, emitir);
+    expect(executor.chamadas).toHaveLength(0);
+    const resultados = motor.pedidos[1].mensagens.filter((item) => item.role === "tool").map((item) => item.content);
+    expect(resultados[0]).toContain("só roda dentro de um plano aprovado");
+    expect(resultados[1]).toContain("só roda dentro de um plano aprovado");
+    expect(resultados[2]).toContain("Ferramenta desconhecida");
+  });
+
+  it("mostra o plano com os fatos calculados e só executa depois do Aprovar, na ordem, com os ids encadeados", async () => {
+    const executor = new Executor();
+    const motor = new Motor([
+      { final: chamadas("coordenador", [plano(salario)]) },
+      { final: resposta("coordenador", "Pronto: lancei o salário.") },
     ]);
     const assistente = servico(motor, executor);
-    await assistente.conversar(quem, { texto: "apague a meta viagem" }, emitir);
+    await assistente.conversar(quem, { texto: "ganho 3 mil todo dia 30" }, emitir);
     expect(executor.chamadas).toHaveLength(0);
+    const id = [...conversas.dados.keys()][0] as string;
+    const pendencia = conversas.dados.get(id)?.pendencia;
+    expect(pendencia?.aguardando.tipo).toBe("plano");
+
     const pergunta = eventos.find((evento) => evento.tipo === "pergunta");
-    expect(pergunta).toMatchObject({ pergunta: { id: "c-apagar", tipo: "confirmacao", texto: "Apagar a meta Viagem?" } });
-    const conversa = [...conversas.dados.values()][0];
-    expect(conversa.pendencia?.aguardando.chamada.nome).toBe("excluir_meta");
+    expect(pergunta).toMatchObject({ pergunta: { tipo: "plano", texto: "Organizar o salário" } });
+    const fatos = pergunta?.tipo === "pergunta" ? pergunta.pergunta.plano?.fatos : undefined;
+    // 30/10/2026 é sexta; 30/11 é segunda; 30/12 é quarta: nenhuma muda. A sobra de outubro sobe 3 mil.
+    expect(fatos?.passos[0]).toMatchObject({ passo: 3, valorCents: 300000, recorrente: true });
+    expect(fatos?.passos[0]?.datas.map((item) => item.data)).toEqual(["2026-10-30", "2026-11-30", "2026-12-30"]);
+    expect(fatos?.mes).toEqual({ ano: 2026, mes: 10, sobraAntesCents: 0, sobraDepoisCents: 300000 });
 
-    eventos = [];
-    await assistente.conversar(quem, { conversationId: conversa.resumo.id, resposta: { perguntaId: "c-apagar", escolha: "Confirmar" } }, emitir);
-    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["excluir_meta"]);
-    expect(conversas.dados.get(conversa.resumo.id)?.pendencia).toBeNull();
-    const mensagem = ultimaMensagem();
-    expect(conversas.dados.get(conversa.resumo.id)?.mensagens).toHaveLength(2);
-    const parte = mensagem.partes.find((item) => item.tipo === "pergunta");
-    expect(parte?.tipo === "pergunta" && parte.pergunta.resposta).toBe("Confirmar");
-    expect(mensagem.partes.some((item) => item.tipo === "acao" && item.acao.estado === "feita")).toBe(true);
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: APROVAR_PLANO } }, emitir);
+    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["criar_grupo", "criar_sessao", "criar_lancamento"]);
+    const [grupo, sessao, lancamento] = executor.chamadas.map((item) => item.chamada);
+    expect(sessao?.args.groupId).toBe(grupo?.idGerado);
+    expect(lancamento?.args.sessionId).toBe(sessao?.idGerado);
+    expect(executor.chamadas.every((item) => item.credencial.token === "token-da-ana")).toBe(true);
+    const relato = motor.pedidos[1].mensagens.find((item) => item.role === "tool" && item.toolCallId === "p1");
+    expect(relato?.content).toContain("todos os passos foram feitos");
+    expect(conversas.dados.get(id)?.pendencia).toBeNull();
   });
 
-  it("não apaga quando a pessoa cancela, e avisa o modelo para não insistir", async () => {
+  it("para no primeiro passo que falha e não faz os seguintes", async () => {
+    const executor = new Executor();
+    executor.executar = async (chamada, credencial) => {
+      executor.chamadas.push({ chamada, credencial });
+      return chamada.nome === "criar_sessao"
+        ? { ok: false, conteudo: "Erro 409: Esse grupo já tem uma sessão com esse nome.", detalhe: "Nome repetido." }
+        : { ok: true, conteudo: '{"ok":true}', detalhe: "" };
+    };
+    const motor = new Motor([{ final: chamadas("coordenador", [plano(salario)]) }, { final: resposta("coordenador", "Falhou.") }]);
+    const assistente = servico(motor, executor);
+    await assistente.conversar(quem, { texto: "salário" }, emitir);
+    const id = [...conversas.dados.keys()][0] as string;
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: APROVAR_PLANO } }, emitir);
+    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["criar_grupo", "criar_sessao"]);
+    const relato = motor.pedidos[1].mensagens.find((item) => item.role === "tool" && item.toolCallId === "p1")?.content ?? "";
+    expect(relato).toContain("o passo 2 falhou");
+    expect(relato).toContain("Passo 3 (criar_lancamento): não executado.");
+  });
+
+  it("cancelar não executa nada; escrever um ajuste devolve o pedido ao modelo para refazer o plano", async () => {
     const executor = new Executor();
     const motor = new Motor([
-      { agente: "metas", final: chamadas("metas", [excluirMeta]) },
-      { final: resposta("metas", "Tudo bem, não apaguei.") },
+      { final: chamadas("coordenador", [plano(salario)]) },
+      { final: chamadas("coordenador", [plano(salario, "p2")]) },
+      { final: resposta("coordenador", "Tudo bem, não faço.") },
     ]);
     const assistente = servico(motor, executor);
-    await assistente.conversar(quem, { texto: "apague a meta" }, emitir);
-    const id = [...conversas.dados.keys()][0];
-    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "c-apagar", escolha: "Cancelar" } }, emitir);
+    await assistente.conversar(quem, { texto: "salário" }, emitir);
+    const id = [...conversas.dados.keys()][0] as string;
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: "O salário cai no 5º dia útil" } }, emitir);
+    expect(motor.pedidos[1].mensagens.at(-1)?.content).toContain('pediu um ajuste no plano: "O salário cai no 5º dia útil"');
+    expect(conversas.dados.get(id)?.pendencia?.aguardando.chamada.id).toBe("p2");
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p2", escolha: CANCELAR_PLANO } }, emitir);
+    expect(motor.pedidos[2].mensagens.at(-1)?.content).toContain("não aprovou o plano");
     expect(executor.chamadas).toHaveLength(0);
-    expect(motor.pedidos[1].mensagens.at(-1)).toMatchObject({ role: "tool", content: expect.stringContaining("não confirmou") });
-    expect(ultimaMensagem().partes.some((item) => item.tipo === "acao" && item.acao.estado === "cancelada")).toBe(true);
   });
 
-  it("apaga direto quando o comportamento dispensa a confirmação", async () => {
+  it("recusa plano com passo de consulta, ferramenta inventada ou referência a um passo que vem depois", async () => {
     const executor = new Executor();
-    const motor = new Motor([{ final: chamadas("metas", [excluirMeta]) }, { final: resposta("metas", "Apaguei.") }]);
-    await servico(motor, executor, ia({ confirmarExclusao: false })).conversar(quem, { texto: "apague" }, emitir);
-    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["excluir_meta"]);
+    const motor = new Motor([
+      {
+        final: chamadas("coordenador", [
+          plano([{ ferramenta: "consultar_metas", descricao: "Ver as metas", args: {} }], "a"),
+          plano([{ ferramenta: "mandar_pix", descricao: "Pagar", args: {} }], "b"),
+          plano(
+            [
+              { ferramenta: "criar_sessao", descricao: "Sessão", args: { groupId: "@passo:2", name: "X", kind: "acumulo" } },
+              { ferramenta: "criar_grupo", descricao: "Grupo", args: { name: "G" } },
+            ],
+            "c",
+          ),
+        ]),
+      },
+      { final: resposta("coordenador", "Corrijo.") },
+    ]);
+    await servico(motor, executor).conversar(quem, { texto: "faça" }, emitir);
+    const resultados = motor.pedidos[1].mensagens.filter((item) => item.role === "tool").map((item) => item.content);
+    expect(resultados[0]).toContain("só consulta");
+    expect(resultados[1]).toContain("não existe");
+    expect(resultados[2]).toContain("aponta para um passo que ainda não aconteceu");
+    expect(eventos.some((evento) => evento.tipo === "pergunta")).toBe(false);
   });
 
-  it("separar valor para a meta pede confirmação sempre, mesmo com a confirmação de exclusão desligada", async () => {
-    const separar = {
-      id: "c-separar",
-      nome: "separar_valor_da_meta",
-      args: { id: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01", cents: 30_000, resumo: "R$ 300,00 para a meta Viagem" },
-    };
-    const executor = new Executor();
-    const motor = new Motor([{ final: chamadas("metas", [separar]) }, { final: resposta("metas", "Separei.") }]);
-    const assistente = servico(motor, executor, ia({ confirmarExclusao: false }));
-    await assistente.conversar(quem, { texto: "separe 300 para a viagem" }, emitir);
-    expect(executor.chamadas).toHaveLength(0);
-    const id = [...conversas.dados.keys()][0];
-    expect(conversas.dados.get(id)?.pendencia?.aguardando.chamada.nome).toBe("separar_valor_da_meta");
-    expect(eventos.some((item) => item.tipo === "fim" && JSON.stringify(item).includes("Separar R$ 300,00 para a meta Viagem?"))).toBe(true);
-    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "c-separar", escolha: "Confirmar" } }, emitir);
-    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["separar_valor_da_meta"]);
-  });
-
-  it("dividir a sobra e organizar a prioridade não pedem confirmação: só propõem", async () => {
-    const dividir = { id: "c-dividir", nome: "dividir_sobra_das_metas", args: { percents: [{ id: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01", percent: 60 }] } };
-    const executor = new Executor();
-    const motor = new Motor([{ final: chamadas("metas", [dividir]) }, { final: resposta("metas", "Propus.") }]);
-    await servico(motor, executor).conversar(quem, { texto: "divida a sobra" }, emitir);
-    expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["dividir_sobra_das_metas"]);
+  it("a lista marca a conversa que ainda está respondendo, mesmo sem a tela conectada", async () => {
+    const motor = new MotorParado([]);
+    const assistente = servico(motor, new Executor());
+    const turno = assistente.conversar(quem, { texto: "lance meu salário" }, emitir);
+    await new Promise((resolver) => setTimeout(resolver, 10));
+    const id = [...conversas.dados.keys()][0] as string;
+    const [durante] = await assistente.listar(quem.tenantId, quem.userId);
+    expect(durante).toMatchObject({ id, emAndamento: true });
+    await assistente.parar(quem.tenantId, quem.userId, id);
+    await turno;
+    const [depois] = await assistente.listar(quem.tenantId, quem.userId);
+    expect(depois?.emAndamento).toBe(false);
   });
 
   it("faz a pergunta com opções e devolve a escolha como resultado", async () => {
@@ -261,26 +353,6 @@ describe("orquestrador do assistente", () => {
     const antiga = conversa.mensagens[1].partes.find((item) => item.tipo === "pergunta");
     expect(antiga?.tipo === "pergunta" && antiga.pergunta.resposta).toBe("Sem resposta");
     expect(motor.pedidos[1].mensagens.some((item) => item.role === "tool")).toBe(false);
-  });
-
-  it("não executa ferramenta de outro especialista nem ferramenta fora do catálogo", async () => {
-    const executor = new Executor();
-    const motor = new Motor([
-      {
-        final: chamadas("metas", [
-          { id: "x1", nome: "criar_lancamento", args: {} },
-          { id: "x2", nome: "salvar_configuracoes", args: {} },
-          { id: "x3", nome: "alterar_senha", args: {} },
-        ]),
-      },
-      { final: resposta("metas", "Não posso.") },
-    ]);
-    await servico(motor, executor).conversar(quem, { texto: "mude minha senha" }, emitir);
-    expect(executor.chamadas).toHaveLength(0);
-    const resultados = motor.pedidos[1].mensagens.filter((item) => item.role === "tool").map((item) => item.content);
-    expect(resultados[0]).toContain("não é deste especialista");
-    expect(resultados[1]).toContain("Ferramenta desconhecida");
-    expect(resultados[2]).toContain("Ferramenta desconhecida");
   });
 
   it("para no limite de passos por mensagem", async () => {
@@ -318,18 +390,18 @@ describe("orquestrador do assistente", () => {
 
   it("leva o histórico anterior como texto, com as ações resumidas", async () => {
     const motor = new Motor([
-      { final: chamadas("metas", [{ id: "c1", nome: "criar_meta", args: { name: "Viagem", targetCents: 1000 } }]) },
-      { final: resposta("metas", "Criei.") },
-      { final: resposta("metas", "Você tem 1 meta.") },
+      { final: chamadas("coordenador", [plano([{ ferramenta: "criar_meta", descricao: "Criar a meta Viagem", args: { name: "Viagem", targetCents: 1000 } }])]) },
+      { final: resposta("coordenador", "Criei.") },
+      { final: resposta("coordenador", "Você tem 1 meta.") },
     ]);
     const assistente = servico(motor);
     await assistente.conversar(quem, { texto: "crie a meta" }, emitir);
-    const id = [...conversas.dados.keys()][0];
+    const id = [...conversas.dados.keys()][0] as string;
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: APROVAR_PLANO } }, emitir);
     await assistente.conversar(quem, { conversationId: id, texto: "quantas metas tenho?" }, emitir);
     const ultimo = motor.pedidos[2];
-    expect(ultimo.agenteAtivo).toBeNull();
     expect(ultimo.mensagens.map((item) => item.role)).toEqual(["user", "assistant", "user"]);
-    expect(ultimo.mensagens[1].content).toContain("(Ações feitas: Criou a meta “Viagem”.)");
+    expect(ultimo.mensagens[1].content).toContain("(Ações feitas: Criar a meta Viagem.)");
   });
 
   it("marca a conversa como em andamento, recusa um segundo turno e para quando mandam parar", async () => {

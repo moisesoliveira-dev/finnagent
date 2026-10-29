@@ -1,9 +1,7 @@
 import type {
-  FerramentaDoAssistente,
   MensagemDoChat,
   MensagemDoModelo,
   ParteDaMensagem,
-  PerguntaDoAssistente,
   RetencaoDoChat,
 } from "@finnagent/contracts";
 
@@ -56,32 +54,6 @@ export function resultadoParaOModelo(corpo: unknown) {
   const texto = typeof corpo === "string" ? corpo : JSON.stringify(corpo);
   if (texto.length <= LIMITE_DO_RESULTADO) return texto;
   return `${texto.slice(0, LIMITE_DO_RESULTADO)}\n(resultado cortado: peça um filtro mais estreito se precisar do resto)`;
-}
-
-/** A pergunta que o sistema faz antes de apagar, com o resumo que o próprio modelo escreveu. */
-export function perguntaDeConfirmacao(
-  ferramenta: FerramentaDoAssistente,
-  args: Record<string, unknown>,
-  id: string,
-): PerguntaDoAssistente {
-  const resumo = typeof args.resumo === "string" && args.resumo.trim() ? args.resumo.trim() : "este item";
-  const verbo = ferramenta.nome.startsWith("cancelar")
-    ? "Cancelar"
-    : ferramenta.nome === "confirmar_virada_do_ano"
-      ? "Fechar a virada do ano:"
-      : ferramenta.nome.startsWith("separar")
-        ? "Separar"
-        : "Apagar";
-  return {
-    id,
-    tipo: "confirmacao",
-    texto: `${verbo} ${resumo}?`,
-    opcoes: [
-      { rotulo: "Confirmar", descricao: "Faz agora. Não dá para desfazer pelo assistente." },
-      { rotulo: "Cancelar", descricao: "Não muda nada." },
-    ],
-    resposta: null,
-  };
 }
 
 const DIAS: Record<RetencaoDoChat, number | null> = { "30d": 30, "90d": 90, "1a": 365, sempre: null };

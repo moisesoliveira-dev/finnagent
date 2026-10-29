@@ -13,6 +13,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { curvaCheia, mola } from "../../components/ui/movimento";
+import { CartaoDePlano } from "./plano";
 import { TextoFormatado } from "./texto-formatado";
 
 const entrada = {
@@ -257,6 +258,16 @@ function Parte({
         <span aria-hidden className="h-px w-6 bg-line" />
         {nomeDo(parte.agente)} assumiu
       </motion.p>
+    );
+  }
+  if (parte.pergunta.tipo === "plano" && parte.pergunta.plano) {
+    return (
+      <CartaoDePlano
+        pergunta={parte.pergunta}
+        plano={parte.pergunta.plano}
+        ativa={perguntaAtiva}
+        onResponder={(escolha) => onResponder(parte.pergunta.id, escolha)}
+      />
     );
   }
   return (

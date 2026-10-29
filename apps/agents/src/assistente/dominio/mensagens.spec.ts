@@ -1,6 +1,6 @@
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
-import { conversaParaTriagem, escolhaDaTriagem, mensagensPara } from "./mensagens.js";
+import { mensagensPara } from "./mensagens.js";
 import { mensagemDaFalha } from "./erros.js";
 import { erroDaUrl } from "./url.js";
 
@@ -58,25 +58,6 @@ describe("mensagens para um agente", () => {
       { role: "tool", content: "[]", toolCallId: "x", nome: "consultar_metas", agente: "financas" },
     ]);
     expect(vistas.every((item) => !(item instanceof ToolMessage))).toBe(true);
-  });
-});
-
-describe("triagem", () => {
-  it("lê a escolha com acento, maiúscula e texto em volta", () => {
-    expect(escolhaDaTriagem("Organização")).toBe("organizacao");
-    expect(escolhaDaTriagem("  FINANCAS. ")).toBe("financas");
-    expect(escolhaDaTriagem("A escolha é: analise")).toBe("analise");
-    expect(escolhaDaTriagem("nenhum")).toBeNull();
-    expect(escolhaDaTriagem("não sei")).toBeNull();
-  });
-
-  it("monta a conversa em texto, com as últimas mensagens", () => {
-    const texto = conversaParaTriagem([
-      { role: "user", content: "oi" },
-      { role: "assistant", content: "Olá", agente: "coordenador" },
-      { role: "tool", content: "segredo do resultado", toolCallId: "t", nome: "x", agente: null },
-    ]);
-    expect(texto).toBe("Pessoa: oi\nCoordenador: Olá");
   });
 });
 
