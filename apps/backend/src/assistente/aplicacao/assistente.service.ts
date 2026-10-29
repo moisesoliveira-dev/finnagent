@@ -21,6 +21,7 @@ import {
   type PedidoDeMensagem,
   type PerguntaDoAssistente,
 } from "@finnagent/contracts";
+import { log } from "../../log.js";
 import { semOpcaoGenerica } from "../dominio/opcoes.js";
 import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import {
@@ -203,9 +204,11 @@ export class AssistenteService {
     emitir: Emitir,
     sinal: AbortSignal,
   ) {
+    const inicio = Date.now();
+    let passos = 0;
+    log.info({ conversa: turno.conversaId, tenant: quem.tenantId, retomada: resposta !== null }, "turno do assistente iniciado");
     try {
       if (resposta) await this.aplicarResposta(turno, resposta.aguardando, resposta.escolha, resposta.restantes, quem, contexto, comportamento);
-      let passos = 0;
       while (!turno.pendencia) {
         if (passos >= comportamento.maxPassos) {
           turno.novoPasso();
@@ -217,8 +220,14 @@ export class AssistenteService {
         if (terminou) break;
       }
     } catch (error) {
-      if (!sinal.aborted) {
+      if (sinal.aborted) {
+        log.warn({ conversa: turno.conversaId, ms: Date.now() - inicio, passos }, "turno do assistente interrompido");
+      } else {
         const mensagem = error instanceof Error ? error.message : "O assistente falhou.";
+        log.error(
+          { conversa: turno.conversaId, tenant: quem.tenantId, ms: Date.now() - inicio, passos, err: mensagem, causa: causaDe(error) },
+          "turno do assistente falhou",
+        );
         turno.novoPasso();
         turno.texto(`Não consegui terminar: ${mensagem}`);
         emitir({ tipo: "erro", message: mensagem });
@@ -227,6 +236,10 @@ export class AssistenteService {
       await this.conversas.gravarMensagem(quem.tenantId, turno.conversaId, turno.mensagem());
       await this.conversas.definirPendencia(quem.tenantId, turno.conversaId, turno.pendencia);
       emitir({ tipo: "fim", mensagem: turno.mensagem() });
+      log.info(
+        { conversa: turno.conversaId, ms: Date.now() - inicio, passos, aguardando: turno.pendencia?.aguardando.tipo ?? null },
+        "turno do assistente encerrado",
+      );
     }
   }
 
@@ -318,6 +331,7 @@ export class AssistenteService {
   ) {
     turno.novoPasso();
     const { leitor: _leitor, ...dosAgentes } = modelos;
+    const inicioDoPasso = Date.now();
     const final: EventoDoPasso = await this.motor.passo(
       {
         modelos: dosAgentes,
@@ -332,6 +346,16 @@ export class AssistenteService {
         if (evento.tipo === "agente") turno.trocarDeAgente(evento.agente);
       },
       sinal,
+    );
+    log.info(
+      {
+        conversa: turno.conversaId,
+        ms: Date.now() - inicioDoPasso,
+        resultado: final.tipo,
+        agente: "agente" in final ? final.agente : null,
+        ferramentas: final.tipo === "chamadas" ? final.chamadas.map((item) => item.nome) : undefined,
+      },
+      "passo do agents",
     );
     if (final.tipo === "erro") throw new AssistenteIndisponivel(final.message);
     if (final.tipo === "agente" || final.tipo === "texto") return false;
@@ -451,7 +475,11 @@ export class AssistenteService {
     const ferramenta = FERRAMENTAS_POR_NOME.get(chamada.nome);
     const rotulo = rotuloDa(ferramenta?.rotulo, chamada);
     turno.acao({ id: chamada.id, ferramenta: chamada.nome, rotulo, estado: "executando", detalhe: "" });
+    const inicio = Date.now();
     const resultado = await this.executor.executar(chamada, { token: quem.token, fuso: contexto.fuso });
+    const dados = { conversa: turno.conversaId, ferramenta: chamada.nome, ms: Date.now() - inicio };
+    if (resultado.ok) log.info(dados, "ferramenta executada");
+    else log.warn({ ...dados, detalhe: resultado.detalhe }, "ferramenta falhou");
     turno.acao({
       id: chamada.id,
       ferramenta: chamada.nome,
@@ -465,6 +493,13 @@ export class AssistenteService {
   private resultado(turno: Turno, chamada: ChamadaDeFerramenta, conteudo: string) {
     turno.transcricao.push({ role: "tool", toolCallId: chamada.id, nome: chamada.nome, content: conteudo, agente: turno.agenteAtivo });
   }
+}
+
+/** A causa de baixo de um erro de fetch (timeout, conexão recusada), que a mensagem sozinha esconde. */
+function causaDe(error: unknown) {
+  const causa = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  if (causa instanceof Error) return causa.message;
+  return typeof causa === "string" ? causa : undefined;
 }
 
 /** O rótulo vem do catálogo; se os argumentos vierem tortos, fica o nome da ferramenta. */

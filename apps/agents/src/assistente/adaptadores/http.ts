@@ -93,6 +93,14 @@ export function tratarPasso(assistente: Assistente) {
     const parar = new AbortController();
     let terminou = false;
     const inicio = Date.now();
+    log.info(
+      {
+        mensagens: pedido.mensagens.length,
+        agenteAtivo: pedido.agenteAtivo,
+        modelos: Object.fromEntries(Object.entries(pedido.modelos).map(([agente, modelo]) => [agente, `${modelo.kind}:${modelo.model}`])),
+      },
+      "passo recebido",
+    );
     res.on("close", () => {
       if (!terminou) {
         log.warn({ ms: Date.now() - inicio }, "conexão do passo fechada antes do fim: o passo foi interrompido");
@@ -108,10 +116,21 @@ export function tratarPasso(assistente: Assistente) {
     };
     try {
       const final = await assistente.passo(pedido, emitir, parar.signal);
+      log.info(
+        {
+          ms: Date.now() - inicio,
+          resultado: final.tipo,
+          ferramentas: final.tipo === "chamadas" ? final.chamadas.map((item) => item.nome) : undefined,
+        },
+        "passo concluído",
+      );
       emitir(final);
     } catch (error) {
       if (!parar.signal.aborted) {
-        log.warn({ err: mensagemDaFalha(error) }, "passo do assistente falhou");
+        log.error(
+          { ms: Date.now() - inicio, err: mensagemDaFalha(error), bruto: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) },
+          "passo do assistente falhou",
+        );
         emitir({ tipo: "erro", message: mensagemDaFalha(error) });
       }
     } finally {

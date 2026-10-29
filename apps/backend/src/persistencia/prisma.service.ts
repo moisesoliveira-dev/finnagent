@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { log } from "../log.js";
 import { alinharUrlsDoBanco, bancoConfigurado, carregarEnv } from "./carregar-env.js";
 
 carregarEnv();
@@ -45,7 +46,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         env: process.env,
       });
     } catch (error) {
-      console.error("Não foi possível aplicar as migrations.", error);
+      log.error({ err: error instanceof Error ? error.message : String(error) }, "não foi possível aplicar as migrations");
     }
     await this.$connect();
   }
