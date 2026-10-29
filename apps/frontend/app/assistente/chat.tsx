@@ -65,6 +65,8 @@ export function Chat() {
   const [apagando, setApagando] = useState<ConversaResumo | null>(null);
   const [longe, setLonge] = useState(false);
   const parar = useRef<AbortController | null>(null);
+  const conversaDoTurno = useRef<string | null>(null);
+  const pediuParar = useRef(false);
   const seguir = useRef(true);
   const fim = useRef<HTMLDivElement>(null);
   const listaNoCelular = useRef<HTMLDialogElement>(null);
@@ -122,6 +124,31 @@ export function Chat() {
     if (lista) setConversas(lista);
   }
 
+  /** O turno roda no servidor e sobrevive à conexão: parar é um pedido a ele, não fechar o fetch. */
+  function pararTurno() {
+    pediuParar.current = true;
+    pedirParada();
+  }
+
+  function pedirParada() {
+    const id = conversaDoTurno.current;
+    if (id) void fetch(`/api/assistente/conversas/${id}/parar`, { method: "POST" }).catch(() => parar.current?.abort());
+  }
+
+  /** Depois que a conexão cai, o servidor segue respondendo: espera ele terminar e mostra o resultado. */
+  async function acompanhar(id: string, controle: AbortController) {
+    for (let tentativa = 0; tentativa < 150 && !controle.signal.aborted; tentativa += 1) {
+      await new Promise((resolver) => setTimeout(resolver, 2500));
+      const conversa = await ler<ConversaCompleta>(`/api/assistente/conversas/${id}`).catch(() => null);
+      if (!conversa || conversa.emAndamento) continue;
+      const { mensagens: lista, ...resumo } = conversa;
+      setAtual(resumo);
+      setMensagens(lista);
+      return lista.at(-1)?.role === "assistant";
+    }
+    return false;
+  }
+
   async function conversar(corpo: { texto: string } | { resposta: { perguntaId: string; escolha: string } }) {
     if (trabalhando) return;
     setTrabalhando(true);
@@ -136,6 +163,8 @@ export function Chat() {
     }
     const controle = new AbortController();
     parar.current = controle;
+    conversaDoTurno.current = atual?.id ?? null;
+    pediuParar.current = false;
     try {
       const resposta = await fetch("/api/assistente/mensagens", {
         method: "POST",
@@ -150,31 +179,44 @@ export function Chat() {
       let assistenteId: string | null = null;
       let conversaId = atual?.id ?? null;
       let terminou = false;
-      for await (const evento of lerEventos(resposta)) {
-        if (evento.tipo === "conversa") {
-          conversaId = evento.conversa.id;
-          setAtual(evento.conversa);
-          setConversas((lista) => [evento.conversa, ...lista.filter((item) => item.id !== evento.conversa.id)]);
-          marcarNaUrl(evento.conversa.id);
-          continue;
+      try {
+        for await (const evento of lerEventos(resposta)) {
+          if (evento.tipo === "conversa") {
+            conversaId = evento.conversa.id;
+            conversaDoTurno.current = conversaId;
+            if (pediuParar.current) pedirParada();
+            setAtual(evento.conversa);
+            setConversas((lista) => [evento.conversa, ...lista.filter((item) => item.id !== evento.conversa.id)]);
+            marcarNaUrl(evento.conversa.id);
+            continue;
+          }
+          if (evento.tipo === "erro") {
+            toast.erro(evento.message);
+            continue;
+          }
+          if (evento.tipo === "agente") setAgente(evento.agente);
+          const id: string | null = assistenteId;
+          setMensagens((lista) => aplicarEvento(lista, id, evento).mensagens);
+          if (evento.tipo === "inicio") assistenteId = evento.assistenteId;
+          if (evento.tipo === "fim") {
+            assistenteId = null;
+            terminou = true;
+          }
         }
-        if (evento.tipo === "erro") {
-          toast.erro(evento.message);
-          continue;
-        }
-        if (evento.tipo === "agente") setAgente(evento.agente);
-        const id: string | null = assistenteId;
-        setMensagens((lista) => aplicarEvento(lista, id, evento).mensagens);
-        if (evento.tipo === "inicio") assistenteId = evento.assistenteId;
-        if (evento.tipo === "fim") {
-          assistenteId = null;
-          terminou = true;
-        }
+      } catch (error) {
+        // Conexão perdida no meio: o servidor não parou, então cai na retomada abaixo.
+        if (controle.signal.aborted) throw error;
       }
-      // A conexão pode cair no meio (proxy, rede, reinício do serviço): sem o `fim`, a tela mostraria um turno pela metade.
+      if (terminou && pediuParar.current) toast.alerta("Parei. O que já foi feito continua feito.");
+      // Sem o `fim`, a conexão caiu (proxy, rede, servidor lento), mas o turno segue no servidor.
       if (!terminou && !controle.signal.aborted) {
-        toast.erro("A conexão caiu antes do fim da resposta. Mostrei o que ficou salvo; envie de novo se faltar algo.");
-        if (conversaId) await abrir(conversaId, true);
+        if (!conversaId) {
+          toast.erro("A conexão caiu antes de a conversa começar. Envie de novo.");
+        } else {
+          toast.alerta("A conexão caiu, mas o assistente continua. Vou mostrar a resposta quando ele terminar.");
+          const concluiu = await acompanhar(conversaId, controle);
+          if (!concluiu && !controle.signal.aborted) toast.erro("O servidor não terminou essa resposta. Envie de novo.");
+        }
       }
     } catch (error) {
       if (controle.signal.aborted) {
@@ -188,6 +230,7 @@ export function Chat() {
       }
     } finally {
       parar.current = null;
+      conversaDoTurno.current = null;
       setTrabalhando(false);
       setAgente(null);
       await recarregarLista();
@@ -350,7 +393,7 @@ export function Chat() {
               aviso=""
               onMudar={setRascunho}
               onEnviar={() => void conversar({ texto: rascunho.trim() })}
-              onParar={() => parar.current?.abort()}
+              onParar={pararTurno}
             />
           </div>
         </div>

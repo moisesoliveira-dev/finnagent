@@ -16,6 +16,8 @@ import { testarProvedor } from "./catalogo-de-modelos.js";
 import type { criarGrafoDoAssistente } from "./grafo-do-assistente.js";
 
 const LIMITE_DO_CORPO = 2_000_000;
+/** Linha em branco de tempos em tempos: o leitor do NDJSON ignora, e a conexão não parece ociosa. */
+const INTERVALO_DO_SINAL_DE_VIDA = 10_000;
 
 const modeloResolvido = z.object({
   kind: z.enum(PROVEDORES_IA),
@@ -90,10 +92,17 @@ export function tratarPasso(assistente: Assistente) {
 
     const parar = new AbortController();
     let terminou = false;
+    const inicio = Date.now();
     res.on("close", () => {
-      if (!terminou) parar.abort();
+      if (!terminou) {
+        log.warn({ ms: Date.now() - inicio }, "conexão do passo fechada antes do fim: o passo foi interrompido");
+        parar.abort();
+      }
     });
     res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" });
+    const sinalDeVida = setInterval(() => {
+      if (!res.writableEnded) res.write("\n");
+    }, INTERVALO_DO_SINAL_DE_VIDA);
     const emitir = (evento: EventoDoPasso) => {
       if (!res.writableEnded) res.write(`${JSON.stringify(evento)}\n`);
     };
@@ -107,6 +116,7 @@ export function tratarPasso(assistente: Assistente) {
       }
     } finally {
       terminou = true;
+      clearInterval(sinalDeVida);
       res.end();
     }
   };

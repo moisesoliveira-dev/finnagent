@@ -2166,7 +2166,8 @@ export type MensagemDoChat = {
 
 export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean };
 
-export type ConversaCompleta = ConversaResumo & { mensagens: MensagemDoChat[] };
+/** `emAndamento`: o servidor ainda está respondendo, mesmo que a tela tenha perdido a conexão. */
+export type ConversaCompleta = ConversaResumo & { emAndamento: boolean; mensagens: MensagemDoChat[] };
 
 export type PedidoDeMensagem = {
   conversationId: string | null;
