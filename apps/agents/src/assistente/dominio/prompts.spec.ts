@@ -43,6 +43,20 @@ describe("valor sempre numa sessão", () => {
     expect(promptDaTriagem(contexto)).toContain("Pedido para começar ou organizar o financeiro");
   });
 
+  it("quem mexe com dinheiro pensa como consultor e conhece as convenções; agenda e extratos não carregam isso", () => {
+    for (const agente of ["financas", "organizacao", "metas", "analise"] as const) {
+      const prompt = promptDoEspecialista(agente, contexto, "");
+      expect(prompt).toContain("Pense como um consultor financeiro, não como quem só executa");
+      expect(prompt).toContain("Meça o efeito: consulte consultar_mes_financeiro");
+      expect(prompt).toContain("Pagamento nunca cai em fim de semana ou feriado");
+      expect(prompt).toContain("Dinheiro guardado (reserva, investimento, poupança para um objetivo): não é gasto");
+    }
+    for (const agente of ["agenda", "extratos"] as const) {
+      expect(promptDoEspecialista(agente, contexto, "")).not.toContain("Pense como um consultor financeiro");
+    }
+    expect(promptDoEspecialista("financas", contexto, "")).toContain("a suposição que você fez e o efeito no mês");
+  });
+
   it("a triagem manda valor para finanças mesmo quando a pessoa fala em compromisso", () => {
     expect(promptDaTriagem(contexto)).toContain("é de financas, mesmo que a pessoa chame de compromisso ou lembrete");
   });
