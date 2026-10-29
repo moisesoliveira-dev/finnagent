@@ -409,7 +409,7 @@ export class AssistenteService {
         this.resultado(turno, chamada, "Essa ferramenta não é deste especialista. Use encaminhar.");
         continue;
       }
-      if (ferramenta.destrutiva && comportamento.confirmarExclusao) {
+      if (ferramenta.exigeConfirmacao || (ferramenta.destrutiva && comportamento.confirmarExclusao)) {
         const args = ferramenta.esquema.safeParse(chamada.args);
         if (!args.success) {
           await this.executar(turno, chamada, quem, contexto);
