@@ -215,7 +215,7 @@ export default function Conferencia() {
     }
     setOcupado(chave);
     try {
-      await api("/api/extratos/cruzamentos", {
+      const resposta = await api<ConferenciaResposta>("/api/extratos/cruzamentos", {
         method: "POST",
         body: JSON.stringify({
           statementId: linha.statementId,
@@ -227,7 +227,7 @@ export default function Conferencia() {
       toast.sucesso("Cruzamento confirmado. A ocorrência do mês ficou paga.");
       setPar({});
       setValorMes({});
-      await carregar(year, month);
+      setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
     } finally {
@@ -238,12 +238,12 @@ export default function Conferencia() {
   async function desfazer(linha: LinhaConferencia) {
     setOcupado(chaveDa(linha));
     try {
-      await api("/api/extratos/cruzamentos/desfazer", {
+      const resposta = await api<ConferenciaResposta>("/api/extratos/cruzamentos/desfazer", {
         method: "POST",
         body: JSON.stringify({ statementId: linha.statementId, line: linha.line }),
       });
       toast.sucesso("Cruzamento desfeito. A ocorrência voltou a pendente.");
-      await carregar(year, month);
+      setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível desfazer o cruzamento.");
     } finally {
@@ -260,13 +260,13 @@ export default function Conferencia() {
     }
     setOcupado(chave);
     try {
-      await api("/api/extratos/acumular", {
+      const resposta = await api<ConferenciaResposta>("/api/extratos/acumular", {
         method: "POST",
         body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId }),
       });
       toast.sucesso("Linha lançada na sessão. O nome fica lembrado para a próxima importação.");
       setPar({});
-      await carregar(year, month);
+      setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível acumular a linha.");
     } finally {

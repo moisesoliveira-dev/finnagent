@@ -54,6 +54,15 @@ export class FinancasService {
     return this.financas.listar(tenantId, incluirEncerradas);
   }
 
+  async listarNoMes(tenantId: string, year: number, month: number) {
+    await this.financas.garantirWorkflow(tenantId);
+    return this.financas.listarNoMes(tenantId, year, month);
+  }
+
+  async obterAberto(tenantId: string, id: string) {
+    return this.financas.obterAberto(tenantId, id);
+  }
+
   async hoje(tenantId: string) {
     const preferencias = await this.configuracoes.obter(tenantId);
     return diaNoFuso(preferencias.timezone);

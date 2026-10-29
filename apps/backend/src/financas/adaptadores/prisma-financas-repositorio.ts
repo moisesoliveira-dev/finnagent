@@ -93,35 +93,63 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
 
   async listar(tenantId: string, incluirEncerradas = false) {
     const db = this.banco();
-    const workflow = await db.workflow.findUnique({ where: { tenantId } });
-    const rows = await db.entry.findMany({
-      where: {
-        tenantId,
-        ...(incluirEncerradas ? {} : { session: { endedAt: null } }),
-      },
-      orderBy: { position: "asc" },
-      include: {
-        amounts: {
-          where: { tenantId },
-          orderBy: [{ year: "asc" }, { month: "asc" }],
+    const [workflow, rows] = await Promise.all([
+      db.workflow.findUnique({ where: { tenantId } }),
+      db.entry.findMany({
+        where: {
+          tenantId,
+          ...(incluirEncerradas ? {} : { session: { endedAt: null } }),
         },
-        adjustments: { where: { tenantId } },
-        occurrences: { where: { tenantId }, orderBy: { number: "asc" } },
-        session: { include: { group: true } },
-        statementLines: { where: { tenantId }, select: { line: true }, take: 1 },
-      },
-    });
+        orderBy: { position: "asc" },
+        include: inclusaoDoLancamento(tenantId),
+      }),
+    ]);
     return {
       workflow: workflow
         ? { year: workflow.year, month: workflow.month, day: workflow.day }
         : WORKFLOW_INICIAL,
-      entries: rows.map(lancamentoDe),
+      entries: rows.map((row) => lancamentoDe(row)),
+    };
+  }
+
+  async listarNoMes(tenantId: string, year: number, month: number) {
+    const db = this.banco();
+    const inicio = new Date(Date.UTC(year, month - 1, 1));
+    const fim = new Date(Date.UTC(year, month, 1));
+    const rows = await db.entry.findMany({
+      where: { tenantId },
+      orderBy: { position: "asc" },
+      include: inclusaoDoLancamento(tenantId, { year, month, inicio, fim }),
+    });
+    const semOcorrenciaNoMes = rows.filter((row) => row.occurrences.length === 0).map((row) => row.id);
+    const comGradeForaDoMes = semOcorrenciaNoMes.length
+      ? new Set(
+          (
+            await db.entryOccurrence.findMany({
+              where: { tenantId, entryId: { in: semOcorrenciaNoMes } },
+              select: { entryId: true },
+              distinct: ["entryId"],
+            })
+          ).map((item) => item.entryId),
+        )
+      : new Set<string>();
+    const paraLancamento = (row: (typeof rows)[number]) =>
+      lancamentoDe(row, { semGrade: comGradeForaDoMes.has(row.id) });
+    return {
+      abertas: rows.filter((row) => row.session.endedAt == null).map(paraLancamento),
+      todas: rows.map(paraLancamento),
     };
   }
 
   async obter(tenantId: string, id: string) {
     const row = await this.buscar(this.banco(), tenantId, id);
     return row ? lancamentoDe(row) : null;
+  }
+
+  async obterAberto(tenantId: string, id: string) {
+    const row = await this.buscar(this.banco(), tenantId, id);
+    if (!row || row.session.endedAt) return null;
+    return lancamentoDe(row);
   }
 
   async criar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
@@ -915,7 +943,23 @@ function dataIso(data: Date) {
   return data.toISOString().slice(0, 10);
 }
 
-function lancamentoDe(row: Linha): Lancamento {
+function inclusaoDoLancamento(tenantId: string, mes?: { year: number; month: number; inicio: Date; fim: Date }) {
+  return {
+    amounts: {
+      where: { tenantId, ...(mes ? { year: mes.year, month: mes.month } : {}) },
+      orderBy: [{ year: "asc" as const }, { month: "asc" as const }],
+    },
+    adjustments: { where: { tenantId, ...(mes ? { year: mes.year, month: mes.month } : {}) } },
+    occurrences: {
+      where: { tenantId, ...(mes ? { dueOn: { gte: mes.inicio, lt: mes.fim } } : {}) },
+      orderBy: { number: "asc" as const },
+    },
+    session: { include: { group: true } },
+    statementLines: { where: { tenantId }, select: { line: true }, take: 1 },
+  };
+}
+
+function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
   return {
     id: row.id,
     groupId: row.session.groupId,
@@ -955,7 +999,9 @@ function lancamentoDe(row: Linha): Lancamento {
     })),
     occurrences: (row.occurrences ?? []).length
       ? (row.occurrences ?? []).map(ocorrenciaDe)
-      : gradeDoLancamento(contratoDaLinha(row)),
+      : opcoes?.semGrade
+        ? []
+        : gradeDoLancamento(contratoDaLinha(row)),
   };
 }
 
