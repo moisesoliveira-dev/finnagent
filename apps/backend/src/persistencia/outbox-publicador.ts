@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
+import { log } from "../log.js";
 import { PrismaService } from "./prisma.service.js";
 
 const fila = "outbox";
@@ -103,7 +104,7 @@ export class OutboxPublicador implements OnModuleInit, OnModuleDestroy {
 }
 
 function registrarFalha(error: unknown) {
-  console.error("O publicador do outbox não publicou.", error);
+  log.error({ err: error instanceof Error ? error.message : String(error) }, "o publicador do outbox não publicou");
 }
 
 function temCodigo(error: unknown, codigo: string) {

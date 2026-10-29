@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { EventoDoPasso, PedidoDePasso, PedidoDeTesteDoProvedor, ResultadoDoTeste } from "@finnagent/contracts";
+import { log } from "../../log.js";
 import { AssistenteIndisponivel } from "../dominio/erros.js";
 import type { MotorDeIa } from "../portas/motor-de-ia.js";
 
@@ -10,6 +11,7 @@ export class MotorHttp implements MotorDeIa {
     const resposta = await this.chamar("/assistente/passo", pedido, sinal);
     if (!resposta.ok || !resposta.body) {
       const corpo = (await resposta.json().catch(() => null)) as { message?: string } | null;
+      log.error({ status: resposta.status, resposta: corpo?.message }, "o agents recusou o passo");
       throw new AssistenteIndisponivel(corpo?.message);
     }
     let final: EventoDoPasso | null = null;
@@ -29,6 +31,7 @@ export class MotorHttp implements MotorDeIa {
       }
     }
     if (resto.trim()) final = JSON.parse(resto) as EventoDoPasso;
+    if (!final) log.error("o agents fechou a resposta sem o evento final");
     return final ?? { tipo: "erro", message: "O assistente parou no meio da resposta." };
   }
 
@@ -51,6 +54,10 @@ export class MotorHttp implements MotorDeIa {
       });
     } catch (error) {
       if (sinal.aborted) throw error;
+      log.error(
+        { caminho, err: error instanceof Error ? error.message : String(error), causa: (error as { cause?: { message?: string } }).cause?.message },
+        "não foi possível falar com o agents",
+      );
       throw new AssistenteIndisponivel();
     }
   }

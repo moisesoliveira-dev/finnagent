@@ -1,4 +1,5 @@
 import { loginDispensado } from "@finnagent/contracts";
+import { registrar, textoDoErro } from "./registro";
 import { lerToken, limparCookies } from "./sessao";
 
 // Cold start do Railway serverless leva alguns segundos: leitura espera mais e tenta de novo uma vez.
@@ -46,6 +47,7 @@ export async function callBackend(path: string, init?: RequestInit) {
       response = await pedido();
     }
     if (response.status === 401) return semSessao();
+    if (response.status >= 500) registrar("error", "o backend devolveu erro", { rota: path, status: response.status });
     if (response.status === 204) return new Response(null, { status: 204 });
     const body = await response.text();
     return new Response(body, {
@@ -57,6 +59,7 @@ export async function callBackend(path: string, init?: RequestInit) {
     });
   } catch (error) {
     const demorou = error instanceof Error && error.name === "TimeoutError";
+    registrar("error", demorou ? "o backend demorou demais" : "o backend não respondeu", { rota: path, err: textoDoErro(error) });
     return Response.json(
       { message: demorou ? "O servidor demorou para responder. Tente de novo." : "O backend não respondeu." },
       { status: demorou ? 504 : 503 },
@@ -88,6 +91,7 @@ export async function streamBackend(path: string, request: Request) {
     });
     if (response.status === 401) return semSessao();
     if (!response.ok || !response.body) {
+      registrar("error", "o backend recusou o stream", { rota: path, status: response.status });
       return new Response(await response.text(), {
         status: response.status,
         headers: { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store" },
@@ -101,7 +105,9 @@ export async function streamBackend(path: string, request: Request) {
         "x-accel-buffering": "no",
       },
     });
-  } catch {
+  } catch (error) {
+    // Cancelar na tela também cai aqui: não é falha do servidor.
+    if (!request.signal.aborted) registrar("error", "o backend não respondeu ao stream", { rota: path, err: textoDoErro(error) });
     return Response.json({ message: "O backend não respondeu." }, { status: 503 });
   }
 }

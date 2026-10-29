@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { FERRAMENTAS_POR_NOME, type ChamadaDeFerramenta } from "@finnagent/contracts";
+import { log } from "../../log.js";
 import { resultadoParaOModelo } from "../dominio/conversa.js";
 import type { Credencial, ExecutorDeFerramentas, ResultadoDaExecucao } from "../portas/executor-de-ferramentas.js";
 import { ROTAS_DAS_FERRAMENTAS, montarUrl } from "./rotas-das-ferramentas.js";
@@ -42,7 +43,11 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
         body: corpo === undefined ? undefined : JSON.stringify(corpo),
         signal: AbortSignal.timeout(PRAZO),
       });
-    } catch {
+    } catch (error) {
+      log.error(
+        { ferramenta: chamada.nome, err: error instanceof Error ? error.message : String(error) },
+        "a ferramenta não obteve resposta da própria API",
+      );
       return falha("O sistema não respondeu a tempo.", "O sistema não respondeu a tempo.");
     }
 
