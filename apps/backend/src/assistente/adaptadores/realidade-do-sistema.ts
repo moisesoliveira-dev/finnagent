@@ -28,15 +28,34 @@ export class RealidadeDoSistema implements RealidadeDaConta {
   }
 
   async linhaDoExtrato(tenantId: string, statementId: string, line: number) {
-    const row = await this.prisma.statementLine.findFirst({
-      where: { tenantId, statementId, line, error: "", cents: { not: null } },
-    });
-    if (!row?.postedOn || row.cents === null) return null;
-    return {
-      date: row.postedOn.toISOString().slice(0, 10),
-      cents: row.cents,
-      description: row.description,
-      entryId: row.entryId,
-    };
+    const linhas = await this.linhasDoExtrato(tenantId, [{ statementId, line }]);
+    return linhas.get(chaveDaLinha(statementId, line)) ?? null;
   }
+
+  async linhasDoExtrato(tenantId: string, chaves: { statementId: string; line: number }[]) {
+    const mapa = new Map<string, { date: string; cents: number; description: string; entryId: string | null }>();
+    if (!chaves.length) return mapa;
+    const rows = await this.prisma.statementLine.findMany({
+      where: {
+        tenantId,
+        error: "",
+        cents: { not: null },
+        OR: chaves.map((chave) => ({ statementId: chave.statementId, line: chave.line })),
+      },
+    });
+    for (const row of rows) {
+      if (!row.postedOn || row.cents === null) continue;
+      mapa.set(chaveDaLinha(row.statementId, row.line), {
+        date: row.postedOn.toISOString().slice(0, 10),
+        cents: row.cents,
+        description: row.description,
+        entryId: row.entryId,
+      });
+    }
+    return mapa;
+  }
+}
+
+function chaveDaLinha(statementId: string, line: number) {
+  return `${statementId}:${line}`;
 }
