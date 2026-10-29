@@ -6,6 +6,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -25,8 +26,13 @@ import { AssistenteIndisponivel, SemModelo } from "./dominio/erros.js";
 const tenantId = z.uuid();
 const idDaConversa = z.uuid();
 
+/** Linha em branco de tempos em tempos: o leitor do NDJSON ignora, e a conexão não parece ociosa. */
+const INTERVALO_DO_SINAL_DE_VIDA = 10_000;
+
 @Controller("assistente")
 export class AssistenteController {
+  private readonly log = new Logger(AssistenteController.name);
+
   constructor(private readonly assistente: AssistenteService) {}
 
   @Get("conversas")
@@ -37,6 +43,12 @@ export class AssistenteController {
   @Get("conversas/:id")
   obter(@Headers("x-tenant-id") tenant: string | undefined, @Req() pedido: PedidoAutenticado, @Param("id") id: string) {
     return this.executar(() => this.assistente.obter(this.tenant(tenant), this.usuario(pedido), this.conversa(id)));
+  }
+
+  @Post("conversas/:id/parar")
+  @HttpCode(204)
+  async parar(@Headers("x-tenant-id") tenant: string | undefined, @Req() pedido: PedidoAutenticado, @Param("id") id: string) {
+    await this.executar(() => this.assistente.parar(this.tenant(tenant), this.usuario(pedido), this.conversa(id)));
   }
 
   @Patch("conversas/:id")
@@ -73,9 +85,15 @@ export class AssistenteController {
     @Res() resposta: Response,
     @Body() body: unknown,
   ) {
-    const parar = new AbortController();
+    const inicio = Date.now();
+    const sinalDeVida = setInterval(() => {
+      if (resposta.headersSent && !resposta.writableEnded && !resposta.destroyed) resposta.write("\n");
+    }, INTERVALO_DO_SINAL_DE_VIDA);
     resposta.on("close", () => {
-      if (!resposta.writableFinished) parar.abort();
+      clearInterval(sinalDeVida);
+      if (!resposta.writableFinished) {
+        this.log.warn(`conexão do chat fechada antes do fim, após ${Date.now() - inicio} ms: o turno segue no servidor`);
+      }
     });
     const emitir = (evento: EventoDoChat) => {
       if (!resposta.headersSent) {
@@ -85,7 +103,7 @@ export class AssistenteController {
           "x-accel-buffering": "no",
         });
       }
-      if (!resposta.writableEnded) resposta.write(`${JSON.stringify(evento)}\n`);
+      if (!resposta.writableEnded && !resposta.destroyed) resposta.write(`${JSON.stringify(evento)}\n`);
     };
     const token = autorizacao?.startsWith("Bearer ") ? autorizacao.slice(7).trim() : "";
     try {
@@ -94,7 +112,6 @@ export class AssistenteController {
           { tenantId: this.tenant(tenant), userId: this.usuario(pedido), token },
           body,
           emitir,
-          parar.signal,
         ),
       );
       resposta.end();

@@ -8,7 +8,7 @@ import {
   type MensagemDoChat,
   type PedidoDePasso,
 } from "@finnagent/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NaoEncontrado, PedidoInvalido } from "../../grupos/dominio/erros.js";
 import { SemModelo } from "../dominio/erros.js";
 import type { ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
@@ -75,6 +75,14 @@ class Motor implements MotorDeIa {
   }
 }
 
+/** Motor que espera até mandarem parar, como um modelo lento. */
+class MotorParado extends Motor {
+  async passo(pedido: PedidoDePasso, aoEvento: (evento: EventoDoPasso) => void, sinal?: AbortSignal) {
+    await new Promise<void>((resolve) => sinal?.addEventListener("abort", () => resolve()));
+    return super.passo(pedido, aoEvento);
+  }
+}
+
 class Executor implements ExecutorDeFerramentas {
   chamadas: Array<{ chamada: ChamadaDeFerramenta; credencial: Credencial }> = [];
   constructor(private readonly resposta: ResultadoDaExecucao = { ok: true, conteudo: '{"ok":true}', detalhe: "" }) {}
@@ -100,7 +108,6 @@ function ia(comportamento: Partial<ComportamentoDoAssistente> = {}, semModelo = 
 }
 
 const quem = { tenantId: "t1", userId: "u1", token: "token-da-ana" };
-const nunca = new AbortController().signal;
 
 const chamadas = (agente: string, lista: ChamadaDeFerramenta[], texto = ""): EventoDoPasso =>
   ({ tipo: "chamadas", agente, texto, chamadas: lista, notas: [] }) as EventoDoPasso;
@@ -129,7 +136,7 @@ describe("orquestrador do assistente", () => {
 
   it("responde em streaming e guarda a conversa, a mensagem da pessoa e a do assistente", async () => {
     const motor = new Motor([{ agente: "coordenador", textos: ["Oi, ", "Ana!"], final: resposta("coordenador", "Oi, Ana!") }]);
-    await servico(motor).conversar(quem, { texto: "oi" }, emitir, nunca);
+    await servico(motor).conversar(quem, { texto: "oi" }, emitir);
     expect(eventos.map((evento) => evento.tipo)).toEqual(["conversa", "inicio", "agente", "texto", "texto", "fim"]);
     const conversa = [...conversas.dados.values()][0];
     expect(conversa.resumo.title).toBe("oi");
@@ -145,7 +152,7 @@ describe("orquestrador do assistente", () => {
       { agente: "metas", final: chamadas("metas", [{ id: "c1", nome: "criar_meta", args: { name: "Viagem", targetCents: 500000 } }]) },
       { textos: ["Criei a meta."], final: resposta("metas", "Criei a meta.") },
     ]);
-    await servico(motor, executor).conversar(quem, { texto: "crie a meta viagem de 5 mil" }, emitir, nunca);
+    await servico(motor, executor).conversar(quem, { texto: "crie a meta viagem de 5 mil" }, emitir);
     expect(executor.chamadas).toEqual([
       { chamada: { id: "c1", nome: "criar_meta", args: { name: "Viagem", targetCents: 500000 } }, credencial: { token: "token-da-ana", fuso: "America/Sao_Paulo" } },
     ]);
@@ -163,7 +170,7 @@ describe("orquestrador do assistente", () => {
       { textos: ["Apaguei a meta Viagem."], final: resposta("metas", "Apaguei a meta Viagem.") },
     ]);
     const assistente = servico(motor, executor);
-    await assistente.conversar(quem, { texto: "apague a meta viagem" }, emitir, nunca);
+    await assistente.conversar(quem, { texto: "apague a meta viagem" }, emitir);
     expect(executor.chamadas).toHaveLength(0);
     const pergunta = eventos.find((evento) => evento.tipo === "pergunta");
     expect(pergunta).toMatchObject({ pergunta: { id: "c-apagar", tipo: "confirmacao", texto: "Apagar a meta Viagem?" } });
@@ -171,7 +178,7 @@ describe("orquestrador do assistente", () => {
     expect(conversa.pendencia?.aguardando.chamada.nome).toBe("excluir_meta");
 
     eventos = [];
-    await assistente.conversar(quem, { conversationId: conversa.resumo.id, resposta: { perguntaId: "c-apagar", escolha: "Confirmar" } }, emitir, nunca);
+    await assistente.conversar(quem, { conversationId: conversa.resumo.id, resposta: { perguntaId: "c-apagar", escolha: "Confirmar" } }, emitir);
     expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["excluir_meta"]);
     expect(conversas.dados.get(conversa.resumo.id)?.pendencia).toBeNull();
     const mensagem = ultimaMensagem();
@@ -188,9 +195,9 @@ describe("orquestrador do assistente", () => {
       { final: resposta("metas", "Tudo bem, não apaguei.") },
     ]);
     const assistente = servico(motor, executor);
-    await assistente.conversar(quem, { texto: "apague a meta" }, emitir, nunca);
+    await assistente.conversar(quem, { texto: "apague a meta" }, emitir);
     const id = [...conversas.dados.keys()][0];
-    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "c-apagar", escolha: "Cancelar" } }, emitir, nunca);
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "c-apagar", escolha: "Cancelar" } }, emitir);
     expect(executor.chamadas).toHaveLength(0);
     expect(motor.pedidos[1].mensagens.at(-1)).toMatchObject({ role: "tool", content: expect.stringContaining("não confirmou") });
     expect(ultimaMensagem().partes.some((item) => item.tipo === "acao" && item.acao.estado === "cancelada")).toBe(true);
@@ -199,7 +206,7 @@ describe("orquestrador do assistente", () => {
   it("apaga direto quando o comportamento dispensa a confirmação", async () => {
     const executor = new Executor();
     const motor = new Motor([{ final: chamadas("metas", [excluirMeta]) }, { final: resposta("metas", "Apaguei.") }]);
-    await servico(motor, executor, ia({ confirmarExclusao: false })).conversar(quem, { texto: "apague" }, emitir, nunca);
+    await servico(motor, executor, ia({ confirmarExclusao: false })).conversar(quem, { texto: "apague" }, emitir);
     expect(executor.chamadas.map((item) => item.chamada.nome)).toEqual(["excluir_meta"]);
   });
 
@@ -207,12 +214,12 @@ describe("orquestrador do assistente", () => {
     const perguntar = { id: "p1", nome: "perguntar", args: { pergunta: "Em qual sessão?", opcoes: [{ rotulo: "Casa" }, { rotulo: "Lazer" }] } };
     const motor = new Motor([{ final: chamadas("financas", [perguntar]) }, { final: resposta("financas", "Lancei em Lazer.") }]);
     const assistente = servico(motor);
-    await assistente.conversar(quem, { texto: "lance 50 de cinema" }, emitir, nunca);
+    await assistente.conversar(quem, { texto: "lance 50 de cinema" }, emitir);
     expect(eventos.find((evento) => evento.tipo === "pergunta")).toMatchObject({
       pergunta: { tipo: "pergunta", texto: "Em qual sessão?", opcoes: [{ rotulo: "Casa" }, { rotulo: "Lazer" }] },
     });
     const id = [...conversas.dados.keys()][0];
-    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: "Lazer" } }, emitir, nunca);
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: "Lazer" } }, emitir);
     expect(motor.pedidos[1].mensagens.at(-1)).toMatchObject({ role: "tool", toolCallId: "p1", content: "A pessoa respondeu: Lazer" });
   });
 
@@ -220,9 +227,9 @@ describe("orquestrador do assistente", () => {
     const perguntar = { id: "p1", nome: "perguntar", args: { pergunta: "Qual?", opcoes: [{ rotulo: "A" }, { rotulo: "B" }] } };
     const motor = new Motor([{ final: chamadas("financas", [perguntar]) }, { final: resposta("coordenador", "Certo.") }]);
     const assistente = servico(motor);
-    await assistente.conversar(quem, { texto: "lance algo" }, emitir, nunca);
+    await assistente.conversar(quem, { texto: "lance algo" }, emitir);
     const id = [...conversas.dados.keys()][0];
-    await assistente.conversar(quem, { conversationId: id, texto: "deixa pra lá" }, emitir, nunca);
+    await assistente.conversar(quem, { conversationId: id, texto: "deixa pra lá" }, emitir);
     const conversa = conversas.dados.get(id)!;
     expect(conversa.pendencia).toBeNull();
     const antiga = conversa.mensagens[1].partes.find((item) => item.tipo === "pergunta");
@@ -242,7 +249,7 @@ describe("orquestrador do assistente", () => {
       },
       { final: resposta("metas", "Não posso.") },
     ]);
-    await servico(motor, executor).conversar(quem, { texto: "mude minha senha" }, emitir, nunca);
+    await servico(motor, executor).conversar(quem, { texto: "mude minha senha" }, emitir);
     expect(executor.chamadas).toHaveLength(0);
     const resultados = motor.pedidos[1].mensagens.filter((item) => item.role === "tool").map((item) => item.content);
     expect(resultados[0]).toContain("não é deste especialista");
@@ -254,7 +261,7 @@ describe("orquestrador do assistente", () => {
     const executor = new Executor();
     const ler = () => ({ final: chamadas("metas", [{ id: crypto.randomUUID(), nome: "consultar_metas", args: {} }]) });
     const motor = new Motor([ler(), ler(), ler(), ler(), ler(), ler()]);
-    await servico(motor, executor, ia({ maxPassos: 4 })).conversar(quem, { texto: "fique lendo" }, emitir, nunca);
+    await servico(motor, executor, ia({ maxPassos: 4 })).conversar(quem, { texto: "fique lendo" }, emitir);
     expect(motor.pedidos).toHaveLength(4);
     const texto = ultimaMensagem().partes.filter((parte) => parte.tipo === "texto").map((parte) => parte.tipo === "texto" && parte.texto).join("");
     expect(texto).toContain("Parei aqui para não fazer coisas demais");
@@ -262,23 +269,23 @@ describe("orquestrador do assistente", () => {
 
   it("transforma erro do modelo em aviso, sem perder o que já foi feito", async () => {
     const motor = new Motor([{ final: { tipo: "erro", message: "O provedor recusou a chave." } }]);
-    await servico(motor).conversar(quem, { texto: "oi" }, emitir, nunca);
+    await servico(motor).conversar(quem, { texto: "oi" }, emitir);
     expect(eventos).toContainEqual({ tipo: "erro", message: "O provedor recusou a chave." });
     expect(eventos.at(-1)?.tipo).toBe("fim");
     expect(ultimaMensagem().partes).toEqual([{ tipo: "texto", texto: "Não consegui terminar: O provedor recusou a chave." }]);
   });
 
   it("recusa antes de começar: sem modelo, resposta repetida e conversa de outra pessoa", async () => {
-    await expect(servico(new Motor([]), new Executor(), ia({}, true)).conversar(quem, { texto: "oi" }, emitir, nunca)).rejects.toBeInstanceOf(SemModelo);
-    await expect(servico(new Motor([])).conversar(quem, { texto: "" }, emitir, nunca)).rejects.toBeInstanceOf(PedidoInvalido);
+    await expect(servico(new Motor([]), new Executor(), ia({}, true)).conversar(quem, { texto: "oi" }, emitir)).rejects.toBeInstanceOf(SemModelo);
+    await expect(servico(new Motor([])).conversar(quem, { texto: "" }, emitir)).rejects.toBeInstanceOf(PedidoInvalido);
 
-    await servico(new Motor([{ final: resposta("coordenador", "oi") }])).conversar(quem, { texto: "oi" }, emitir, nunca);
+    await servico(new Motor([{ final: resposta("coordenador", "oi") }])).conversar(quem, { texto: "oi" }, emitir);
     const id = [...conversas.dados.keys()][0];
     await expect(
-      servico(new Motor([])).conversar(quem, { conversationId: id, resposta: { perguntaId: "x", escolha: "A" } }, emitir, nunca),
+      servico(new Motor([])).conversar(quem, { conversationId: id, resposta: { perguntaId: "x", escolha: "A" } }, emitir),
     ).rejects.toBeInstanceOf(PedidoInvalido);
     await expect(
-      servico(new Motor([])).conversar({ ...quem, userId: "outro" }, { conversationId: id, texto: "oi" }, emitir, nunca),
+      servico(new Motor([])).conversar({ ...quem, userId: "outro" }, { conversationId: id, texto: "oi" }, emitir),
     ).rejects.toBeInstanceOf(NaoEncontrado);
     expect(eventos.filter((evento) => evento.tipo === "erro")).toHaveLength(0);
   });
@@ -290,12 +297,29 @@ describe("orquestrador do assistente", () => {
       { final: resposta("metas", "Você tem 1 meta.") },
     ]);
     const assistente = servico(motor);
-    await assistente.conversar(quem, { texto: "crie a meta" }, emitir, nunca);
+    await assistente.conversar(quem, { texto: "crie a meta" }, emitir);
     const id = [...conversas.dados.keys()][0];
-    await assistente.conversar(quem, { conversationId: id, texto: "quantas metas tenho?" }, emitir, nunca);
+    await assistente.conversar(quem, { conversationId: id, texto: "quantas metas tenho?" }, emitir);
     const ultimo = motor.pedidos[2];
     expect(ultimo.agenteAtivo).toBeNull();
     expect(ultimo.mensagens.map((item) => item.role)).toEqual(["user", "assistant", "user"]);
     expect(ultimo.mensagens[1].content).toContain("(Ações feitas: Criou a meta “Viagem”.)");
+  });
+
+  it("marca a conversa como em andamento, recusa um segundo turno e para quando mandam parar", async () => {
+    const assistente = servico(new MotorParado([{ final: resposta("coordenador", "pronto") }]));
+    const primeiro = assistente.conversar(quem, { texto: "oi" }, emitir);
+    await vi.waitFor(() => expect(conversas.dados.size).toBe(1));
+    const id = [...conversas.dados.keys()][0];
+    await vi.waitFor(async () => expect((await assistente.obter("t1", "u1", id)).emAndamento).toBe(true));
+
+    await expect(assistente.conversar(quem, { conversationId: id, texto: "de novo" }, emitir)).rejects.toBeInstanceOf(PedidoInvalido);
+    await expect(assistente.parar("t1", "outro", id)).rejects.toBeInstanceOf(NaoEncontrado);
+
+    await assistente.parar("t1", "u1", id);
+    await primeiro;
+    expect((await assistente.obter("t1", "u1", id)).emAndamento).toBe(false);
+    expect(eventos.at(-1)?.tipo).toBe("fim");
+    expect(conversas.dados.get(id)?.mensagens.map((item) => item.role)).toEqual(["user", "assistant"]);
   });
 });

@@ -117,6 +117,9 @@ class Turno {
 
 @Injectable()
 export class AssistenteService {
+  /** Turnos rodando agora, por conversa. Vive na memória: uma réplica por serviço. */
+  private readonly emCurso = new Map<string, AbortController>();
+
   constructor(
     @Inject(CONVERSAS_REPOSITORIO) private readonly conversas: ConversasRepositorio,
     @Inject(MOTOR_DE_IA) private readonly motor: MotorDeIa,
@@ -135,7 +138,7 @@ export class AssistenteService {
   async obter(tenantId: string, userId: string, id: string): Promise<ConversaCompleta> {
     const conversa = await this.conversas.obter(tenantId, userId, id);
     if (!conversa) throw new NaoEncontrado("Conversa não encontrada.");
-    return { ...conversa.resumo, mensagens: conversa.mensagens };
+    return { ...conversa.resumo, emAndamento: this.emCurso.has(id), mensagens: conversa.mensagens };
   }
 
   async renomear(tenantId: string, userId: string, id: string, corpo: unknown) {
@@ -158,14 +161,48 @@ export class AssistenteService {
    * Um turno de conversa. Erros antes do primeiro evento (pedido inválido, sem modelo, conversa de outro)
    * saem como exceção, para virar status HTTP; depois disso, saem como evento de erro.
    */
-  async conversar(quem: Quem, corpo: unknown, emitir: Emitir, sinal: AbortSignal) {
+  async conversar(quem: Quem, corpo: unknown, emitir: Emitir) {
     const pedido = interpretarMensagem(corpo);
     if (typeof pedido === "string") throw new PedidoInvalido(pedido);
-    const { modelos, comportamento } = await this.ia.modelos(quem.tenantId);
-    if (!modelos.coordenador) throw new SemModelo();
-    const contexto = await this.contexto.obter(quem.tenantId, quem.userId);
-    const { turno, resposta } = await this.abrirTurno(quem, pedido, emitir);
+    // O turno segue no servidor mesmo que a conexão da pessoa caia: só `parar` o interrompe.
+    // Dois turnos juntos na mesma conversa repetiriam as ações, então o segundo espera.
+    const parar = new AbortController();
+    let chave = pedido.conversationId;
+    if (chave) {
+      if (this.emCurso.has(chave)) throw new PedidoInvalido("O assistente ainda está respondendo nesta conversa.");
+      this.emCurso.set(chave, parar);
+    }
+    try {
+      const { modelos, comportamento } = await this.ia.modelos(quem.tenantId);
+      if (!modelos.coordenador) throw new SemModelo();
+      const contexto = await this.contexto.obter(quem.tenantId, quem.userId);
+      const { turno, resposta } = await this.abrirTurno(quem, pedido, emitir);
+      if (!chave) {
+        chave = turno.conversaId;
+        this.emCurso.set(chave, parar);
+      }
+      await this.rodar(turno, resposta, modelos, comportamento, contexto, quem, emitir, parar.signal);
+    } finally {
+      if (chave && this.emCurso.get(chave) === parar) this.emCurso.delete(chave);
+    }
+  }
 
+  /** Interrompe o turno que está rodando na conversa. Sem turno rodando, não faz nada. */
+  async parar(tenantId: string, userId: string, id: string) {
+    if (!(await this.conversas.obter(tenantId, userId, id))) throw new NaoEncontrado("Conversa não encontrada.");
+    this.emCurso.get(id)?.abort();
+  }
+
+  private async rodar(
+    turno: Turno,
+    resposta: { aguardando: Pendencia["aguardando"]; escolha: string; restantes: ChamadaDeFerramenta[] } | null,
+    modelos: Partial<Record<FuncaoDeModelo, ModeloResolvido>>,
+    comportamento: ComportamentoDoAssistente,
+    contexto: Contexto,
+    quem: Quem,
+    emitir: Emitir,
+    sinal: AbortSignal,
+  ) {
     try {
       if (resposta) await this.aplicarResposta(turno, resposta.aguardando, resposta.escolha, resposta.restantes, quem, contexto, comportamento);
       let passos = 0;
