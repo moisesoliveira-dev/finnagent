@@ -75,7 +75,12 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     caminho: () => "financas/base",
     consulta: (a) => ({ year: a.year, month: a.month, day: a.day, groupId: a.groupId, category: a.category, q: a.q }),
   },
-  consultar_mes_financeiro: { metodo: "GET", caminho: () => "financas" },
+  // O painel do mês pedido, e não a visão de Finanças: nela o mês do workflow (o de início) parecia o mês atual.
+  consultar_mes_financeiro: {
+    metodo: "GET",
+    caminho: () => "painel",
+    consulta: (a) => ({ scope: "mes", year: a.year, month: a.month }),
+  },
   criar_lancamento: { metodo: "POST", caminho: () => "lancamentos", corpo: (a) => lancamento(a, randomUUID()) },
   editar_lancamento: { metodo: "PATCH", caminho: (a) => `lancamentos/${id(a.id)}`, corpo: (a) => lancamento(a, a.id) },
   alterar_status_lancamento: {

@@ -2392,9 +2392,10 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_mes_financeiro",
     agentes: ["financas", "analise"],
-    descricao: "Resumo do mês atual: entradas, saídas, sessões e lançamentos com a situação de cada um.",
+    descricao:
+      "Resumo de um mês: entradas, saídas, sobra e os lançamentos com a situação de cada um. Mande o ano e o mês: para o mês de hoje, use a data que está no começo das instruções; para medir o efeito de um lançamento, o mês em que ele cai.",
     leitura: true,
-    esquema: vazio,
+    esquema: z.object({ year: anoDoSistema, month: mesDoSistema }),
     rotulo: () => "Consultou o mês financeiro",
   }),
   ferramenta({

@@ -1,4 +1,5 @@
 import { ESPECIALISTAS_IA, INFO_DOS_AGENTES, type EspecialistaIa, type PedidoDePasso } from "@finnagent/contracts";
+import { CONVENCOES_FINANCEIRAS, MODO_DO_CONSULTOR } from "./consultor.js";
 
 type Contexto = PedidoDePasso["contexto"];
 
@@ -31,7 +32,7 @@ function base(contexto: Contexto, instrucoes: string) {
 
 const PAPEIS: Record<EspecialistaIa, string> = {
   financas:
-    "Você cuida dos lançamentos: cria, edita, paga, cancela, adianta parcelas e empréstimos, ajusta fixas e ocorrências. Para lançar, consulte listar_grupos_e_sessoes e escolha a sessão cujo grupo e nome combinam com o valor, como \"Renda · Salário\" para o salário. Se nenhuma combinar com clareza, ou se mais de uma servir, pergunte qual usar: dê as sessões que servem e a opção de criar uma nova, com grupo e nome sugeridos. Nunca lance numa sessão sem relação com o valor só porque é a única. Se a pessoa quiser criar, encaminhe para organizacao com o grupo, a sessão e o valor que falta lançar. Se o valor veio de um compromisso da agenda, ligue os dois com associar_compromisso depois de lançar; se a pessoa quiser o valor na agenda e ainda não há compromisso, encaminhe para agenda depois de lançar. Para mexer num lançamento, ache o id com consultar_lancamentos. Fixa, parcela e empréstimo aceitam dueRule: use quando a pessoa falar em dia útil (\"5º dia útil\", \"se cair no fim de semana, antes\").",
+    "Você cuida dos lançamentos: cria, edita, paga, cancela, adianta parcelas e empréstimos, ajusta fixas e ocorrências. Para lançar, consulte listar_grupos_e_sessoes e escolha a sessão cujo grupo e nome combinam com o valor, como \"Renda · Salário\" para o salário. Se nenhuma combinar com clareza, ou se mais de uma servir, pergunte qual usar: dê as sessões que servem e a opção de criar uma nova, com grupo e nome sugeridos. Nunca lance numa sessão sem relação com o valor só porque é a única. Se a pessoa quiser criar, encaminhe para organizacao com o grupo, a sessão e o valor que falta lançar. Se o valor veio de um compromisso da agenda, ligue os dois com associar_compromisso depois de lançar; se a pessoa quiser o valor na agenda e ainda não há compromisso, encaminhe para agenda depois de lançar. Para mexer num lançamento, ache o id com consultar_lancamentos. Fixa, parcela e empréstimo aceitam dueRule: use quando a pessoa falar em dia útil (\"5º dia útil\", \"se cair no fim de semana, antes\") e também quando a convenção do tipo de valor pedir, como o salário, que antecipa quando cai em fim de semana ou feriado.",
   agenda:
     "Você cuida da agenda: consulta, cria, edita, move, conclui e apaga compromissos, e sincroniza com o Google Calendar. Para mexer num compromisso, ache o id com consultar_agenda. Se o pedido tiver um valor em dinheiro que ainda não foi lançado, crie o compromisso, se a pessoa quiser na agenda, e encaminhe o valor para financas com o id do compromisso, para lançar numa sessão e ligar os dois. Se finanças já lançou neste pedido, crie o compromisso com o entryId do lançamento.",
   organizacao:
@@ -41,7 +42,7 @@ const PAPEIS: Record<EspecialistaIa, string> = {
   extratos:
     "Você cuida dos extratos já importados: consulta, confere, cruza linhas com lançamentos, desfaz cruzamentos e lança linhas em sessões de acúmulo. Importar arquivo novo só pela tela de Extratos.",
   analise:
-    "Você analisa e responde perguntas sobre os dados: gastos, saldos, comparações, agenda, metas e histórico. Só consulta, nunca altera. Traga números concretos e conclusões curtas.",
+    "Você analisa e responde perguntas sobre os dados: gastos, saldos, comparações, agenda, metas e histórico. Só consulta, nunca altera. Traga números concretos e conclusões curtas, como um consultor: o que o número quer dizer para a vida da pessoa e o que vale olhar a seguir.",
 };
 
 const REGRAS_DE_FERRAMENTA = [
@@ -51,8 +52,11 @@ const REGRAS_DE_FERRAMENTA = [
   "Para apagar ou cancelar, chame a ferramenta direto e preencha o campo resumo: o sistema pede a confirmação da pessoa sozinho.",
   "Se o pedido, ou parte dele, for de outro especialista, use encaminhar com o motivo. Faça a sua parte antes.",
   "Quando uma ferramenta falhar, leia a mensagem, corrija e tente de novo uma vez; se não der, explique o que faltou.",
-  "Ao terminar, diga em uma ou duas frases o que foi feito. Exceção: se ainda resta parte do pedido que é de outro especialista, a sua última ação é encaminhar, sem resumo; quem conclui é ele.",
+  "Ao terminar, diga em até três frases o que foi feito, a suposição que você fez e o efeito no mês. Exceção: se ainda resta parte do pedido que é de outro especialista, a sua última ação é encaminhar, sem resumo; quem conclui é ele.",
 ];
+
+// Quem lida com valores pensa como consultor; agenda e extratos seguem só com as regras do sistema.
+const CONSULTORES: ReadonlySet<EspecialistaIa> = new Set(["financas", "organizacao", "metas", "analise"]);
 
 export function promptDoEspecialista(agente: EspecialistaIa, contexto: Contexto, instrucoes: string) {
   const outros = ESPECIALISTAS_IA.filter((item) => item !== agente)
@@ -61,6 +65,7 @@ export function promptDoEspecialista(agente: EspecialistaIa, contexto: Contexto,
   return [
     `Você é o especialista de ${INFO_DOS_AGENTES[agente].nome} do assistente do Prumo.`,
     PAPEIS[agente],
+    ...(CONSULTORES.has(agente) ? [MODO_DO_CONSULTOR, CONVENCOES_FINANCEIRAS] : []),
     base(contexto, instrucoes),
     ...REGRAS_DE_FERRAMENTA,
     `Outros especialistas: ${outros}.`,
