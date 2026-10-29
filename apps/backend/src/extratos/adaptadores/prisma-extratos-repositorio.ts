@@ -144,6 +144,14 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     });
   }
 
+  async contarLinhasDoLancamento(tenantId: string, entryId: string, year: number, month: number) {
+    const inicio = new Date(Date.UTC(year, month - 1, 1));
+    const fim = new Date(Date.UTC(year, month, 1));
+    return this.banco().statementLine.count({
+      where: { tenantId, entryId, postedOn: { gte: inicio, lt: fim } },
+    });
+  }
+
   async listarLinhasNoMes(tenantId: string, year: number, month: number) {
     const db = this.banco();
     const inicio = new Date(Date.UTC(year, month - 1, 1));

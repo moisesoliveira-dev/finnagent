@@ -528,43 +528,48 @@ export class AssistenteService {
     plano: PlanoValidado,
     entries: Awaited<ReturnType<RealidadeDaConta["base"]>>["entries"],
   ): Promise<CruzamentoMedido[] | string> {
-    const medidos: CruzamentoMedido[] = [];
-    for (const [indice, passo] of plano.passos.entries()) {
-      const numero = indice + 1;
+    const pedidos = plano.passos.flatMap((passo, indice) => {
       const linhas = linhasDoPasso(passo.ferramenta, passo.args);
-      if (!linhas) continue;
-      for (const item of linhas) {
-        const linha = await this.realidade.linhaDoExtrato(tenantId, item.statementId, item.line);
-        if (!linha) return `Passo ${numero}: a linha ${item.line} do extrato não foi encontrada.`;
-        if (linha.entryId) return `Passo ${numero}: a linha ${item.line} já foi cruzada.`;
-        if (passo.ferramenta === "cruzar_linha") {
-          const entry = entries.find((atual) => atual.id === item.entryId);
-          if (!entry) return `Passo ${numero}: o lançamento não está na conta.`;
-          const planejado = valorContado(entry, linha.date);
-          if (planejado === null) return `Passo ${numero}: esse lançamento não tem ocorrência livre neste mês.`;
-          const preparo = preparoDoCruzamento(entry.category, planejado, linha.cents, item.valor);
-          if (typeof preparo === "string") return `Passo ${numero}: ${preparo}`;
-          medidos.push({
-            passo: numero,
-            data: linha.date,
-            escolhido: preparo.cents,
-            planejado,
-            entryId: entry.id,
-            nome: entry.name || linha.description,
-            nota: preparo.nota,
-          });
-          continue;
-        }
+      if (!linhas) return [];
+      return linhas.map((item) => ({ numero: indice + 1, ferramenta: passo.ferramenta, item }));
+    });
+    const lidas = await this.realidade.linhasDoExtrato(
+      tenantId,
+      pedidos.map((pedido) => ({ statementId: pedido.item.statementId, line: pedido.item.line })),
+    );
+    const medidos: CruzamentoMedido[] = [];
+    for (const pedido of pedidos) {
+      const { numero, item } = pedido;
+      const linha = lidas.get(`${item.statementId}:${item.line}`);
+      if (!linha) return `Passo ${numero}: a linha ${item.line} do extrato não foi encontrada.`;
+      if (linha.entryId) return `Passo ${numero}: a linha ${item.line} já foi cruzada.`;
+      if (pedido.ferramenta === "cruzar_linha") {
+        const entry = entries.find((atual) => atual.id === item.entryId);
+        if (!entry) return `Passo ${numero}: o lançamento não está na conta.`;
+        const planejado = valorContado(entry, linha.date);
+        if (planejado === null) return `Passo ${numero}: esse lançamento não tem ocorrência livre neste mês.`;
+        const preparo = preparoDoCruzamento(entry.category, planejado, linha.cents, item.valor);
+        if (typeof preparo === "string") return `Passo ${numero}: ${preparo}`;
         medidos.push({
           passo: numero,
           data: linha.date,
-          escolhido: linha.cents,
-          planejado: null,
-          entryId: null,
-          nome: linha.description,
-          nota: "Única nova, no valor do extrato.",
+          escolhido: preparo.cents,
+          planejado,
+          entryId: entry.id,
+          nome: entry.name || linha.description,
+          nota: preparo.nota,
         });
+        continue;
       }
+      medidos.push({
+        passo: numero,
+        data: linha.date,
+        escolhido: linha.cents,
+        planejado: null,
+        entryId: null,
+        nome: linha.description,
+        nota: "Única nova, no valor do extrato.",
+      });
     }
     return medidos;
   }

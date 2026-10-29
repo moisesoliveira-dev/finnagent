@@ -21,7 +21,7 @@ import {
   CONFIGURACOES_REPOSITORIO,
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
-import { candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, valorDoMes, vinculoDoCruzavel } from "../dominio/cruzar.js";
+import { cabeNaLinha, candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, valorContado, valorDoMes, vinculoDoCruzavel } from "../dominio/cruzar.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
@@ -172,13 +172,15 @@ export class ExtratosService {
   }
 
   async conferencia(tenantId: string, year: number, month: number, pagina?: number): Promise<ConferenciaResposta> {
-    const abertas = await this.financas.listar(tenantId);
-    const base = await this.financas.listar(tenantId, true);
-    const linhas = await this.extratos.listarLinhasNoMes(tenantId, year, month);
-    const lembrados = new Map(
-      (await this.extratos.listarAssociacoes(tenantId)).map((item) => [item.name, item]),
-    );
-    const compromissos = await this.agenda.ocorrencias(tenantId, year, month);
+    const [pacote, linhas, associacoes, compromissos] = await Promise.all([
+      this.financas.listarNoMes(tenantId, year, month),
+      this.extratos.listarLinhasNoMes(tenantId, year, month),
+      this.extratos.listarAssociacoes(tenantId),
+      this.agenda.ocorrencias(tenantId, year, month),
+    ]);
+    const abertas = { entries: pacote.abertas };
+    const base = { entries: pacote.todas };
+    const lembrados = new Map(associacoes.map((item) => [item.name, item]));
     const cruzaveis = cruzaveisDoMes(
       abertas.entries,
       linhas.map((linha) => linha.entryId),
@@ -231,14 +233,36 @@ export class ExtratosService {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     const [year, month] = gravada.date.split("-").map(Number);
-    const atual = await this.conferencia(tenantId, year, month);
-    const linha = atual.lines.find((item) => item.statementId === statementId && item.line === line);
-    if (!linha) throw new NaoEncontrado("Linha não encontrada.");
-    if (linha.entryId === entryId) return atual;
-    if (linha.entryId) throw new Conflito("Essa linha já foi cruzada.");
-    const candidato = linha.candidates.find((item) => item.entryId === entryId);
-    if (!candidato) throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
-    const centavos = valorDoMes(candidato.category, candidato.cents, gravada.cents, valor);
+    if (gravada.entryId === entryId) return this.conferencia(tenantId, year, month);
+    if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    const entry = await this.financas.obterAberto(tenantId, entryId);
+    const planejado = entry ? valorContado(entry, gravada.date) : null;
+    const mes = `${year}-${String(month).padStart(2, "0")}`;
+    const doMes = (entry?.occurrences ?? []).filter(
+      (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
+    );
+    const usadas = entry ? await this.extratos.contarLinhasDoLancamento(tenantId, entryId, year, month) : 0;
+    const livre =
+      entry && planejado !== null
+        ? cabeNaLinha(
+            { date: gravada.date, cents: gravada.cents },
+            {
+              entryId: entry.id,
+              description: entry.name,
+              groupName: entry.groupName,
+              sessionName: entry.sessionName,
+              sessionId: entry.sessionId,
+              day: Number(gravada.date.slice(8, 10)),
+              cents: planejado,
+              category: entry.category,
+              vagas: doMes.length - usadas,
+            },
+          )
+        : false;
+    if (!entry || planejado === null || !livre) {
+      throw new PedidoInvalido("Esse lançamento não está livre para esta linha no mês.");
+    }
+    const centavos = valorDoMes(entry.category, planejado, gravada.cents, valor);
     if (centavos === "extra") throw new PedidoInvalido("Adicional só cruza com entrada.");
     if (centavos === "escolha") {
       throw new PedidoInvalido("Escolha o valor deste mês: o do extrato ou o do lançamento.");
@@ -271,6 +295,14 @@ export class ExtratosService {
   }
 
   async acumular(tenantId: string, statementId: string, line: number, sessionId: string) {
+    const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
+    if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
+    const [year, month] = gravada.date.split("-").map(Number);
+    await this.lancarLinha(tenantId, statementId, line, sessionId);
+    return this.conferencia(tenantId, year, month);
+  }
+
+  private async lancarLinha(tenantId: string, statementId: string, line: number, sessionId: string) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
@@ -316,7 +348,6 @@ export class ExtratosService {
       await this.financas.excluir(tenantId, criado.id).catch(() => undefined);
       throw error;
     }
-    return this.conferencia(tenantId, year, month);
   }
 
   async acumularVarias(
@@ -327,7 +358,7 @@ export class ExtratosService {
     let launched = 0;
     for (const item of itens) {
       try {
-        await this.acumular(tenantId, item.statementId, item.line, item.sessionId);
+        await this.lancarLinha(tenantId, item.statementId, item.line, item.sessionId);
         launched += 1;
       } catch (error) {
         const message = error instanceof Error && error.message ? error.message : "Não foi possível lançar a linha.";

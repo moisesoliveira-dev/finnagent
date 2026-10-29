@@ -67,7 +67,15 @@ export interface FinancasRepositorio {
   garantirWorkflow(tenantId: string): Promise<Workflow>;
   semearLancamentos(tenantId: string): Promise<void>;
   listar(tenantId: string, incluirEncerradas?: boolean): Promise<FinancasResposta>;
+  /** Uma leitura só, com ocorrências, valores e ajustes daquele mês. Abertas são as de sessão ainda viva. */
+  listarNoMes(
+    tenantId: string,
+    year: number,
+    month: number,
+  ): Promise<{ abertas: Lancamento[]; todas: Lancamento[] }>;
   obter(tenantId: string, id: string): Promise<Lancamento | null>;
+  /** O lançamento, se a sessão ainda não foi encerrada. */
+  obterAberto(tenantId: string, id: string): Promise<Lancamento | null>;
   /** O calendário decide as datas dos vencimentos pela regra (feriados nacionais e os locais da conta). */
   criar(
     tenantId: string,
