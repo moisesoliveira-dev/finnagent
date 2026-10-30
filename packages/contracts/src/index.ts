@@ -1442,7 +1442,7 @@ export function avisosDe(
         avisos.push({
           id: `vencimento:${entry.id}:${ocorrencia.number}`,
           kind: "vencimento",
-          title: entry.description || entry.sessionName,
+          title: entry.description || entry.name || entry.sessionName,
           at: ocorrencia.dueDate,
         });
       }
@@ -1493,7 +1493,8 @@ export function montarPainel(
           month: mes,
           day: dia,
           time: null,
-          title: entry.description,
+          // O assistente guarda o título em `name` e deixa `description` vazia; sem este fallback a linha ficava em branco.
+          title: entry.description || entry.name,
           detail: `${entry.groupName} · ${entry.sessionName}`,
           cents,
         });
