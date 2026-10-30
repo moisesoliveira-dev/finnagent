@@ -41,6 +41,8 @@ export type NovoLancamento = {
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
   dueRule: RegraDeVencimento;
+  /** Lançamento que já conta este valor. Este deixa de entrar na sobra. */
+  coveredById?: string | null;
 };
 
 export type FalhaDeLancamento =
@@ -59,7 +61,9 @@ export type FalhaDeLancamento =
   | "sincronizado"
   | "base"
   | "ocorrencia"
-  | "bloqueada";
+  | "bloqueada"
+  | "reserva"
+  | "cobertura";
 
 export type ValorFixo = { id: string; cents: number };
 

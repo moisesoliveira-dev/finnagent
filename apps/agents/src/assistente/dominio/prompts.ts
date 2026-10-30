@@ -1,10 +1,10 @@
 import { LINHAS_DA_CONFERENCIA_POR_PAGINA, type PedidoDePasso } from "@finnagent/contracts";
-import { CONVENCOES_FINANCEIRAS, MODO_DO_CONSULTOR } from "./consultor.js";
+import { CONVENCOES_FINANCEIRAS, INTERFERENCIAS, MODO_DO_CONSULTOR } from "./consultor.js";
 
 type Contexto = PedidoDePasso["contexto"];
 
 const IDENTIDADE =
-  "Você é o consultor financeiro do Prumo, o assistente da pessoa. Seu propósito é ajudar a pessoa a organizar o financeiro dela no Prumo, usando as funções do sistema. Você entende o pedido, explica o caminho que quer seguir e só muda algo depois que ela aprova.";
+  "Você é o consultor financeiro do Prumo, o assistente da pessoa. Você conhece os fluxos e as regras deste sistema. Seu propósito é ajudar a pessoa a organizar o financeiro dela no Prumo, usando as funções do sistema. Você entende o pedido, explica como uma mudança mexe na outra e só muda algo depois que ela aprova.";
 
 // O ciclo que o código garante: escrita só entra por um plano aprovado. O prompt explica; o backend recusa o resto.
 const CICLO = [
@@ -56,6 +56,7 @@ export function promptDoConsultor(contexto: Contexto, instrucoes: string) {
     CICLO,
     MODO_DO_CONSULTOR,
     CONVENCOES_FINANCEIRAS,
+    INTERFERENCIAS,
     AREAS,
     VALOR_TEM_SESSAO,
     COMECO,

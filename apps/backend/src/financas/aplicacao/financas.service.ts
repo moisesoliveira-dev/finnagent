@@ -3,8 +3,6 @@ import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import {
   ajustarTransacao,
   regraPadrao,
-  ocorrenciasDoLancamento,
-  termosTravados,
   type BaseResposta,
   type EfeitoTransacao,
   type FinancasResposta,
@@ -98,8 +96,7 @@ export class FinancasService {
   async editar(tenantId: string, pedido: PedidoLancamento) {
     const atual = await this.financas.obter(tenantId, pedido.id);
     if (!atual) throw new NaoEncontrado("Lançamento não encontrado.");
-    const travado = termosTravados(ocorrenciasDoLancamento(atual), atual.synced);
-    return this.atualizar(tenantId, this.validado(pedidoDaEdicao(atual, pedido, travado)));
+    return this.atualizar(tenantId, this.validado(pedidoDaEdicao(atual, pedido, false)));
   }
 
   async excluirOcorrencia(tenantId: string, id: string, number: number) {
@@ -132,6 +129,14 @@ export class FinancasService {
     if (resultado === "valor-lancada") {
       throw new PedidoInvalido("Esta sessão de valor único já foi lançada.");
     }
+    if (resultado === "reserva") {
+      throw new PedidoInvalido("Esta sessão guarda uma meta. O valor separado entra como única, não como série.");
+    }
+    if (resultado === "cobertura") {
+      throw new PedidoInvalido(
+        "Aponte para outro lançamento desta conta, que ainda entra na sobra e não está dentro de um terceiro.",
+      );
+    }
     if (typeof resultado === "string") {
       throw new Conflito("Não foi possível salvar o lançamento.");
     }
@@ -156,8 +161,14 @@ export class FinancasService {
       throw new Conflito("Movimento e categoria não podem ser alterados.");
     }
     if (resultado === "ocorrencia") {
-      throw new Conflito(
-        "Data, valor e os termos ficam travados quando alguma ocorrência já saiu de pendente ou o lançamento foi cruzado com o extrato.",
+      throw new Conflito("O que já foi pago, cancelado ou estornado permanece. Ajuste o que ainda está pendente.");
+    }
+    if (resultado === "reserva") {
+      throw new PedidoInvalido("Esta sessão guarda uma meta. O valor separado entra como única, não como série.");
+    }
+    if (resultado === "cobertura") {
+      throw new PedidoInvalido(
+        "Aponte para outro lançamento desta conta, que ainda entra na sobra e não está dentro de um terceiro.",
       );
     }
     if (typeof resultado === "string") throw new Conflito("Não foi possível salvar o lançamento.");
@@ -235,8 +246,14 @@ export class FinancasService {
     }
     if (codigo === "bloqueada") throw new Conflito("Essa ocorrência não pode receber essa alteração.");
     if (codigo === "ocorrencia") {
-      throw new Conflito(
-        "Data, valor e os termos ficam travados quando alguma ocorrência já saiu de pendente ou o lançamento foi cruzado com o extrato.",
+      throw new Conflito("O que já foi pago, cancelado ou estornado permanece. Ajuste o que ainda está pendente.");
+    }
+    if (codigo === "reserva") {
+      throw new PedidoInvalido("Esta sessão guarda uma meta. O valor separado entra como única, não como série.");
+    }
+    if (codigo === "cobertura") {
+      throw new PedidoInvalido(
+        "Aponte para outro lançamento desta conta, que ainda entra na sobra e não está dentro de um terceiro.",
       );
     }
     throw new Conflito("Não foi possível atualizar a transação.");

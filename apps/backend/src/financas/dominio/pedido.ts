@@ -39,6 +39,8 @@ export type PedidoLancamento = {
   recurrenceInterval: number | null;
   /** null: use o padrão da categoria nas configurações (o serviço resolve antes de validar). */
   dueRule: RegraDeVencimento | null;
+  /** Ausente: na edição, a cobertura gravada permanece. */
+  coveredById?: string | null;
 };
 
 export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {

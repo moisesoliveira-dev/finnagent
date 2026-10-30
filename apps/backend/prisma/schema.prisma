@@ -105,7 +105,10 @@ model Entry {
   dueOrder            Int?          @map("due_order")
   dueShift            String        @default("manter") @map("due_shift")
   dueCount            String        @default("bancaria") @map("due_count")
+  coveredById       String?       @map("covered_by_id")
   session           Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  coveredBy         Entry?        @relation("Cobertura", fields: [coveredById], references: [id], onDelete: SetNull)
+  covers            Entry[]       @relation("Cobertura")
   amounts           EntryAmount[]
   adjustments       EntryAdjustment[]
   occurrences       EntryOccurrence[]
@@ -115,6 +118,7 @@ model Entry {
 
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([coveredById])
   @@map("entries")
 }
 
