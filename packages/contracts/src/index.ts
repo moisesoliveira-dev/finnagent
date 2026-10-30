@@ -1397,7 +1397,7 @@ export type Aviso = {
   at: string;
 };
 
-const ANTECEDENCIA_MS: Record<Lembrete, number> = {
+export const ANTECEDENCIA_MS: Record<Lembrete, number> = {
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
   "1d": 24 * 60 * 60 * 1000,
@@ -1591,7 +1591,7 @@ export const CATEGORIAS_EVENTO = [
   {
     code: "conta",
     name: "Conta",
-    description: "Acesso, senha, perfil e usuários",
+    description: "Acesso, senha, perfil, usuários e notificações",
     active: true,
   },
   {
@@ -1794,6 +1794,13 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("conta", "Perfil", ["atualizar-perfil"]),
   ...grupo("conta", "Usuário", ["criar-usuario", "remover-usuario"]),
+  ...grupo("conta", "Notificação", [
+    "criar-notificacao",
+    "ler-notificacao",
+    "ler-todas-as-notificacoes",
+    "salvar-preferencias-de-notificacao",
+  ]),
+  ...grupo("conta", "Aparelho", ["registrar-dispositivo", "remover-dispositivo", "esquecer-dispositivo"]),
 ]);
 
 const VINDAS_DA_IMPORTACAO = new Set(["importar-extrato", "reprocessar-extrato"]);
@@ -3339,4 +3346,155 @@ export function proximosVencimentos(
     }
   }
   return lista.map((item) => ({ ...item, feriado: calendario.feriadoDe(item.base)[0]?.nome ?? null }));
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Notificações                                                                                    */
+/* ---------------------------------------------------------------------------------------------- */
+
+/** O que gera aviso. A pessoa liga ou desliga cada tipo em cada canal. */
+export const TIPOS_DE_NOTIFICACAO = ["vencimentos", "lembretes", "extratos", "metas", "assistente"] as const;
+export type TipoDeNotificacao = (typeof TIPOS_DE_NOTIFICACAO)[number];
+
+/** Central: a lista dentro do sistema. Celular e navegador: o push, que chega com o app ou a aba fechados. */
+export const CANAIS_DE_NOTIFICACAO = ["central", "celular", "navegador"] as const;
+export type CanalDeNotificacao = (typeof CANAIS_DE_NOTIFICACAO)[number];
+
+export const ROTULO_DO_TIPO_DE_NOTIFICACAO: Record<TipoDeNotificacao, { titulo: string; dica: string }> = {
+  vencimentos: { titulo: "Vencimentos", dica: "Lançamento pendente que vence hoje." },
+  lembretes: { titulo: "Lembretes", dica: "Compromisso da agenda, na antecedência escolhida." },
+  extratos: { titulo: "Extratos", dica: "Leitura de imagem ou PDF que terminou e linhas esperando conferência." },
+  metas: { titulo: "Metas", dica: "Meta alcançada, parte do mês sem separar e prazo chegando." },
+  assistente: { titulo: "Assistente", dica: "Plano do consultor parado esperando a sua aprovação." },
+};
+
+export const ROTULO_DO_CANAL_DE_NOTIFICACAO: Record<CanalDeNotificacao, string> = {
+  central: "No sistema",
+  celular: "No celular",
+  navegador: "No navegador",
+};
+
+/**
+ * Para onde a notificação leva. Cada cliente traduz para a própria rota: o web e o app não têm as mesmas URLs.
+ * `id` é a conversa do assistente; nas outras telas fica null.
+ */
+export const TELAS_DE_DESTINO = ["financas", "agenda", "extratos", "conferencia", "metas", "assistente"] as const;
+export type TelaDeDestino = (typeof TELAS_DE_DESTINO)[number];
+export type DestinoDaNotificacao = { tela: TelaDeDestino; id: string | null };
+
+export type Notificacao = {
+  id: string;
+  tipo: TipoDeNotificacao;
+  titulo: string;
+  texto: string;
+  destino: DestinoDaNotificacao;
+  criadaEm: string;
+  lidaEm: string | null;
+};
+
+export type NotificacoesResposta = {
+  itens: Notificacao[];
+  naoLidas: number;
+  /** Cursor da página seguinte (o `criadaEm` da última), ou null quando acabou. */
+  proxima: string | null;
+};
+
+export type HorarioDeSilencio = {
+  ativo: boolean;
+  /** "HH:MM", no fuso da conta. Pode atravessar a meia-noite (22:00 a 07:00). */
+  inicio: string;
+  fim: string;
+};
+
+export type PreferenciasDeNotificacao = {
+  canais: Record<TipoDeNotificacao, Record<CanalDeNotificacao, boolean>>;
+  silencio: HorarioDeSilencio;
+};
+
+export const PREFERENCIAS_DE_NOTIFICACAO_PADRAO: PreferenciasDeNotificacao = {
+  canais: {
+    vencimentos: { central: true, celular: true, navegador: true },
+    lembretes: { central: true, celular: true, navegador: true },
+    extratos: { central: true, celular: true, navegador: false },
+    metas: { central: true, celular: true, navegador: false },
+    assistente: { central: true, celular: true, navegador: true },
+  },
+  silencio: { ativo: false, inicio: "22:00", fim: "07:00" },
+};
+
+const horaDoDia = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use o formato HH:MM.");
+const canaisDoTipo = z.object({ central: z.boolean(), celular: z.boolean(), navegador: z.boolean() });
+
+export const ESQUEMA_PREFERENCIAS_DE_NOTIFICACAO = z.object({
+  canais: z.object({
+    vencimentos: canaisDoTipo,
+    lembretes: canaisDoTipo,
+    extratos: canaisDoTipo,
+    metas: canaisDoTipo,
+    assistente: canaisDoTipo,
+  }),
+  silencio: z.object({ ativo: z.boolean(), inicio: horaDoDia, fim: horaDoDia }),
+});
+
+/**
+ * Completa o que veio gravado com o padrão: um tipo novo nasce ligado como o padrão diz, sem migração.
+ * O que não passa no esquema volta ao padrão.
+ */
+export function preferenciasDeNotificacaoDe(gravado: unknown): PreferenciasDeNotificacao {
+  const base = PREFERENCIAS_DE_NOTIFICACAO_PADRAO;
+  const bruto = (typeof gravado === "object" && gravado !== null ? gravado : {}) as Partial<PreferenciasDeNotificacao>;
+  const canais = { ...base.canais };
+  for (const tipo of TIPOS_DE_NOTIFICACAO) {
+    const lido = canaisDoTipo.safeParse(bruto.canais?.[tipo]);
+    if (lido.success) canais[tipo] = lido.data;
+  }
+  const silencio = ESQUEMA_PREFERENCIAS_DE_NOTIFICACAO.shape.silencio.safeParse(bruto.silencio);
+  return { canais, silencio: silencio.success ? silencio.data : base.silencio };
+}
+
+/** Se a hora local ("HH:MM") cai no silêncio. O fim não entra: 22:00 a 07:00 volta a avisar às 07:00. */
+export function emSilencio(silencio: HorarioDeSilencio, hora: string) {
+  if (!silencio.ativo || silencio.inicio === silencio.fim) return false;
+  if (silencio.inicio < silencio.fim) return hora >= silencio.inicio && hora < silencio.fim;
+  return hora >= silencio.inicio || hora < silencio.fim;
+}
+
+/** O que o cliente precisa para oferecer o push: a chave pública do navegador e se o celular tem envio. */
+export type CanaisDisponiveis = { navegador: string | null; celular: boolean };
+
+export const ESQUEMA_DISPOSITIVO_DE_NOTIFICACAO = z.discriminatedUnion("tipo", [
+  z.object({
+    tipo: z.literal("navegador"),
+    endpoint: z.url().max(2048),
+    chaves: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
+  }),
+  z.object({
+    tipo: z.literal("celular"),
+    token: z.string().min(1).max(4096),
+    plataforma: z.enum(["android", "ios"]),
+  }),
+]);
+export type DispositivoDeNotificacao = z.infer<typeof ESQUEMA_DISPOSITIVO_DE_NOTIFICACAO>;
+
+/** O que vai no push. O navegador abre `url`; o app monta a própria rota pela `tela` e pelo `alvo`. */
+export type CargaDoPush = {
+  id: string;
+  titulo: string;
+  texto: string;
+  tipo: TipoDeNotificacao;
+  tela: TelaDeDestino;
+  alvo: string | null;
+  url: string;
+};
+
+/** A rota do web para um destino. */
+export function rotaWebDoDestino(destino: DestinoDaNotificacao) {
+  switch (destino.tela) {
+    case "conferencia":
+      return "/extratos/conferencia";
+    case "assistente":
+      return destino.id ? `/assistente?c=${encodeURIComponent(destino.id)}` : "/assistente";
+    default:
+      return `/${destino.tela}`;
+  }
 }
