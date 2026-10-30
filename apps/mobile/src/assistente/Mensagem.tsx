@@ -1,4 +1,4 @@
-import { IonButton } from "@ionic/react";
+import { IonButton, IonTextarea } from "@ionic/react";
 import {
   APROVAR_PLANO,
   CANCELAR_PLANO,
@@ -126,13 +126,14 @@ function CartaoDePlano({
               if (ajuste.trim()) aoResponder(ajuste.trim());
             }}
           >
-            <textarea
+            <IonTextarea
               rows={1}
+              autoGrow
               value={ajuste}
-              maxLength={300}
+              maxlength={300}
               placeholder="Quer mudar algo? Escreva o ajuste"
               aria-label="Pedir um ajuste no plano"
-              onChange={(evento) => setAjuste(evento.target.value)}
+              onIonInput={(evento) => setAjuste(String(evento.detail.value ?? ""))}
             />
             <IonButton type="submit" fill="outline" disabled={!ajuste.trim()}>
               Ajustar

@@ -27,6 +27,8 @@ export type Pendencia = {
   restantes: ChamadaDeFerramenta[];
 };
 
+export type PlanoEsperando = { conversaId: string; userId: string; titulo: string; mensagemId: string };
+
 export type ConversaGravada = {
   resumo: ConversaResumo;
   pendencia: Pendencia | null;
@@ -46,4 +48,6 @@ export interface ConversasRepositorio {
   removerTodas(tenantId: string, userId: string): Promise<number>;
   /** Apaga as conversas paradas desde antes da data, de todos os usuários do tenant. */
   limparAntigas(tenantId: string, antesDe: Date): Promise<number>;
+  /** Conversas com plano esperando aprovação desde antes de `antesDe`: a pessoa saiu sem responder. */
+  planosEsperando(tenantId: string, antesDe: Date): Promise<PlanoEsperando[]>;
 }

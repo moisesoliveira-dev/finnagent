@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Avatar } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { cn, focusRing } from "../ui/cn";
+import { desligarPush } from "../notificacoes/push-do-navegador";
 import { useToast } from "../ui/toast";
 import { PERFIL_ATUALIZADO } from "./perfil-evento";
 
@@ -38,6 +39,8 @@ export function ContaDoMenu() {
   async function sair() {
     setSaindo(true);
     try {
+      // Este navegador deixa de receber o push de quem saiu.
+      await desligarPush().catch(() => undefined);
       await fetch("/api/auth/sair", { method: "POST" });
       router.replace("/login");
       router.refresh();

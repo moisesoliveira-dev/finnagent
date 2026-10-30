@@ -73,6 +73,11 @@ export class PrismaAuthRepositorio implements AuthRepositorio {
     }
   }
 
+  async listarTenants() {
+    const linhas = await this.banco().user.findMany({ distinct: ["tenantId"], select: { tenantId: true } });
+    return linhas.map((linha) => linha.tenantId);
+  }
+
   async listarDoTenant(tenantId: string) {
     // "master" vem antes de "membro" na ordem alfabética: o master abre a lista.
     const linhas = await this.banco().user.findMany({

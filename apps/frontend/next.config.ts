@@ -17,7 +17,18 @@ const cabecalhosDeSeguranca = [
 const nextConfig: NextConfig = {
   agentRules: false,
   async headers() {
-    return [{ source: "/:path*", headers: cabecalhosDeSeguranca }];
+    return [
+      { source: "/:path*", headers: cabecalhosDeSeguranca },
+      // O service worker do push: sempre a versão nova, e só código do próprio site.
+      {
+        source: "/sw-notificacoes.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
   },
 };
 

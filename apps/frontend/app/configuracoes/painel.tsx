@@ -26,6 +26,7 @@ import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
+import { Interruptor } from "../../components/ui/interruptor";
 import { mola, Seta } from "../../components/ui/movimento";
 import { Chip } from "../../components/ui/chip";
 import { campo, cn, focusRing } from "../../components/ui/cn";
@@ -34,6 +35,7 @@ import { aplicarTema, segurarTema } from "../../components/ui/tema";
 import { useToast } from "../../components/ui/toast";
 import { rotuloDoFuso } from "../agenda/itens";
 import { FeriadosDaConta } from "./feriados";
+import { NotificacoesDaPessoa } from "./notificacoes";
 import { PainelDeIa } from "./ia/painel-de-ia";
 import { Usuarios } from "./usuarios";
 
@@ -235,7 +237,6 @@ export function Painel() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [transferindo, setTransferindo] = useState(false);
   const [palavra, setPalavra] = useState("");
-  const [permissao, setPermissao] = useState("");
   const arvore = useRef<HTMLUListElement>(null);
   const seletor = useRef<HTMLInputElement>(null);
   const sujoRef = useRef(false);
@@ -310,11 +311,6 @@ export function Painel() {
       window.history.replaceState(null, "", `${url.pathname}${url.search}`);
     }
   }, [toast]);
-
-  useEffect(() => {
-    if (typeof Notification === "undefined") return;
-    setPermissao(Notification.permission);
-  }, []);
 
   useEffect(() => {
     const ativo = arvore.current?.querySelector<HTMLButtonElement>("[data-foco='true']");
@@ -877,6 +873,13 @@ export function Painel() {
 
             <section hidden={secao !== "notificacoes"} className="grid rounded-lg border border-line bg-surface p-6" aria-labelledby="titulo-notificacoes">
               <h2 id="titulo-notificacoes" className="mb-3 font-display text-lg">Notificações</h2>
+              <NotificacoesDaPessoa />
+              <div className="grid gap-1 border-t border-line pt-6 pb-3">
+                <h3 className="font-display text-base">Avisos no Início</h3>
+                <p className="max-w-prose text-sm text-ink-2">
+                  Valem para a conta toda: o que aparece no topo da tela inicial. A antecedência dos lembretes vale também para as notificações.
+                </p>
+              </div>
               <Linha id="lembretes" titulo="Lembretes de compromissos" dica="A antecedência vale quando os lembretes estão ligados.">
                 <span className="flex w-full min-w-0 flex-wrap items-center gap-2">
                   <select
@@ -901,15 +904,7 @@ export function Painel() {
               <Linha id="email-aviso" titulo="Por e-mail" dica="Depende de um e-mail na conta, que ainda não existe.">
                 <Interruptor id="email-aviso" checked={form.emailAlerts} onChange={(valor) => alterar("emailAlerts", valor)} />
               </Linha>
-              <Linha
-                id="aplicativo"
-                titulo="No aplicativo"
-                dica={
-                  permissao === "denied"
-                    ? "O navegador bloqueou as notificações deste site."
-                    : "Guarda a preferência de aviso dentro do Prumo."
-                }
-              >
+              <Linha id="aplicativo" titulo="No aplicativo" dica="Mostra os avisos de lembrete e de vencimento no topo do Início.">
                 <Interruptor id="aplicativo" checked={form.appAlerts} onChange={(valor) => alterar("appAlerts", valor)} />
               </Linha>
               <Linha id="cobrar" titulo="Cobrar lançamentos não informados" dica="A IA avisa quando faltar registrar algo que consta no extrato.">
@@ -1113,42 +1108,3 @@ function Linha({
   );
 }
 
-function Interruptor({
-  id,
-  checked,
-  disabled = false,
-  onChange,
-}: {
-  id: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (valor: boolean) => void;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-describedby={`${id}-dica`}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn("inline-flex h-10 w-12 shrink-0 items-center", disabled && "opacity-50", focusRing)}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "relative h-6 w-12 rounded-full border",
-          checked ? "border-brand bg-brand" : "border-line bg-surface-2",
-        )}
-      >
-        <motion.span
-          className={cn("absolute top-1 left-1 size-4 rounded-full", checked ? "bg-brand-ink" : "bg-surface")}
-          initial={false}
-          animate={{ x: checked ? 24 : 0 }}
-          transition={mola}
-        />
-      </span>
-    </button>
-  );
-}

@@ -12,6 +12,7 @@ import { ExtratosModule } from './extratos/extratos.module.js';
 import { FinancasModule } from './financas/financas.module.js';
 import { GruposModule } from './grupos/grupos.module.js';
 import { MetasModule } from './metas/metas.module.js';
+import { NotificacoesModule } from './notificacoes/notificacoes.module.js';
 import { PainelModule } from './painel/painel.module.js';
 import { PersistenciaModule } from './persistencia/persistencia.module.js';
 import { RelatoriosModule } from './relatorios/relatorios.module.js';
@@ -32,6 +33,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
     ConfiguracoesModule,
     AssistenteModule,
     DadosModule,
+    NotificacoesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

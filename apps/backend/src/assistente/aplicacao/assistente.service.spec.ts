@@ -60,6 +60,9 @@ class Conversas implements ConversasRepositorio {
   async limparAntigas() {
     return 0;
   }
+  async planosEsperando() {
+    return [];
+  }
 }
 
 /** Motor de roteiro: cada passo devolve o próximo da lista e guarda o pedido recebido. */

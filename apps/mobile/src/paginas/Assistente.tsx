@@ -7,12 +7,14 @@ import {
   IonIcon,
   IonModal,
   IonPage,
+  IonTextarea,
   IonTitle,
   IonToolbar,
   useIonViewWillEnter,
 } from "@ionic/react";
 import type { ConversaCompleta, ConversaResumo, MensagemDoChat } from "@finnagent/contracts";
 import { AnimatePresence, motion } from "motion/react";
+import { useLocation } from "react-router-dom";
 import { addOutline, closeOutline, listOutline, sendOutline, stopOutline } from "ionicons/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { abrirFluxo, enviar, ler } from "../api/cliente";
@@ -102,12 +104,20 @@ export function Assistente() {
         const conversas = await ler<ConversaResumo[]>("/api/assistente/conversas");
         setLista(conversas);
         const rodando = conversas.find((item) => item.emAndamento);
-        if (rodando) await abrir(rodando.id);
+        // A conversa pedida pelo link (`?c=`, de uma notificação) tem a vez.
+        if (rodando && !new URLSearchParams(window.location.search).get("c")) await abrir(rodando.id);
       } catch (error) {
         setErro(error instanceof Error ? error.message : "Não foi possível carregar.");
       }
     })();
   }, [abrir]);
+
+  // O toque numa notificação do assistente chega com a conversa no link.
+  const { search } = useLocation();
+  const pedida = new URLSearchParams(search).get("c");
+  useEffect(() => {
+    if (pedida && pedida !== atualId.current) void abrir(pedida);
+  }, [pedida, abrir]);
 
   useIonViewWillEnter(() => {
     void recarregarLista();
@@ -298,12 +308,13 @@ export function Assistente() {
             if (texto.trim()) void conversar({ texto: texto.trim() });
           }}
         >
-          <textarea
+          <IonTextarea
             rows={1}
+            autoGrow
             value={texto}
             placeholder="Escreva para o assistente"
             aria-label="Mensagem para o assistente"
-            onChange={(evento) => setTexto(evento.target.value)}
+            onIonInput={(evento) => setTexto(String(evento.detail.value ?? ""))}
           />
           <AnimatePresence mode="wait" initial={false}>
             <motion.div

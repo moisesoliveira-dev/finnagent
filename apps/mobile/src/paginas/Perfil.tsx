@@ -3,6 +3,7 @@ import type { PerfilDoUsuario } from "@finnagent/contracts";
 import { chevronBack, logOutOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { enviar, pedir } from "../api/cliente";
 import { desde } from "../api/formato";
 import { atualizarUsuario, encerrarSessao } from "../api/sessao";
@@ -11,13 +12,15 @@ import { Estado } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
 import { toque } from "../haptico";
 import { Bloco, Cascata, Troca, mola, toqueDoDedo } from "../movimento";
+import { desligarPushNoCelular } from "../notificacoes/push";
 import { useDados } from "../useDados";
+import { AbaAvisos } from "./perfil/AbaAvisos";
 import { AbaPerfil, type DadosDoPerfil } from "./perfil/AbaPerfil";
 import { AbaSeguranca } from "./perfil/AbaSeguranca";
 import { AbaSessoes } from "./perfil/AbaSessoes";
 
-type Aba = "perfil" | "seguranca" | "sessoes";
-const ABAS: Aba[] = ["perfil", "seguranca", "sessoes"];
+type Aba = "perfil" | "avisos" | "seguranca" | "sessoes";
+const ABAS: Aba[] = ["perfil", "avisos", "seguranca", "sessoes"];
 
 const dadosDe = (perfil: PerfilDoUsuario): DadosDoPerfil => ({
   name: perfil.name,
@@ -32,7 +35,14 @@ export function Perfil() {
   const { dados, erro, carregando, recarregar } = useDados<PerfilDoUsuario>("/api/perfil");
   const [perfil, setPerfil] = useState<PerfilDoUsuario | null>(null);
   const [rascunho, setRascunho] = useState<DadosDoPerfil | null>(null);
-  const [aba, setAba] = useState<Aba>("perfil");
+  // A lista de notificações abre o perfil direto na aba dos avisos.
+  const { search } = useLocation();
+  const pedida = new URLSearchParams(search).get("aba");
+  const [aba, setAba] = useState<Aba>(ABAS.includes(pedida as Aba) ? (pedida as Aba) : "perfil");
+  // O Ionic mantém a tela montada: um link novo com `?aba=` troca a aba aberta.
+  useEffect(() => {
+    if (pedida && ABAS.includes(pedida as Aba)) setAba(pedida as Aba);
+  }, [pedida]);
   const [direcao, setDirecao] = useState(1);
   const [salvando, setSalvando] = useState(false);
   const [erroAoSalvar, setErroAoSalvar] = useState("");
@@ -71,6 +81,8 @@ export function Perfil() {
 
   async function sair() {
     setSaindo(true);
+    // Este celular deixa de receber o push de quem saiu.
+    await desligarPushNoCelular().catch(() => undefined);
     // Revoga no servidor; se ele não responder, a sessão sai do aparelho do mesmo jeito.
     await pedir<void>("/api/auth/sair", { method: "POST" }).catch(() => undefined);
     await encerrarSessao();
@@ -129,6 +141,9 @@ export function Perfil() {
               <IonSegmentButton value="perfil">
                 <IonLabel>Perfil</IonLabel>
               </IonSegmentButton>
+              <IonSegmentButton value="avisos">
+                <IonLabel>Avisos</IonLabel>
+              </IonSegmentButton>
               <IonSegmentButton value="seguranca">
                 <IonLabel>Segurança</IonLabel>
               </IonSegmentButton>
@@ -155,6 +170,8 @@ export function Perfil() {
                     setErroAoSalvar("");
                   }}
                 />
+              ) : aba === "avisos" ? (
+                <AbaAvisos somenteLeitura={somenteLeitura} />
               ) : aba === "seguranca" ? (
                 <AbaSeguranca somenteLeitura={somenteLeitura} />
               ) : (

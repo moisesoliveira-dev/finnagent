@@ -1,4 +1,4 @@
-import { IonButton, IonIcon, useIonToast } from "@ionic/react";
+import { IonButton, IonIcon, IonRadio, IonRadioGroup, useIonToast } from "@ionic/react";
 import {
   categoriaDeCompromisso,
   tipoDaCategoria,
@@ -291,14 +291,16 @@ export function Conferencia() {
                                       {pedeValor && escolhido ? (
                                         <div className="secao" style={{ gap: 8 }}>
                                           <span className="etiqueta">Qual valor vale neste mês?</span>
-                                          {(["extrato", "lancamento"] as const).map((opcao) => (
-                                            <label key={opcao} className={`opcao-de-valor${valorMes[chave] === opcao ? " ativa" : ""}`}>
-                                              <input type="radio" name={`valor-${chave}`} checked={valorMes[chave] === opcao} onChange={() => setValorMes((atual) => ({ ...atual, [chave]: opcao }))} />
-                                              <span>
+                                          <IonRadioGroup
+                                            value={valorMes[chave] ?? ""}
+                                            onIonChange={(evento) => setValorMes((atual) => ({ ...atual, [chave]: evento.detail.value as "extrato" | "lancamento" }))}
+                                          >
+                                            {(["extrato", "lancamento"] as const).map((opcao) => (
+                                              <IonRadio key={opcao} value={opcao} labelPlacement="end" justify="start" className={`opcao-de-valor${valorMes[chave] === opcao ? " ativa" : ""}`}>
                                                 {opcao === "extrato" ? "O do extrato" : "O do lançamento"}: <strong>{reais(opcao === "extrato" ? linha.cents : escolhido.cents)}</strong>
-                                              </span>
-                                            </label>
-                                          ))}
+                                              </IonRadio>
+                                            ))}
+                                          </IonRadioGroup>
                                         </div>
                                       ) : null}
                                       <motion.div whileTap={toqueDoDedo}>

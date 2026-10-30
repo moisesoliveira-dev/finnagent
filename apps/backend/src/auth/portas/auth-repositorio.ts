@@ -57,6 +57,8 @@ export interface AuthRepositorio {
   /** Cria um membro na conta existente. */
   criarMembro(tenantId: string, novo: NovoMembro): Promise<Usuario | "email-em-uso">;
   listarDoTenant(tenantId: string): Promise<Usuario[]>;
+  /** As contas que têm ao menos um usuário: quem roda por conta (os avisos agendados) percorre esta lista. */
+  listarTenants(): Promise<string[]>;
   /** Nunca remove o master. */
   removerMembro(tenantId: string, id: string): Promise<"removido" | "ausente" | "master">;
   buscarPorEmail(email: string): Promise<UsuarioComSenha | null>;

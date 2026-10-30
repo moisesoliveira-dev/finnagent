@@ -379,6 +379,9 @@ model User {
   lockedUntil    DateTime?     @map("locked_until")
   createdAt      DateTime      @default(now()) @map("created_at")
   sessions       AuthSession[]
+  notifications  Notification[]
+  notificationSetting NotificationSetting?
+  pushDevices    PushDevice[]
 
   @@index([tenantId])
   @@map("users")
@@ -471,4 +474,57 @@ model Holiday {
   @@unique([tenantId, month, day])
   @@index([tenantId])
   @@map("holidays")
+}
+
+// Notificação de um usuário. `key` é a idempotência: o mesmo fato (vencimento, meta, extrato) avisa uma vez só.
+model Notification {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  userId    String    @map("user_id")
+  kind      String
+  title     String
+  body      String
+  target    String
+  targetId  String?   @map("target_id")
+  key       String
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId, userId, createdAt])
+  @@map("notifications")
+}
+
+// O que cada usuário quer receber, por tipo e canal, e o horário de silêncio.
+model NotificationSetting {
+  userId     String   @id @map("user_id")
+  tenantId   String   @map("tenant_id")
+  channels   Json     @default("{}")
+  quietOn    Boolean  @default(false) @map("quiet_on")
+  quietStart String   @default("22:00") @map("quiet_start")
+  quietEnd   String   @default("07:00") @map("quiet_end")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("notification_settings")
+}
+
+// Onde o push chega: a inscrição do navegador (Web Push) ou o token do aparelho (Firebase).
+model PushDevice {
+  id         String   @id
+  tenantId   String   @map("tenant_id")
+  userId     String   @map("user_id")
+  kind       String
+  endpoint   String   @unique
+  p256dh     String   @default("")
+  auth       String   @default("")
+  platform   String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("push_devices")
 }

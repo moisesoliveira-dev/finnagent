@@ -37,6 +37,10 @@ services:
       DATABASE_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
       DIRECT_URL: postgresql://finnagent:finnagent@postgres:5432/finnagent
       AUTH_EMAIL_DONO: ${AUTH_EMAIL_DONO:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
     depends_on:
       postgres:
         condition: service_healthy

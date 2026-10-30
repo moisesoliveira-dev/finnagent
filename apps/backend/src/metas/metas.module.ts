@@ -10,6 +10,7 @@ import { METAS_REPOSITORIO } from "./portas/metas-repositorio.js";
 @Module({
   imports: [PersistenciaModule, FinancasModule, GruposModule],
   controllers: [MetasController],
+  exports: [MetasService],
   providers: [
     PrismaMetasRepositorio,
     { provide: METAS_REPOSITORIO, useExisting: PrismaMetasRepositorio },
