@@ -14,6 +14,7 @@ export const TABELAS_QUE_ZERAM = [
   "yearStay",
   "aiMessage",
   "aiConversation",
+  "notification",
   "outbox",
   "consumedEvent",
 ] as const;
@@ -28,6 +29,8 @@ export const TABELAS_QUE_FICAM = [
   "authSession",
   "aiProvider",
   "aiSettings",
+  "notificationSetting",
+  "pushDevice",
 ] as const;
 
 type Nome = (typeof TABELAS_QUE_ZERAM)[number];

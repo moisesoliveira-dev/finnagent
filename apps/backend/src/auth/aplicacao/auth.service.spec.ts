@@ -42,6 +42,9 @@ class Memoria implements AuthRepositorio {
     this.usuarios.set(novo.id, { ...usuario, passwordHash: novo.passwordHash, lockedUntil: null, falhas: 0 });
     return usuario;
   }
+  async listarTenants() {
+    return [...new Set([...this.usuarios.values()].map((item) => item.tenantId))];
+  }
   async listarDoTenant(tenantId: string) {
     return [...this.usuarios.values()].filter((item) => item.tenantId === tenantId);
   }

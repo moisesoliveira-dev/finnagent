@@ -208,6 +208,10 @@ export class AuthService {
     }
   }
 
+  listarTenants() {
+    return this.repositorio.listarTenants();
+  }
+
   async listarUsuarios(tenantId: string): Promise<UsuarioDaConta[]> {
     const usuarios = await this.repositorio.listarDoTenant(tenantId);
     return usuarios.map((usuario) => ({ id: usuario.id, name: usuario.name, email: usuario.email, role: usuario.role }));

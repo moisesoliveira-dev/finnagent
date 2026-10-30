@@ -24,7 +24,7 @@ import { REALIDADE_DA_CONTA } from "./portas/realidade-da-conta.js";
 @Module({
   imports: [PersistenciaModule, ConfiguracoesModule, AuthModule, FinancasModule, FeriadosModule],
   controllers: [AssistenteController, IaController],
-  exports: [IaService],
+  exports: [IaService, AssistenteService],
   providers: [
     PrismaIaRepositorio,
     { provide: IA_REPOSITORIO, useExisting: PrismaIaRepositorio },

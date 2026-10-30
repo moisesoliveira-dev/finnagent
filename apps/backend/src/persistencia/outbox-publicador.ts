@@ -1,21 +1,26 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnApplicationBootstrap, OnModuleDestroy } from "@nestjs/common";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { log } from "../log.js";
+import { ConsumidoresDoOutbox } from "./consumidores-do-outbox.js";
 import { PrismaService } from "./prisma.service.js";
 
 const fila = "outbox";
 
 @Injectable()
-export class OutboxPublicador implements OnModuleInit, OnModuleDestroy {
+export class OutboxPublicador implements OnApplicationBootstrap, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
   private queue: Queue | null = null;
   private worker: Worker | null = null;
   private conexoes: Redis[] = [];
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly consumidores: ConsumidoresDoOutbox,
+  ) {}
 
-  onModuleInit() {
+  // Depois de todos os módulos: os consumidores do outbox já se registraram quando o worker começa.
+  onApplicationBootstrap() {
     const url = process.env.REDIS_URL;
     if (!url || !this.prisma.ativo) return;
     try {
@@ -27,6 +32,21 @@ export class OutboxPublicador implements OnModuleInit, OnModuleDestroy {
         async (job) => {
           const idempotencyKey = String(job.data.idempotencyKey);
           const tenantId = String(job.data.tenantId);
+          if (this.consumidores.tem(job.name)) {
+            // Já consumido numa tentativa anterior: não repete o efeito.
+            const ja = await this.prisma.consumedEvent.findUnique({ where: { idempotencyKey } });
+            if (ja) return;
+            const evento = await this.prisma.outbox.findUnique({
+              where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+              select: { payload: true },
+            });
+            await this.consumidores.consumir({
+              tenantId,
+              operacao: job.name,
+              idempotencyKey,
+              payload: evento ? lerPayload(evento.payload) : null,
+            });
+          }
           try {
             await this.prisma.consumedEvent.create({
               data: { idempotencyKey, tenantId },
@@ -93,7 +113,8 @@ export class OutboxPublicador implements OnModuleInit, OnModuleDestroy {
           tenantId: evento.tenantId,
           idempotencyKey: evento.idempotencyKey,
         },
-        { jobId: evento.id },
+        // Um consumidor que falha (push fora do ar, banco ocupado) tenta de novo, com espera crescente.
+        { jobId: evento.id, attempts: 5, backoff: { type: "exponential", delay: 5000 } },
       );
       await this.prisma.outbox.update({
         where: { id: evento.id },
@@ -105,6 +126,14 @@ export class OutboxPublicador implements OnModuleInit, OnModuleDestroy {
 
 function registrarFalha(error: unknown) {
   log.error({ err: error instanceof Error ? error.message : String(error) }, "o publicador do outbox não publicou");
+}
+
+function lerPayload(texto: string): unknown {
+  try {
+    return JSON.parse(texto);
+  } catch {
+    return null;
+  }
 }
 
 function temCodigo(error: unknown, codigo: string) {

@@ -111,6 +111,18 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
     });
   }
 
+  async planosEsperando(tenantId: string, antesDe: Date) {
+    const linhas = await this.banco().aiConversation.findMany({
+      where: { tenantId, updatedAt: { lt: antesDe }, NOT: { pending: { equals: Prisma.DbNull } } },
+      select: { id: true, userId: true, title: true, pending: true },
+    });
+    return linhas.flatMap((linha) => {
+      const pendencia = linha.pending as Pendencia | null;
+      if (pendencia?.aguardando.tipo !== "plano") return [];
+      return [{ conversaId: linha.id, userId: linha.userId, titulo: linha.title, mensagemId: pendencia.mensagemId }];
+    });
+  }
+
   private banco() {
     if (!this.prisma.ativo) throw new BancoIndisponivel();
     return this.prisma;

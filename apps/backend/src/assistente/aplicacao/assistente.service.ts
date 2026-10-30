@@ -174,6 +174,11 @@ export class AssistenteService {
     return lista.map((conversa) => ({ ...conversa, emAndamento: this.emCurso.has(conversa.id) }));
   }
 
+  /** Planos parados esperando a aprovação desde antes de `antesDe`, para avisar quem saiu sem responder. */
+  planosEsperando(tenantId: string, antesDe: Date) {
+    return this.conversas.planosEsperando(tenantId, antesDe);
+  }
+
   async obter(tenantId: string, userId: string, id: string): Promise<ConversaCompleta> {
     const conversa = await this.conversas.obter(tenantId, userId, id);
     if (!conversa) throw new NaoEncontrado("Conversa não encontrada.");
