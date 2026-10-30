@@ -327,6 +327,8 @@ export type Lancamento = {
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
   synced: boolean;
+  /** Preenchido: este valor já entra em outro lançamento e não soma de novo na sobra. */
+  coveredById?: string | null;
   occurrences?: Ocorrencia[];
   /** Como cada vencimento cai em dia útil. Sem regra, é o dia como está. */
   dueRule?: RegraDeVencimento;
@@ -446,6 +448,7 @@ export function centavosNoMes(
   year: number,
   monthIndex: number,
 ) {
+  if (entry.coveredById) return undefined;
   const bruto = centavosAgendados(entry, year, monthIndex);
   if (bruto === undefined) return undefined;
   const cortaInicio =
@@ -666,7 +669,7 @@ export function gradeDoLancamento(entry: ContratoLancamento, calendario: Calenda
       montarOcorrencia(
         parcela + 1,
         dataPelaRegra(year, month, entry.day, entry.dueRule ?? REGRA_SEM_AJUSTE, calendario),
-        entry.cents,
+        entry.type === "empréstimo" ? centavosDaPrestacao(entry.cents) : entry.cents,
         entry,
         entry.status,
       ),
@@ -723,6 +726,25 @@ export function proximoVencimento(lista: Ocorrencia[]) {
 
 export function termosTravados(lista: Ocorrencia[], synced: boolean) {
   return synced || lista.some((item) => item.status !== "pending");
+}
+
+/** A ocorrência já resolvida permanece. A grade nova só substitui o que ainda está pendente. */
+export function mesclarGrade(anteriores: Ocorrencia[], nova: Ocorrencia[]): Ocorrencia[] {
+  const porNumero = new Map(anteriores.map((item) => [item.number, item]));
+  const daNova = new Set(nova.map((item) => item.number));
+  const resultado = nova.map((item) => {
+    const antiga = porNumero.get(item.number);
+    return antiga && antiga.status !== "pending" ? antiga : item;
+  });
+  for (const antiga of anteriores) {
+    if (!daNova.has(antiga.number) && antiga.status !== "pending") resultado.push(antiga);
+  }
+  return resultado.sort((a, b) => a.number - b.number);
+}
+
+/** A prestação que sai da conta. A taxa de juros fica no contrato e não é somada de novo. */
+export function centavosDaPrestacao(cents: number) {
+  return cents;
 }
 
 export function situacaoDaOcorrencia(item: Ocorrencia, hoje: string): SituacaoOcorrencia {

@@ -357,7 +357,7 @@ function Detalhe({ entry }: { entry: LancamentoVista }) {
       <p className="text-sm text-ink-2">
         Parcela {entry.installmentNumber ?? 1} de {entry.installments ?? 0}
         {entry.actions.series === "loan" && entry.dueDate
-          ? ` · vence em ${entry.dueDate.split("-").reverse().join("/")} · juros ${entry.interestRate ?? 0}%`
+          ? ` · vence em ${entry.dueDate.split("-").reverse().join("/")} · juros ${entry.interestRate ?? 0}% no contrato`
           : ""}
       </p>
     );

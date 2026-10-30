@@ -59,6 +59,8 @@ const formularioLancamento = z.object({
   nextDueDate: opcional(dataIso),
   recurrence: opcional(z.enum(RECORRENCIAS)),
   recurrenceInterval: opcional(z.number().int().min(1).max(3660)),
+  // Ausente: na edição, a cobertura gravada permanece. Vazio conta na sobra.
+  coveredById: z.uuid().nullable().optional(),
   // Sem regra, vale o padrão da categoria nas configurações.
   dueRule: z
     .object({

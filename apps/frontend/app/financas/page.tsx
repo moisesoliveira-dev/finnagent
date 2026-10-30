@@ -36,7 +36,6 @@ import { Carregando } from "../../components/ui/esqueleto";
 import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
-import { Money } from "../../components/ui/money";
 import { Troca } from "../../components/ui/movimento";
 import { Icone } from "../../components/ui/icone";
 import { PageHeader } from "../../components/ui/page-header";
@@ -85,6 +84,7 @@ type Rascunho = {
   recurrence: Recorrencia;
   recurrenceInterval: string;
   commitmentId: string;
+  coveredById: string;
   dueRule: RegraDeVencimento;
   /** false: a regra segue o padrão das configurações enquanto a pessoa não mexer. */
   dueRuleManual: boolean;
@@ -167,7 +167,12 @@ export default function Financas() {
   );
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
-  const travado = entrada?.termsLocked ?? false;
+  const serieResolvida = Boolean(editando && entrada?.termsLocked);
+  const destinos = (data?.entries ?? []).filter((entry) => {
+    if (!draft || entry.id === draft.id) return false;
+    if (entry.coveredById && entry.id !== draft.coveredById) return false;
+    return true;
+  });
   const padraoDoVencimento = draft && vista ? regraPadrao(vencimentos, draft.category, vista.mode) : REGRA_SEM_AJUSTE;
   const regraDoVencimento = draft?.dueRuleManual ? draft.dueRule : padraoDoVencimento;
 
@@ -272,6 +277,7 @@ export default function Financas() {
         recurrence: "monthly",
         recurrenceInterval: "1",
         commitmentId: "",
+        coveredById: "",
         dueRule: REGRA_SEM_AJUSTE,
         dueRuleManual: false,
       });
@@ -313,6 +319,7 @@ export default function Financas() {
           nextDueDate: draft.nextDueDate || null,
           recurrence: draft.recurrence,
           recurrenceInterval: numeroDoCampo(draft.recurrenceInterval),
+          coveredById: draft.coveredById || null,
           // Sem escolha da pessoa, vai null e o backend aplica o padrão atual das configurações.
           dueRule:
             aceitaRegraDeVencimento(draft.category) && (draft.dueRuleManual || editando) ? regraDoVencimento : null,
@@ -508,12 +515,29 @@ export default function Financas() {
                 className={cn(field, "resize-y py-2")}
               />
             </div>
-            {editando && travado && draft && entrada ? (
-              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2">
-                <time dateTime={draft.date}>{dataBr(draft.date)}</time>
-                <Money cents={entrada.contractCents} />
+            {draft ? (
+              <CampoSelect
+                id="lancamento-cobertura"
+                label="Já entra em"
+                dica="Se este valor já faz parte de outro lançamento, ele não entra de novo na sobra. O outro é que conta."
+                value={draft.coveredById}
+                options={[
+                  { value: "", label: "Este valor entra na sobra" },
+                  ...destinos.map((entry) => ({
+                    value: entry.id,
+                    label: entry.name || entry.description || "Lançamento",
+                  })),
+                ]}
+                onChange={(coveredById) =>
+                  setDraft((current) => (current ? { ...current, coveredById } : current))
+                }
+              />
+            ) : null}
+            {serieResolvida ? (
+              <p className="text-sm text-ink-2">
+                O que já foi pago, cancelado ou estornado permanece. O valor e a regra novos valem para o que ainda está pendente.
               </p>
-            ) : (
+            ) : null}
             <div className="dialog-par">
               <div className="grid gap-1">
                 <Rotulo htmlFor="lancamento-data" dica="O dia deste lançamento.">
@@ -541,11 +565,10 @@ export default function Financas() {
                   onChange={(valor) =>
                     setDraft((current) => (current ? { ...current, amount: valor } : current))
                   }
-                  className={field}
-                />
+                className={field}
+              />
               </div>
             </div>
-            )}
             {editando && vista && regra && draft ? (
               <p className="text-sm text-ink-2">{resumoDaBase(draft, vista, regra)}</p>
             ) : null}
@@ -633,7 +656,7 @@ export default function Financas() {
                 />
               ) : null}
             </div>
-            {draft && regra?.installments && (!editando || !travado) ? (
+            {draft && regra?.installments ? (
               <div className="dialog-par">
                 {editando ? null : (
                 <div className="grid gap-1">
@@ -653,7 +676,6 @@ export default function Financas() {
                   />
                 </div>
                 )}
-                {editando && travado ? null : (
                   <div className="grid gap-1">
                     <Rotulo htmlFor="lancamento-parcelas" dica="Quantas parcelas este lançamento tem.">
                       Total de parcelas
@@ -670,10 +692,9 @@ export default function Financas() {
                       className={field}
                     />
                   </div>
-                )}
               </div>
             ) : null}
-            {draft && regra?.loan && (!editando || !travado) ? (
+            {draft && regra?.loan ? (
               <div className="dialog-par">
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-vencimento" dica="O dia em que o empréstimo vence.">
@@ -692,7 +713,10 @@ export default function Financas() {
                   />
                 </div>
                 <div className="grid gap-1">
-                  <Rotulo htmlFor="lancamento-juros" dica="A taxa de juros do empréstimo.">
+                  <Rotulo
+                    htmlFor="lancamento-juros"
+                    dica="A taxa fica no contrato. A prestação que entra na conta é o valor, sem somar a taxa de novo."
+                  >
                     Juros (%)
                   </Rotulo>
                   <input
@@ -711,7 +735,6 @@ export default function Financas() {
             ) : null}
             {draft && regra?.recurrence ? (
               <div className="grid gap-4">
-                {!editando || !travado ? (
                   <div className="dialog-par">
                     <CampoSelect
                       id="lancamento-recorrencia"
@@ -748,7 +771,6 @@ export default function Financas() {
                       />
                     </div>
                   </div>
-                ) : null}
                 {editando ? null : (
                 <div className="grid gap-1">
                   <Rotulo htmlFor="lancamento-proximo" dica="A próxima data em que o valor fixo acontece.">
@@ -912,6 +934,7 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
     recurrence: entry.recurrence ?? "monthly",
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),
     commitmentId: entry.commitmentId ?? "",
+    coveredById: entry.coveredById ?? "",
     dueRule: entry.dueRule ?? REGRA_SEM_AJUSTE,
     dueRuleManual: true,
   };

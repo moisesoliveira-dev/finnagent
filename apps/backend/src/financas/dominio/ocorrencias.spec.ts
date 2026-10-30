@@ -1,7 +1,9 @@
 import {
   aplicarStatusNoConjunto,
+  centavosDaPrestacao,
   centavosNoMes,
   gradeDoLancamento,
+  mesclarGrade,
   ocorrenciasDoLancamento,
   situacaoDaOcorrencia,
   situacaoDoLancamento,
@@ -73,5 +75,35 @@ describe("ocorrências do lançamento", () => {
     expect(paga).not.toBe("bloqueada");
     if (paga === "bloqueada") return;
     expect(termosTravados([paga, ...grade.slice(1)], false)).toBe(true);
+  });
+
+  it("preserva a ocorrência resolvida e aplica o contrato novo no que está pendente", () => {
+    const grade = gradeDoLancamento(notebook);
+    const paga = transicaoDaOcorrencia(grade[0]!, "completed");
+    expect(paga).not.toBe("bloqueada");
+    if (paga === "bloqueada") return;
+    const nova = grade.map((item) => ({ ...item, plannedCents: -1 }));
+    const mesclada = mesclarGrade([paga, ...grade.slice(1)], nova);
+    expect(mesclada[0]).toEqual(paga);
+    expect(mesclada[1]?.plannedCents).toBe(-1);
+    expect(mesclada).toHaveLength(grade.length);
+    const curta = mesclarGrade([paga, ...grade.slice(1)], nova.slice(0, 1));
+    expect(curta.map((item) => item.number)).toEqual([1]);
+  });
+
+  it("não soma a taxa de juros na prestação", () => {
+    const emprestimo = EXEMPLO.find((item) => item.type === "empréstimo");
+    expect(emprestimo).toBeDefined();
+    if (!emprestimo) return;
+    const comJurosNoContrato = { ...emprestimo, interestRate: 3.5 };
+    const comJuros = gradeDoLancamento(comJurosNoContrato);
+    const semJuros = gradeDoLancamento(emprestimo);
+    expect(comJuros.map((item) => item.plannedCents)).toEqual(semJuros.map((item) => item.plannedCents));
+    expect(comJuros[0]?.plannedCents).toBe(centavosDaPrestacao(emprestimo.cents));
+  });
+
+  it("deixa fora da sobra o lançamento que já entra em outro", () => {
+    expect(centavosNoMes({ ...notebook, coveredById: "33333333-3333-4333-8333-000000000001" }, WORKFLOW_INICIAL, 2026, 3)).toBeUndefined();
+    expect(centavosNoMes(notebook, WORKFLOW_INICIAL, 2026, 3)).toBe(notebook.cents);
   });
 });

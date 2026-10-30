@@ -10,13 +10,14 @@ import {
   REGRA_SEM_AJUSTE,
   TIPOS_DE_REGRA,
   gradeDoLancamento,
+  GRUPO_DAS_METAS,
   mesmaRegra,
   type CalendarioDeDiasUteis,
   type RegraDeVencimento,
   parcelaAtual,
   proximoVencimento,
   statusAgregado,
-  termosTravados,
+  mesclarGrade,
   transicaoDaOcorrencia,
   type CategoriaTransacao,
   type EfeitoTransacao,
@@ -170,6 +171,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       }
       const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category);
       if (recusa) return recusa;
+      const cobertura = await recusaDaCobertura(tx, tenantId, pedido.id, pedido.coveredById ?? null);
+      if (cobertura) return cobertura;
       const ultimo = await tx.entry.aggregate({
         where: { tenantId },
         _max: { position: true },
@@ -220,12 +223,10 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       if (igual(atual, pedido)) return lancamentoDe(atual);
       if (alterouIdentidade(baseDaLinha(atual), pedido)) return "base" as const;
       const regenerar = alterouTermos(termosDaLinha(atual), termosDoPedido(pedido));
-      if (
-        regenerar &&
-        termosTravados(efetivasDaLinha(atual), (atual.statementLines?.length ?? 0) > 0)
-      ) {
-        return "ocorrencia" as const;
-      }
+      // A grade nova nasce pendente. O que já foi pago, cancelado ou estornado permanece na mescla.
+      const grade = regenerar
+        ? mesclarGrade(efetivasDaLinha(atual), gradeDoPedido({ ...pedido, status: "pending" }, calendario))
+        : null;
       const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category, {
         id: atual.id,
         cents: atual.cents,
@@ -234,6 +235,13 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         pedidoMode: pedido.mode,
       });
       if (recusa) return recusa;
+      const cobertura = await recusaDaCobertura(
+        tx,
+        tenantId,
+        pedido.id,
+        pedido.coveredById === undefined ? atual.coveredById : pedido.coveredById,
+      );
+      if (cobertura) return cobertura;
       const meses = mesesDoPedido(pedido);
       await tx.entry.updateMany({
         where: { id: pedido.id, tenantId },
@@ -248,8 +256,9 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           startMonth: pedido.startMonth,
           installments: pedido.installments,
           ...atributos(pedido),
+          ...(pedido.coveredById !== undefined ? { coveredById: pedido.coveredById } : {}),
           ...(pedido.category === "fixed" && !regenerar ? {} : { suspendedCents: 0 }),
-          ...(regenerar ? resumoGravado(pedido, gradeDoPedido(pedido, calendario)) : {}),
+          ...(grade ? resumoGravado(pedido, grade) : {}),
         },
       });
       await tx.entryAmount.deleteMany({ where: { entryId: pedido.id, tenantId } });
@@ -261,8 +270,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       if (pedido.category !== "fixed" || regenerar) {
         await tx.entryAdjustment.deleteMany({ where: { entryId: pedido.id, tenantId } });
       }
-      if (regenerar) {
-        await this.substituir(tx, tenantId, pedido.id, gradeDoPedido(pedido, calendario));
+      if (grade) {
+        await this.substituir(tx, tenantId, pedido.id, grade);
       } else if (!mesmaRegra(regraDaLinha(atual), pedido.dueRule)) {
         // Só a regra mudou: as pendentes ganham as datas novas, as pagas ficam como estão.
         await this.redatarNaTransacao(tx, tenantId, calendario, pedido.id);
@@ -833,6 +842,7 @@ type Linha = {
   nextDueOn: Date | null;
   suspendedCents: number;
   commitmentId: string | null;
+  coveredById: string | null;
   recurrence: string | null;
   recurrenceInterval: number | null;
   dueRule: string;
@@ -896,6 +906,7 @@ function gravacao(pedido: Parameters<typeof atributos>[0]) {
     ...atributos(pedido),
     suspendedCents: 0,
     commitmentId: null,
+    coveredById: pedido.coveredById ?? null,
   };
 }
 
@@ -925,6 +936,7 @@ function igual(atual: Linha, pedido: NovoLancamento) {
     (atual.nextDueOn ? dataIso(atual.nextDueOn) : null) === pedido.nextDueDate &&
     atual.recurrence === pedido.recurrence &&
     atual.recurrenceInterval === pedido.recurrenceInterval &&
+    (pedido.coveredById === undefined || atual.coveredById === (pedido.coveredById ?? null)) &&
     mesmaRegra(regraDaLinha(atual), pedido.dueRule) &&
     atual.amounts.length === meses.length;
   if (!campos) return false;
@@ -988,6 +1000,7 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
     nextDueDate: row.nextDueOn ? dataIso(row.nextDueOn) : null,
     suspendedCents: row.suspendedCents,
     commitmentId: row.commitmentId,
+    coveredById: row.coveredById,
     recurrence: row.recurrence as Recorrencia | null,
     recurrenceInterval: row.recurrenceInterval,
     dueRule: regraDaLinha(row),
@@ -1120,6 +1133,24 @@ function ocorrenciaDe(row: OcorrenciaGravada): Ocorrencia {
   };
 }
 
+async function recusaDaCobertura(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  id: string,
+  coveredById: string | null,
+) {
+  if (!coveredById) return null;
+  if (coveredById === id) return "cobertura" as const;
+  const alvo = await tx.entry.findFirst({
+    where: { id: coveredById, tenantId },
+    select: { id: true, coveredById: true },
+  });
+  if (!alvo || alvo.coveredById) return "cobertura" as const;
+  const filhos = await tx.entry.count({ where: { tenantId, coveredById: id } });
+  if (filhos > 0) return "cobertura" as const;
+  return null;
+}
+
 async function recusaDaSessao(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -1139,6 +1170,11 @@ async function recusaDaSessao(
   });
   if (!sessao || sessao.group.tenantId !== tenantId) return "sessao-ausente" as const;
   if (sessao.endedAt) return "sessao-encerrada" as const;
+  if (categoriaDeCompromisso(category)) {
+    const meta = await tx.goal.findFirst({ where: { tenantId, sessionId }, select: { id: true } });
+    const grupoDeMeta = sessao.group.name.toLowerCase() === GRUPO_DAS_METAS.toLowerCase();
+    if (meta || grupoDeMeta) return "reserva" as const;
+  }
   const kind: TipoSessao = sessao.kind === "valor" ? "valor" : "acumulo";
   if (!categoriaPermitida(kind, category)) {
     return kind === "valor" ? ("tipo-valor" as const) : ("tipo-acumulo" as const);
