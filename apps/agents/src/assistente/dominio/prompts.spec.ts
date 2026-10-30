@@ -16,7 +16,7 @@ describe("prompt do consultor", () => {
 
   it("pensa como consultor e conhece as convenções do dinheiro", () => {
     expect(prompt).toContain("Pense como um consultor financeiro, não como quem só executa");
-    expect(prompt).toContain("o sistema mostra as datas reais e a sobra do mês antes e depois");
+    expect(prompt).toContain("O cartão calcula datas e sobra; você explica esses números, não inventa outro.");
     expect(prompt).toContain("Pagamento nunca cai em fim de semana ou feriado");
     expect(prompt).toContain("Dinheiro guardado (reserva, investimento, poupança para um objetivo): não é gasto");
   });
@@ -26,6 +26,20 @@ describe("prompt do consultor", () => {
     expect(prompt).toContain("O compromisso da agenda não guarda valor");
     expect(prompt).toContain("Nunca use uma sessão sem relação com o valor só porque é a única");
     expect(prompt).toContain('o plano cria o compromisso ligado ao lançamento (entryId "@passo:N")');
+  });
+
+  it("conhece como uma mudança mexe na outra", () => {
+    expect(prompt).toContain("Você conhece os fluxos e as regras deste sistema");
+    expect(prompt).toContain("Como uma mudança mexe na outra");
+    expect(prompt).toContain("Editar valor, data ou regra muda só o que ainda está pendente");
+    expect(prompt).toContain("a taxa não é somada de novo");
+    expect(prompt).toContain("já incluso em outro não entra de novo");
+    expect(prompt).toContain("qualquer sessão do grupo Metas, não aceita fixa, parcela nem empréstimo");
+    expect(prompt).toContain("Cancelar a fixa num mês, ou pagar pelo extrato, mexe só naquele mês");
+    expect(prompt).toContain("Sessão de valor guarda uma única viva");
+    expect(prompt).toContain("Separar valor para uma meta cria uma saída única");
+    expect(prompt).toContain("Ligar ou mover o compromisso não muda o lançamento");
+    expect(prompt).toContain("nomeie o que mais muda");
   });
 
   it("trata o extrato pela categoria e exige a escolha quando o valor diverge", () => {
