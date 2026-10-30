@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ContaDoMenu } from "../auth/conta-do-menu";
 import { Marca, PainelDaMarca } from "../auth/painel-da-marca";
 import { SessaoExpirada } from "../auth/sessao-expirada";
+import { SinoDoMenu } from "../notificacoes/central";
 import { cn, focusRing } from "./cn";
 import { useCurva } from "./movimento";
 
@@ -84,9 +85,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="Principal"
         className="pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 self-start overflow-x-auto border-b border-line bg-bg p-3 tab:row-span-2 tab:h-dvh tab:flex-col tab:items-stretch tab:gap-6 tab:overflow-y-auto tab:border-r tab:border-b-0 tab:p-4"
       >
-        <div className="flex items-center gap-2 px-3 font-display text-lg font-bold tracking-titulo text-ink">
-          <span aria-hidden className="size-3 shrink-0 bg-cta" />
-          Prumo
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <div className="flex items-center gap-2 px-3 font-display text-lg font-bold tracking-titulo text-ink">
+            <span aria-hidden className="size-3 shrink-0 bg-cta" />
+            Prumo
+          </div>
+          <SinoDoMenu />
         </div>
         <ul className="flex gap-1 tab:flex-col">
           {items.slice(0, 4).map((item) => (
