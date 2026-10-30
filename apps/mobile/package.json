@@ -1,0 +1,47 @@
+{
+  "name": "mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "sync": "cap sync",
+    "android": "cap run android",
+    "ios": "cap run ios",
+    "assets": "capacitor-assets generate --assetPath assets"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
+    "@finnagent/chat": "workspace:*",
+    "@finnagent/contracts": "workspace:*",
+    "@fontsource/geist-mono": "^5.3.0",
+    "@fontsource/tasa-orbiter": "^5.3.0",
+    "@ionic/react": "^9.0.10",
+    "@ionic/react-router": "^9.0.10",
+    "ionicons": "^8.1.0",
+    "motion": "^14.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router": "^6.30.6",
+    "react-router-dom": "^6.30.6",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.6.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^5",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.11"
+  }
+}
