@@ -54,6 +54,10 @@ export async function abrirSessao(request: Request, caminho: "auth/entrar" | "au
   }
 
   const aberta = JSON.parse(texto) as SessaoAberta;
+  // O app mobile guarda o token no armazenamento seguro do aparelho, não em cookie.
+  if (request.headers.get("x-prumo-app") === "mobile") {
+    return NextResponse.json(aberta, { headers: { "cache-control": "no-store" } });
+  }
   const seguro = origemPublica(request).startsWith("https://");
   const saida = NextResponse.json({ user: aberta.user }, { headers: { "cache-control": "no-store" } });
   saida.cookies.set({ ...opcoesDoCookie(seguro, new Date(aberta.expiresAt)), value: aberta.token });
