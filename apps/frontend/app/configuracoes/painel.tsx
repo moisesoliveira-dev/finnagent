@@ -231,7 +231,7 @@ export function Painel() {
   const [salvando, setSalvando] = useState(false);
   const [erroNome, setErroNome] = useState("");
   const [erroData, setErroData] = useState("");
-  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | null>(null);
+  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | "recomecar" | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [transferindo, setTransferindo] = useState(false);
   const [palavra, setPalavra] = useState("");
@@ -477,9 +477,29 @@ export function Painel() {
     }
   }
 
+  async function zerar() {
+    setTransferindo(true);
+    try {
+      const resposta = await fetch("/api/dados/zerar", { method: "POST" });
+      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível zerar os dados.");
+      toast.sucesso("Dados zerados. As configurações continuam.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível zerar os dados.");
+    } finally {
+      setTransferindo(false);
+      setPalavra("");
+      setConfirmacao(null);
+    }
+  }
+
   function confirmarAcao() {
     if (confirmacao === "importar") {
       void importar();
+      return;
+    }
+    if (confirmacao === "recomecar") {
+      void zerar();
       return;
     }
     if (confirmacao === "excluir") {
@@ -519,8 +539,9 @@ export function Painel() {
   }
 
   const lista = achatar(ARVORE, abertos);
-  const exigePalavra = confirmacao === "excluir";
-  const podeConfirmar = !exigePalavra || palavra === "EXCLUIR";
+  const palavraEsperada = confirmacao === "recomecar" ? "RECOMEÇAR" : "EXCLUIR";
+  const exigePalavra = confirmacao === "excluir" || confirmacao === "recomecar";
+  const podeConfirmar = !exigePalavra || palavra === palavraEsperada;
 
   return (
     <>
@@ -937,6 +958,23 @@ export function Painel() {
                 />
                 <Button onClick={() => seletor.current?.click()} disabled={transferindo}>Importar</Button>
               </Linha>
+              <Linha
+                id="recomecar"
+                titulo="Recomeçar"
+                dica="Apaga lançamentos, grupos, sessões, agenda, extratos, metas e o histórico. Conta, aparência, vencimentos, feriados, usuários e a inteligência artificial ficam."
+                grupo
+              >
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setPalavra("");
+                    setConfirmacao("recomecar");
+                  }}
+                  disabled={transferindo}
+                >
+                  Recomeçar
+                </Button>
+              </Linha>
               <Linha id="excluir" titulo="Excluir minha conta" dica="Apaga todos os seus dados. Não pode ser desfeito." grupo>
                 <Button
                   variant="danger"
@@ -987,19 +1025,23 @@ export function Painel() {
               ? "Desconectar o Google Calendar?"
               : confirmacao === "importar"
                 ? "Importar os dados?"
-                : "Excluir a conta?"}
+                : confirmacao === "recomecar"
+                  ? "Recomeçar do zero?"
+                  : "Excluir a conta?"}
           </h2>
           <p>
             {confirmacao === "desconectar"
               ? "Os compromissos deixam de ser sincronizados. Os lançamentos continuam no Prumo."
               : confirmacao === "importar"
                 ? `Tudo o que você tem hoje (grupos, sessões, lançamentos, compromissos, extratos e metas) será substituído pelo conteúdo de ${arquivo?.name ?? "o arquivo"}. Isso não pode ser desfeito.`
-                : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
+                : confirmacao === "recomecar"
+                  ? "Lançamentos, grupos, sessões, compromissos, extratos, metas e o histórico saem. Ficam a conta, a aparência, os vencimentos, os feriados, os usuários e a inteligência artificial. Não pode ser desfeito."
+                  : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
           </p>
           {exigePalavra ? (
             <div className="grid gap-1">
               <label htmlFor="confirmar-exclusao" className="text-sm font-semibold">
-                Digite EXCLUIR para confirmar
+                Digite {palavraEsperada} para confirmar
               </label>
               <input
                 id="confirmar-exclusao"
@@ -1023,7 +1065,13 @@ export function Painel() {
             Cancelar
           </Button>
           <Button variant="danger" disabled={!podeConfirmar || transferindo} onClick={confirmarAcao}>
-            {confirmacao === "desconectar" ? "Desconectar" : confirmacao === "importar" ? "Substituir meus dados" : "Excluir conta"}
+            {confirmacao === "desconectar"
+              ? "Desconectar"
+              : confirmacao === "importar"
+                ? "Substituir meus dados"
+                : confirmacao === "recomecar"
+                  ? "Zerar os dados"
+                  : "Excluir conta"}
           </Button>
         </div>
       </Dialogo>

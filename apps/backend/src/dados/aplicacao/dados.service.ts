@@ -31,4 +31,9 @@ export class DadosService {
     await this.dados.importar(tenantId, dados, resumo);
     return resumo;
   }
+
+  async zerar(tenantId: string) {
+    await this.dados.zerar(tenantId);
+    return { zerado: true as const };
+  }
 }
