@@ -1,0 +1,1211 @@
+/* O visual do Prumo no Ionic: os mesmos tokens do frontend, cantos retos, sem sombra, etiquetas em mono. */
+
+:root {
+  color-scheme: light;
+  --bg: #fafaf7;
+  --surface: #ffffff;
+  --surface-2: #f3f2ec;
+  --ink: oklch(0.2 0.012 148);
+  --ink-2: oklch(0.46 0.012 148);
+  --line: #e3e2da;
+  --brand: oklch(0.536 0.1296 222.9);
+  --brand-ink: #ffffff;
+  --brand-soft: color-mix(in oklch, oklch(0.536 0.1296 222.9) 10%, var(--surface));
+  --cta: oklch(0.88 0.18 96);
+  --cta-ink: #171309;
+  --pending: oklch(0.52 0.12 62);
+  --pending-soft: oklch(0.96 0.04 78);
+  --pending-line: oklch(0.76 0.14 70);
+  --pos: oklch(0.52 0.13 155);
+  --neg: oklch(0.55 0.2 27);
+  --event: oklch(0.5 0.17 268);
+  --event-soft: color-mix(in oklch, oklch(0.5 0.17 268) 10%, var(--surface));
+  --pos-soft: color-mix(in oklch, var(--pos) 14%, var(--surface));
+  --neg-soft: color-mix(in oklch, var(--neg) 12%, var(--surface));
+  --pontos: oklch(0.2 0.012 148 / 0.1);
+  --fonte: "TASA Orbiter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fonte-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0d1111;
+    --surface: #13181a;
+    --surface-2: #171d20;
+    --ink: #ededec;
+    --ink-2: #8b9291;
+    --line: #263034;
+    --brand: oklch(0.74 0.12 222.9);
+    --brand-ink: #061318;
+    --pending: oklch(0.78 0.12 75);
+    --pending-soft: oklch(0.28 0.05 70);
+    --pending-line: oklch(0.5 0.1 70);
+    --pos: oklch(0.76 0.14 155);
+    --neg: oklch(0.72 0.16 27);
+    --event: oklch(0.72 0.14 268);
+    --pontos: rgb(237 237 236 / 0.07);
+  }
+}
+
+/* Ponte para as variáveis do Ionic. */
+:root {
+  --ion-font-family: var(--fonte);
+  --ion-background-color: var(--bg);
+  --ion-text-color: var(--ink);
+  --ion-border-color: var(--line);
+  --ion-color-primary: var(--brand);
+  --ion-color-primary-contrast: var(--brand-ink);
+  --ion-color-primary-rgb: 0, 120, 154;
+  --ion-toolbar-background: var(--bg);
+  --ion-toolbar-color: var(--ink);
+  --ion-toolbar-border-color: var(--line);
+  --ion-item-background: var(--surface);
+  --ion-item-border-color: var(--line);
+  --ion-tab-bar-background: var(--surface);
+  --ion-tab-bar-color: var(--ink-2);
+  --ion-tab-bar-color-selected: var(--brand);
+  --ion-tab-bar-border-color: var(--line);
+}
+
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+ion-button,
+ion-card,
+ion-item,
+ion-input,
+ion-textarea,
+ion-segment,
+ion-segment-button,
+ion-chip,
+ion-modal {
+  --border-radius: 0;
+  border-radius: 0;
+}
+
+ion-toolbar {
+  --border-width: 0 0 1px 0;
+}
+
+/* Sem sombra: a barra do topo se separa pela borda, como no web. */
+ion-header::after,
+.header-md::after {
+  display: none !important;
+  background-image: none !important;
+}
+
+ion-header {
+  box-shadow: none !important;
+}
+
+ion-title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+ion-tab-bar {
+  border-top: 1px solid var(--line);
+}
+
+ion-tab-button {
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+ion-button {
+  --box-shadow: none;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-height: 40px;
+}
+
+/* O botão principal é o amarelo; um por área. */
+ion-button.principal {
+  --background: var(--cta);
+  --color: var(--cta-ink);
+}
+
+.etiqueta {
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+.pagina {
+  display: grid;
+  gap: 24px;
+  padding: 16px;
+  padding-bottom: 32px;
+}
+
+.secao {
+  display: grid;
+  gap: 12px;
+}
+
+.titulo {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.cartao {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.cartao.destaque {
+  border-color: var(--brand);
+}
+
+.grade {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.numero {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.numero.grande {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.pos {
+  color: var(--pos);
+}
+
+.neg {
+  color: var(--neg);
+}
+
+.fraco {
+  color: var(--ink-2);
+}
+
+.lista {
+  display: grid;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+}
+
+.linha:last-child {
+  border-bottom: 0;
+}
+
+.linha > .texto {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.linha > .texto > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.linha.evento {
+  border-left: 4px solid var(--event);
+}
+
+.aviso {
+  padding: 12px;
+  border: 1px solid var(--pending-line);
+  background: var(--pending-soft);
+  color: var(--pending);
+  font-size: 0.875rem;
+}
+
+.erro {
+  padding: 12px;
+  border: 1px solid var(--neg);
+  color: var(--neg);
+  font-size: 0.875rem;
+}
+
+.barra {
+  height: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.barra > span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+
+.seletor-de-mes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.seletor-de-mes strong {
+  font-size: 1.0625rem;
+}
+
+.seletor-de-mes strong::first-letter {
+  text-transform: uppercase;
+}
+
+.marca {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: var(--cta);
+}
+
+.centro {
+  display: grid;
+  place-items: center;
+  min-height: 40vh;
+  color: var(--ink-2);
+}
+
+/* Login */
+.entrada {
+  display: grid;
+  gap: 24px;
+  align-content: center;
+  min-height: 100%;
+  padding: 24px 16px;
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.campo {
+  display: grid;
+  gap: 4px;
+}
+
+.campo input,
+.compositor textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: none;
+}
+
+.campo input:focus,
+.compositor textarea:focus {
+  border-color: var(--brand);
+}
+
+/* Assistente */
+.conversa {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  align-content: start;
+}
+
+.balao {
+  max-width: 88%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.balao.minha {
+  justify-self: end;
+  background: var(--surface-2);
+}
+
+.mensagem {
+  display: grid;
+  gap: 8px;
+}
+
+.acao {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.acao[data-estado="feita"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--pos);
+}
+
+.acao[data-estado="falhou"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--neg);
+}
+
+.acao[data-estado="executando"]::before,
+.acao[data-estado="cancelada"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--pending-line);
+}
+
+.compositor {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px 16px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.compositor textarea {
+  resize: none;
+  max-height: 120px;
+  field-sizing: content;
+}
+
+.plano-passo {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+
+/* ---------- Segunda passada: cabeçalho, estados e ritmo ---------- */
+
+.cabecalho-da-tela {
+  display: grid;
+  gap: 4px;
+  padding: 16px 16px 0;
+}
+
+.cabecalho-da-tela .titulo {
+  font-size: 1.75rem;
+}
+
+ion-toolbar {
+  --min-height: 56px;
+  --padding-start: 16px;
+  --padding-end: 8px;
+}
+
+/* Alvos de toque de 44 px, com 8 px entre eles. */
+ion-button {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  min-height: 44px;
+}
+
+ion-buttons ion-button {
+  min-width: 44px;
+}
+
+.linha,
+.sugestao,
+.atalho,
+.botao-link {
+  min-height: 48px;
+}
+
+/* A aba atual leva uma linha de 2 px em cima, como a barra do menu no web. */
+ion-tab-bar {
+  --border: 0;
+  height: calc(56px + env(safe-area-inset-bottom));
+}
+
+ion-tab-button {
+  position: relative;
+  --padding-top: 4px;
+}
+
+/* A linha da aba atual: o motion a desliza de uma aba para a outra (layoutId). */
+ion-tab-button .indicador {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--brand);
+}
+
+ion-segment {
+  --background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+ion-segment-button {
+  --color: var(--ink-2);
+  --indicator-color: var(--surface);
+  --color-checked: var(--brand);
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  min-height: 44px;
+}
+
+.grade.tres {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grade.separada {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.barra > span.perigo {
+  background: var(--neg);
+}
+
+.barras {
+  width: 100%;
+  height: auto;
+}
+
+.atalho {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--brand-ink);
+  background: var(--brand);
+  text-decoration: none;
+}
+
+.atalho .texto {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+}
+
+.atalho .fraco {
+  color: inherit;
+  opacity: 0.85;
+  font-size: 0.875rem;
+}
+
+.atalho ion-icon {
+  font-size: 1.5rem;
+}
+
+.dia {
+  min-width: 28px;
+  font-family: var(--fonte-mono);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.titulo-do-dia {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.vazio {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  text-align: center;
+  border: 1px dashed var(--line);
+}
+
+.vazio ion-icon {
+  font-size: 2rem;
+  color: var(--ink-2);
+}
+
+.botao-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16px;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cta-ink);
+  background: var(--cta);
+  text-decoration: none;
+}
+
+/* Agenda: o dia grande à esquerda, os compromissos à direita. */
+.dia-da-agenda {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dia-da-agenda .data {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 48px;
+  padding: 8px 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.dia-da-agenda .data strong {
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.dia-da-agenda.hoje .data {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+.dia-da-agenda.hoje .data .etiqueta {
+  color: inherit;
+}
+
+/* Metas */
+.linha-da-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.posicao {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
+
+/* Assistente */
+.sugestao {
+  padding: 12px 16px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.sugestao:active {
+  border-color: var(--brand);
+}
+
+.digitando {
+  display: inline-flex;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  justify-self: start;
+}
+
+/* O botão da meta pendente não pode ser encoberto pela barra de abas. */
+.pagina {
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+}
+
+
+/* Ajustes da conferência visual */
+.texto {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.linha > :last-child,
+.numero,
+.pos,
+.neg {
+  white-space: nowrap;
+}
+
+.seletor-de-mes ion-button {
+  --padding-start: 0;
+  --padding-end: 0;
+  width: 44px;
+}
+
+.aviso,
+.erro {
+  margin: 0;
+}
+
+
+.tela-cheia {
+  position: absolute;
+  inset: 0;
+}
+
+.pagina.sem-margem {
+  padding: 0;
+}
+
+/* Login: a logo pende de um fio de prumo. */
+.pendulo {
+  display: grid;
+  justify-items: center;
+  width: fit-content;
+  margin-inline: auto;
+}
+
+.fio {
+  display: block;
+  width: 1px;
+  height: 40px;
+  background: var(--ink-2);
+}
+
+.marca-completa {
+  margin: 0;
+  line-height: 0;
+}
+
+/* O ícone da aba fica dentro de um span do motion: o tamanho passa a ser dado aqui. */
+ion-tab-button ion-icon {
+  font-size: 24px;
+}
+
+
+/* ---------- Login ---------- */
+
+.pontos {
+  background-image: radial-gradient(var(--pontos) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.tela-login {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+.barras-do-fundo {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 62%;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.barras-do-fundo span {
+  flex: 1;
+  background: var(--pos);
+  opacity: 0.12;
+}
+
+.topo-login {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 24px;
+  padding: calc(32px + env(safe-area-inset-top)) 24px 32px;
+  text-align: center;
+}
+
+.frase-login {
+  max-width: 14ch;
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.frase-login span {
+  display: inline-block;
+  margin: 0 0.12em;
+}
+
+.destaque-verde {
+  color: var(--pos);
+}
+
+.folha {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 2px solid var(--brand);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.titulo-da-folha {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.entrada-com-icone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding-left: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.entrada-com-icone:focus-within {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.entrada-com-icone ion-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.campo .entrada-com-icone input {
+  flex: 1;
+  min-height: 46px;
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+}
+
+.olho {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+}
+
+.seguro {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+/* Cadastro: medidor de força da senha e troca entre entrar e criar conta. */
+.medidor {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.medidor > span {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.medidor > span > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.troca-de-modo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.link {
+  min-height: 44px;
+  padding: 0 8px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--brand);
+  background: transparent;
+  border: 0;
+}
+
+.link:disabled {
+  opacity: 0.5;
+}
+
+/* ---------- Perfil ---------- */
+
+.avatar {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  user-select: none;
+}
+
+.cartao-do-perfil {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.faixa-de-pontos {
+  height: 48px;
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.corpo-do-cartao {
+  display: grid;
+  gap: 16px;
+  padding: 0 16px 16px;
+}
+
+.avatar-do-cartao {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: -40px;
+  border: 4px solid var(--surface);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  padding: 4px 8px;
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
+
+.chip.ok {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand);
+}
+
+.chip.ia {
+  color: var(--pending);
+  background: var(--pending-soft);
+  border-color: var(--pending-line);
+}
+
+.area-de-texto {
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  resize: none;
+  outline: none;
+}
+
+.area-de-texto:focus {
+  border-color: var(--brand);
+}
+
+.cores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 4px;
+}
+
+.cor {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.cor:disabled {
+  opacity: 0.5;
+}
+
+.moldura {
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--brand);
+}
+
+.barra-de-salvar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 -16px -16px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.linha.sessao ion-icon {
+  flex-shrink: 0;
+  font-size: 1.5rem;
+  color: var(--ink-2);
+}
+
+.marca-ok {
+  color: var(--brand);
+}
+
+/* O aviso segue o visual do Prumo: fundo de tinta, sem sombra e uma barra colorida à esquerda. */
+ion-toast {
+  --background: var(--ink);
+  --color: var(--bg);
+  --border-radius: 0;
+  --box-shadow: none;
+  --border-width: 0 0 0 4px;
+  --border-style: solid;
+  --border-color: var(--pos);
+  font-family: var(--fonte);
+}
+
+ion-toast.aviso-de-erro {
+  --border-color: var(--neg);
+}
+
+/* ---------- Extratos ---------- */
+
+.entrada-com-icone.selecao {
+  padding-right: 12px;
+}
+
+.entrada-com-icone select {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  appearance: none;
+}
+
+.fichas {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fichas::-webkit-scrollbar {
+  display: none;
+}
+
+.ficha {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 16px;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.ficha.ativa {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand);
+}
+
+.chip.neg {
+  color: var(--neg);
+  border-color: var(--neg);
+}
+
+.saude {
+  display: flex;
+  gap: 4px;
+  height: 8px;
+  background: var(--surface-2);
+}
+
+.saude > span {
+  display: block;
+  height: 100%;
+}
+
+.cartao-de-extrato,
+.linha-de-conferencia {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 -8px -8px;
+}
+
+.cabeca-da-linha {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.opcao-de-valor {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+.opcao-de-valor.ativa {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.opcao-de-valor input {
+  margin-top: 4px;
+  accent-color: var(--brand);
+}
+
+.barra-de-lote {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+
+.so-leitor-de-tela {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.area-de-arquivo {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 32px 16px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--brand);
+  cursor: pointer;
+}
+
+.area-de-arquivo ion-icon {
+  font-size: 2rem;
+  color: var(--brand);
+}
+
+.aviso.conferido {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand);
+}
+
+.aviso-link {
+  display: block;
+  text-decoration: none;
+}
+
+/* Filho de grade não encolhe abaixo do conteúdo por padrão: sem isto, uma fila que rola de lado alarga a tela. */
+.pagina > *,
+.secao > *,
+.cartao > * {
+  min-width: 0;
+}
+
+
