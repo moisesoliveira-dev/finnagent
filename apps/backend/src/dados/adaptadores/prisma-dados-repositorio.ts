@@ -5,6 +5,7 @@ import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { gravarOutbox } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import type { DadosDoPacote, ResumoDaImportacao } from "../dominio/pacote.js";
+import { aplicarZeramento } from "../dominio/zerar.js";
 import type { DadosRepositorio } from "../portas/dados-repositorio.js";
 
 const LOTE = 1000;
@@ -180,6 +181,17 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           });
         }
         await gravarOutbox(tx, tenantId, "importar-dados", tenantId, resumo, randomUUID());
+      },
+      { timeout: 120_000, maxWait: 10_000 },
+    );
+  }
+
+  async zerar(tenantId: string) {
+    const db = this.banco();
+    await db.$transaction(
+      async (tx) => {
+        await aplicarZeramento(tx, tenantId);
+        await gravarOutbox(tx, tenantId, "zerar-dados", tenantId, {}, randomUUID());
       },
       { timeout: 120_000, maxWait: 10_000 },
     );

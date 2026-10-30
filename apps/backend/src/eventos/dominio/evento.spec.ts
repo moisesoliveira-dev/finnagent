@@ -107,6 +107,7 @@ describe("evento da outbox", () => {
     expect(categoria("atualizar-provedor-de-ia")).toEqual(["configuracoes", "Provedor de IA"]);
     expect(categoria("pagar-pelo-extrato")).toEqual(["extratos", "Lançamento"]);
     expect(categoria("criar-feriado-local")).toEqual(["financeiro", "Feriado"]);
+    expect(categoria("zerar-dados")).toEqual(["configuracoes", "Dados"]);
   });
 
   it("toda operação que o backend grava na outbox tem categoria", () => {

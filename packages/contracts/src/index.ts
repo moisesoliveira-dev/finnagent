@@ -1781,7 +1781,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("configuracoes", "Assistente de IA", ["salvar-assistente-de-ia"]),
   ...grupo("configuracoes", "Provedor de IA", ["criar-provedor-de-ia", "atualizar-provedor-de-ia", "remover-provedor-de-ia"]),
-  ...grupo("configuracoes", "Dados", ["importar-dados"]),
+  ...grupo("configuracoes", "Dados", ["importar-dados", "zerar-dados"]),
   ...grupo("conta", "Acesso", [
     "abrir-sessao",
     "encerrar-sessao-de-acesso",

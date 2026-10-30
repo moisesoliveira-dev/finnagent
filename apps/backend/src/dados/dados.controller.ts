@@ -34,6 +34,12 @@ export class DadosController {
     return this.executar(() => this.dados.importar(this.tenant(tenant), body));
   }
 
+  @Post("zerar")
+  @HttpCode(200)
+  zerar(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.dados.zerar(this.tenant(tenant)));
+  }
+
   private tenant(value: string | undefined) {
     const parsed = tenantId.safeParse(value);
     if (!parsed.success) throw new BadRequestException("Tenant ausente.");

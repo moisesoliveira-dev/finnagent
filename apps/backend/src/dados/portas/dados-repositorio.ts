@@ -7,4 +7,6 @@ export interface DadosRepositorio {
   exportar(tenantId: string): Promise<Record<keyof DadosDoPacote, unknown>>;
   /** Troca os dados do tenant pelos do pacote, em uma transação só. */
   importar(tenantId: string, dados: DadosDoPacote, resumo: ResumoDaImportacao): Promise<void>;
+  /** Apaga lançamentos, agenda, extratos, metas e o histórico. A configuração fica. */
+  zerar(tenantId: string): Promise<void>;
 }
