@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@finnagent/chat": "workspace:*",
     "@finnagent/contracts": "workspace:*",
     "@next/env": "16.3.8",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.222.0",

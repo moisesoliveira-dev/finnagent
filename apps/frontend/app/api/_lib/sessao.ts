@@ -1,12 +1,20 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 // Em https o cookie leva o prefixo __Host-: o navegador só o aceita com Secure, Path=/ e sem Domain.
 export const COOKIE_SEGURO = "__Host-prumo_sessao";
 export const COOKIE_LOCAL = "prumo_sessao";
 
+/** O app mobile não tem cookie: manda o token da sessão em Authorization: Bearer. */
+export function tokenDoCabecalho(authorization: string | null) {
+  const [tipo, token] = (authorization ?? "").split(" ");
+  return tipo?.toLowerCase() === "bearer" && token ? token : "";
+}
+
 export async function lerToken() {
   const jar = await cookies();
-  return jar.get(COOKIE_SEGURO)?.value ?? jar.get(COOKIE_LOCAL)?.value ?? "";
+  const doCookie = jar.get(COOKIE_SEGURO)?.value ?? jar.get(COOKIE_LOCAL)?.value;
+  if (doCookie) return doCookie;
+  return tokenDoCabecalho((await headers()).get("authorization"));
 }
 
 export function opcoesDoCookie(seguro: boolean, expira: Date) {

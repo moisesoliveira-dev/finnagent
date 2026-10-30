@@ -97,7 +97,11 @@ export function marcarResposta(mensagens: MensagemDoChat[], perguntaId: string, 
 
 /** Lê a resposta NDJSON do assistente, um evento por linha, à medida que chega. */
 export async function* lerEventos(resposta: Response): AsyncGenerator<EventoDoChat> {
-  if (!resposta.body) return;
+  // Ambiente que entrega a resposta inteira, sem fluxo: lê o texto e separa as linhas.
+  if (!resposta.body) {
+    for (const linha of (await resposta.text()).split("\n")) if (linha.trim()) yield JSON.parse(linha) as EventoDoChat;
+    return;
+  }
   const leitor = resposta.body.pipeThrough(new TextDecoderStream()).getReader();
   let resto = "";
   for (;;) {

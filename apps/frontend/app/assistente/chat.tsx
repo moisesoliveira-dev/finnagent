@@ -17,7 +17,7 @@ import { Carregando } from "../../components/ui/esqueleto";
 import { useToast } from "../../components/ui/toast";
 import { Compositor } from "./compositor";
 import { Conversas } from "./conversas";
-import { ID_PROVISORIO, aplicarEvento, lerEventos, marcarResposta, mensagemProvisoria } from "./estado";
+import { ID_PROVISORIO, aplicarEvento, lerEventos, marcarResposta, mensagemProvisoria } from "@finnagent/chat";
 import { Mensagem } from "./mensagem";
 import { Vazio } from "./vazio";
 
