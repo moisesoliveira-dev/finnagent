@@ -3,7 +3,7 @@ import { LIMITES_DO_PERFIL, TONS_DO_AVATAR, type PerfilDoUsuario } from "@finnag
 import { briefcaseOutline, locationOutline, mailOutline, personOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { Avatar, ROTULO_DO_TOM } from "../../componentes/Avatar";
-import { Campo } from "../../componentes/Campo";
+import { Campo, AreaDeTexto } from "../../componentes/Campo";
 import { toque } from "../../haptico";
 import { curvaCheia, mola, toqueDoDedo } from "../../movimento";
 
@@ -58,20 +58,7 @@ export function AbaPerfil({
         </span>
       </div>
 
-      <label className="campo">
-        <span className="etiqueta">Sobre você</span>
-        <textarea
-          className="area-de-texto"
-          rows={4}
-          maxLength={LIMITES_DO_PERFIL.bio}
-          value={rascunho.bio}
-          disabled={somenteLeitura}
-          onChange={(evento) => aoMudar({ bio: evento.target.value })}
-        />
-        <span className="etiqueta" style={{ justifySelf: "end" }}>
-          {rascunho.bio.length}/{LIMITES_DO_PERFIL.bio}
-        </span>
-      </label>
+      <AreaDeTexto rotulo="Sobre você" linhas={4} maxLength={LIMITES_DO_PERFIL.bio} value={rascunho.bio} disabled={somenteLeitura} onMudar={(bio) => aoMudar({ bio })} />
 
       <div className="secao" style={{ gap: 12 }}>
         <span className="etiqueta">Cor do avatar</span>

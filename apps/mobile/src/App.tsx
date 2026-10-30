@@ -4,7 +4,7 @@ import { App as AppNativo } from "@capacitor/app";
 import { calendarOutline, chatbubbleEllipsesOutline, flagOutline, homeOutline, walletOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { Navigate, Route, useLocation } from "react-router-dom";
+import { Navigate, Route, useLocation, useNavigate } from "react-router-dom";
 import { aoMudarASessao, carregarSessao, sessaoAtual } from "./api/sessao";
 import { Simbolo } from "./componentes/Simbolo";
 import { toque } from "./haptico";
@@ -16,7 +16,10 @@ import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
 import { Metas } from "./paginas/Metas";
 import { Extratos } from "./paginas/Extratos";
+import { Notificacoes } from "./paginas/Notificacoes";
 import { Perfil } from "./paginas/Perfil";
+import { recontar } from "./notificacoes/contagem";
+import { ouvirPush } from "./notificacoes/push";
 
 type Estado = "carregando" | "entrou" | "saiu";
 
@@ -47,6 +50,37 @@ function BarraDeAbas() {
       })}
     </IonTabBar>
   );
+}
+
+const A_CADA_MS = 60_000;
+
+/**
+ * Enquanto a pessoa está no app: conta as não lidas (ao abrir, ao voltar do fundo e a cada minuto), escuta o push
+ * e leva para a tela da notificação tocada.
+ */
+function AvisosDoApp() {
+  const navegar = useNavigate();
+
+  useEffect(() => {
+    void recontar();
+    const relogio = setInterval(() => {
+      if (document.visibilityState === "visible") void recontar();
+    }, A_CADA_MS);
+    const voltou = AppNativo.addListener("appStateChange", ({ isActive }) => {
+      if (isActive) void recontar();
+    });
+    const pararPush = ouvirPush(
+      (rota) => navegar(rota),
+      () => void recontar(),
+    );
+    return () => {
+      clearInterval(relogio);
+      void voltou.then((item) => item.remove());
+      pararPush();
+    };
+  }, [navegar]);
+
+  return null;
 }
 
 export function App() {
@@ -99,9 +133,11 @@ export function App() {
                     <Route path="/metas" element={<Metas />} />
                     <Route path="/perfil" element={<Perfil />} />
                     <Route path="/extratos" element={<Extratos />} />
+                    <Route path="/notificacoes" element={<Notificacoes />} />
                   </IonRouterOutlet>
                   <BarraDeAbas />
                 </IonTabs>
+                <AvisosDoApp />
               </IonReactRouter>
             </motion.div>
           )}

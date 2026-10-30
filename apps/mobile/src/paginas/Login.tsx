@@ -1,11 +1,12 @@
 import { IonButton, IonContent, IonIcon, IonPage } from "@ionic/react";
 import { SENHA_MINIMA, type SessaoAberta } from "@finnagent/contracts";
-import { eyeOffOutline, eyeOutline, lockClosedOutline, mailOutline, personOutline, shieldCheckmarkOutline } from "ionicons/icons";
+import { mailOutline, personOutline, shieldCheckmarkOutline } from "ionicons/icons";
 import { AnimatePresence, animate, motion, type Variants } from "motion/react";
 import { useRef, useState, type FormEvent } from "react";
 import { ErroDaApi, enviar } from "../api/cliente";
 import { guardarSessao } from "../api/sessao";
-import { MedidorDeForca } from "../componentes/MedidorDeForca";
+
+import { Campo, CampoDeSenha } from "../componentes/Campo";import { MedidorDeForca } from "../componentes/MedidorDeForca";
 import { Simbolo } from "../componentes/Simbolo";
 import { toque } from "../haptico";
 import { curvaCheia, toqueDoDedo } from "../movimento";
@@ -59,12 +60,11 @@ export function Login() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [vendo, setVendo] = useState(false);
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
   const formulario = useRef<HTMLDivElement>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-  const senhaRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLIonInputElement>(null);
+  const senhaRef = useRef<HTMLIonInputElement>(null);
   const cadastro = modo === "cadastro";
   const texto = TEXTOS[modo];
 
@@ -79,7 +79,6 @@ export function Login() {
     toque();
     setErro("");
     setSenha("");
-    setVendo(false);
     setModo(cadastro ? "entrar" : "cadastro");
   }
 
@@ -189,99 +188,55 @@ export function Login() {
                 {/* O nome só existe no cadastro: o campo abre e fecha em altura. */}
                 <AnimatePresence initial={false}>
                   {cadastro ? (
-                    <motion.label
+                    <motion.div
                       key="nome"
-                      className="campo"
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.25 }}
                       style={{ overflow: "hidden" }}
                     >
-                      <span className="etiqueta">Nome</span>
-                      <span className="entrada-com-icone">
-                        <IonIcon icon={personOutline} aria-hidden />
-                        <input
-                          type="text"
-                          autoComplete="name"
-                          autoCapitalize="words"
-                          enterKeyHint="next"
-                          maxLength={80}
-                          value={nome}
-                          onChange={(e) => setNome(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              emailRef.current?.focus();
-                            }
-                          }}
-                        />
-                      </span>
-                    </motion.label>
+                      <Campo
+                        rotulo="Nome"
+                        icone={personOutline}
+                        autoComplete="name"
+                        autoCapitalize="words"
+                        enterKeyHint="next"
+                        maxLength={80}
+                        value={nome}
+                        onMudar={setNome}
+                        aoEnter={() => void emailRef.current?.setFocus()}
+                      />
+                    </motion.div>
                   ) : null}
                 </AnimatePresence>
 
-                <motion.label className="campo" variants={campo}>
-                  <span className="etiqueta">E-mail</span>
-                  <span className="entrada-com-icone">
-                    <IonIcon icon={mailOutline} aria-hidden />
-                    <input
-                      ref={emailRef}
-                      type="email"
-                      inputMode="email"
-                      autoComplete="email"
-                      autoCapitalize="none"
-                      enterKeyHint="next"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          senhaRef.current?.focus();
-                        }
-                      }}
-                    />
-                  </span>
-                </motion.label>
+                <motion.div variants={campo}>
+                  <Campo
+                    rotulo="E-mail"
+                    icone={mailOutline}
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    enterKeyHint="next"
+                    value={email}
+                    onMudar={setEmail}
+                    campoRef={emailRef}
+                    aoEnter={() => void senhaRef.current?.setFocus()}
+                  />
+                </motion.div>
 
-                <motion.label className="campo" variants={campo}>
-                  <span className="etiqueta">Senha</span>
-                  <span className="entrada-com-icone">
-                    <IonIcon icon={lockClosedOutline} aria-hidden />
-                    <input
-                      ref={senhaRef}
-                      type={vendo ? "text" : "password"}
-                      autoComplete={cadastro ? "new-password" : "current-password"}
-                      enterKeyHint="go"
-                      maxLength={128}
-                      value={senha}
-                      onChange={(e) => setSenha(e.target.value)}
-                    />
-                    <motion.button
-                      type="button"
-                      className="olho"
-                      aria-label={vendo ? "Esconder a senha" : "Mostrar a senha"}
-                      whileTap={toqueDoDedo}
-                      onClick={() => {
-                        toque();
-                        setVendo((atual) => !atual);
-                      }}
-                    >
-                      <AnimatePresence mode="wait" initial={false}>
-                        <motion.span
-                          key={vendo ? "esconder" : "mostrar"}
-                          style={{ display: "inline-flex" }}
-                          initial={{ opacity: 0, rotate: -40, scale: 0.6 }}
-                          animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                          exit={{ opacity: 0, rotate: 40, scale: 0.6 }}
-                          transition={{ duration: 0.14 }}
-                        >
-                          <IonIcon icon={vendo ? eyeOffOutline : eyeOutline} />
-                        </motion.span>
-                      </AnimatePresence>
-                    </motion.button>
-                  </span>
-                </motion.label>
+                <motion.div variants={campo}>
+                  <CampoDeSenha
+                    rotulo="Senha"
+                    autoComplete={cadastro ? "new-password" : "current-password"}
+                    enterKeyHint="go"
+                    value={senha}
+                    onMudar={setSenha}
+                    campoRef={senhaRef}
+                  />
+                </motion.div>
 
                 {/* O medidor da senha: quatro partes que enchem e mudam de cor conforme a senha melhora. */}
                 <AnimatePresence initial={false}>

@@ -402,7 +402,6 @@ ion-button.principal {
 .compositor textarea {
   resize: none;
   max-height: 120px;
-  field-sizing: content;
 }
 
 .plano-passo {
@@ -1041,18 +1040,100 @@ ion-toast.aviso-de-erro {
   padding-right: 12px;
 }
 
-.entrada-com-icone select {
-  flex: 1;
+/* A escolha: um botão com o valor atual e, ao tocar, uma folha com as opções. */
+.campo,
+.entrada-com-icone.selecao {
   min-width: 0;
-  min-height: 46px;
-  padding: 8px 0;
+  max-width: 100%;
+}
+
+button.entrada-com-icone.selecao {
+  width: 100%;
+  justify-content: space-between;
+  padding: 8px 12px;
   font: inherit;
   font-size: 1rem;
+  text-align: left;
   color: var(--ink);
-  background: transparent;
+}
+
+button.entrada-com-icone.selecao:disabled {
+  opacity: 0.5;
+}
+
+.valor-escolhido {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.valor-escolhido.vazio {
+  color: var(--ink-2);
+}
+
+button.entrada-com-icone.selecao ion-icon {
+  flex: none;
+  color: var(--ink-2);
+}
+
+ion-modal.folha-de-selecao {
+  --background: var(--surface);
+  --border-radius: 0;
+}
+
+ion-modal.folha-de-selecao ion-header,
+ion-modal.folha-de-selecao ion-toolbar,
+ion-modal.folha-de-selecao ion-content {
+  --background: var(--surface);
+  --color: var(--ink);
+  background: var(--surface);
+}
+
+ion-modal.folha-de-selecao ion-toolbar {
+  --border-color: var(--line);
+}
+
+ion-modal.folha-de-selecao ion-title {
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.opcoes {
+  display: grid;
+}
+
+.opcao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
   border: 0;
-  outline: none;
-  appearance: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.opcao:last-child {
+  border-bottom: 0;
+}
+
+.opcao.ativa {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.opcao ion-icon {
+  flex: none;
 }
 
 .fichas {
@@ -1209,3 +1290,275 @@ ion-toast.aviso-de-erro {
 }
 
 
+
+/* Notificações: o sino do cabeçalho, a lista e as escolhas do perfil. */
+.botao-do-sino {
+  position: relative;
+}
+
+.contador-do-sino {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.linha-de-notificacao {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+}
+
+.linha-de-notificacao:last-child {
+  border-bottom: 0;
+}
+
+.linha-de-notificacao .marca-de-nao-lida {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.linha-de-notificacao.nao-lida .marca-de-nao-lida {
+  background: var(--brand);
+}
+
+.linha-de-notificacao .texto {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.linha-de-notificacao .topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.linha-de-notificacao .topo > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.linha-de-notificacao.nao-lida .topo > span:first-child {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.linha-de-notificacao .corpo {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.aviso-por-canal {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.aviso-por-canal:first-child {
+  border-top: 0;
+}
+
+.canais-do-aviso {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.horario-de-silencio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.horario-de-silencio input {
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.horario-de-silencio input:disabled {
+  opacity: 0.5;
+}
+
+/* Campos do Ionic com a aparência do app: a caixa é do `.entrada-com-icone`; o IonInput só escreve dentro dela. */
+.entrada-com-icone ion-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  --background: transparent;
+  --color: var(--ink);
+  --placeholder-color: var(--ink-2);
+  --placeholder-opacity: 1;
+  font-size: 1rem;
+}
+
+.entrada-com-icone ion-input input.native-input {
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+ion-textarea.area-de-texto {
+  --background: var(--surface);
+  --color: var(--ink);
+  --padding-start: 12px;
+  --padding-end: 12px;
+  --padding-top: 8px;
+  --padding-bottom: 8px;
+  --placeholder-color: var(--ink-2);
+  --placeholder-opacity: 1;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 1rem;
+}
+
+ion-textarea.area-de-texto.has-focus {
+  border-color: var(--brand);
+}
+
+ion-textarea.area-de-texto textarea.native-textarea {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.compositor ion-textarea {
+  flex: 1;
+  min-width: 0;
+  --background: var(--surface);
+  --color: var(--ink);
+  --padding-start: 12px;
+  --padding-end: 12px;
+  --padding-top: 10px;
+  --padding-bottom: 10px;
+  --placeholder-color: var(--ink-2);
+  --placeholder-opacity: 1;
+  max-height: 120px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 1rem;
+}
+
+.compositor ion-textarea,
+.compositor ion-textarea .textarea-wrapper {
+  min-height: 44px;
+}
+
+.compositor ion-textarea .textarea-control {
+  align-items: center;
+}
+
+.compositor ion-textarea.has-focus {
+  border-color: var(--brand);
+}
+
+.compositor ion-textarea textarea.native-textarea {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  field-sizing: fixed;
+  line-height: 1.5;
+}
+
+/* A escolha do valor do mês: o IonRadio inteiro é a caixa. */
+ion-radio.opcao-de-valor {
+  --color: var(--ink-2);
+  --color-checked: var(--brand);
+  display: flex;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  white-space: normal;
+}
+
+ion-radio.opcao-de-valor.ativa {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+ion-radio.opcao-de-valor::part(label) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  margin-inline-start: 8px;
+}
+
+ion-radio.opcao-de-valor + ion-radio.opcao-de-valor {
+  margin-top: 8px;
+}
+
+/* O horário: o botão mostra a hora e a folha traz a roda do Ionic, nas cores do app. */
+button.entrada-com-icone.selecao.hora {
+  width: auto;
+  min-width: 112px;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.roda-de-hora {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.roda-de-hora ion-datetime {
+  --background: var(--surface);
+  --background-rgb: 19, 24, 26;
+  --wheel-highlight-background: var(--brand-soft);
+  --wheel-fade-background-rgb: 19, 24, 26;
+  color: var(--ink);
+  max-width: 320px;
+}
+
+@media (prefers-color-scheme: light) {
+  .roda-de-hora ion-datetime {
+    --background-rgb: 255, 255, 255;
+    --wheel-fade-background-rgb: 255, 255, 255;
+  }
+}
