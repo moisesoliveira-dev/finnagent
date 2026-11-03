@@ -200,3 +200,15 @@ Arquivos:
 - `apps/agents/src/assistente/dominio/prompts.ts`
 - `apps/agents/src/assistente/adaptadores/grafo-do-assistente.ts`
 - `apps/agents/src/assistente/adaptadores/grafo-do-assistente.spec.ts`
+
+## Lançar selecionadas em blocos na Conferência
+
+O que foi feito: "Lançar selecionadas" e "Lançar alteradas" na Conferência passaram a mandar as linhas em pedidos de 8, somando lançadas e falhas. Um bloco que falha por rede marca só as linhas dele como não lançadas.
+
+Motivo: o lote inteiro ia num único `POST /extratos/acumular-lote` que passava de 60 s em produção (backend em EU West, banco no Supabase `us-east-1`) e o BFF respondia 504, embora o backend terminasse o trabalho.
+
+Verificação: `tsc` do frontend limpo. Não verificado na tela nem em produção; vale só depois do deploy do `frontend`. O assistente (`acumular_linhas`) tem o mesmo limite de tempo e segue sem mudança.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/page.tsx`
