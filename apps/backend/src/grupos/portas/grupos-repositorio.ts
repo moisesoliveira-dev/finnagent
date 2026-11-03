@@ -35,11 +35,13 @@ export interface GruposRepositorio {
     cents: number,
     startedAt: string,
   ): Promise<Sessao | FalhaDeSessao>;
+  /** Com `kind`, troca o tipo da sessão. "tipo": a sessão tem lançamentos que o novo tipo não aceita. */
   atualizarSessao(
     tenantId: string,
     id: string,
     dados: DadosDaSessao,
-  ): Promise<Sessao | FalhaDeSessao | "ausente">;
+    kind?: TipoSessao,
+  ): Promise<Sessao | FalhaDeSessao | "ausente" | "tipo">;
   removerSessao(tenantId: string, id: string, endedAt: string): Promise<boolean>;
   consultarVirada(tenantId: string): Promise<ViradaResposta>;
   permanecer(

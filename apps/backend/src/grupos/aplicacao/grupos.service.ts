@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Grupo, Sessao, TipoSessao } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { fimDaSessao, inicioDaSessao, pedidoDaSessao } from "../dominio/sessao.js";
+import { MENSAGEM_DA_TROCA_DE_TIPO, fimDaSessao, inicioDaSessao, pedidoDaSessao } from "../dominio/sessao.js";
 import {
   GRUPOS_REPOSITORIO,
   type DadosDaSessao,
@@ -99,9 +99,11 @@ export class GruposService {
     tenantId: string,
     id: string,
     dados: DadosDaSessao,
+    kind?: TipoSessao,
   ): Promise<Sessao> {
-    const resultado = await this.grupos.atualizarSessao(tenantId, id, dados);
+    const resultado = await this.grupos.atualizarSessao(tenantId, id, dados, kind);
     if (resultado === "ausente") throw new NaoEncontrado("Sessão não encontrada.");
+    if (resultado === "tipo") throw new Conflito(MENSAGEM_DA_TROCA_DE_TIPO);
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outra sessão.");
     }

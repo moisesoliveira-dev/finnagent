@@ -6,6 +6,7 @@ import {
   inicioDaSessao,
   aceitaLancamento,
   pedidoDaSessao,
+  podeTrocarDeTipo,
   protegeValorBase,
   resumoDaSessao,
 } from "./sessao.js";
@@ -78,5 +79,37 @@ describe("tipos da sessão", () => {
       additions: [],
       totalCents: -7_000,
     });
+  });
+});
+
+describe("trocar o tipo da sessão", () => {
+  const unica = { status: "pending", category: "unique" };
+
+  it("virar Acúmulo é sempre seguro, com o que a sessão tiver", () => {
+    expect(podeTrocarDeTipo("valor", "acumulo", [unica])).toBe(true);
+    expect(podeTrocarDeTipo("valor", "acumulo", [])).toBe(true);
+  });
+
+  it("virar Fixo cabe sem lançamento ou com uma única transação ativa", () => {
+    expect(podeTrocarDeTipo("acumulo", "valor", [])).toBe(true);
+    expect(podeTrocarDeTipo("acumulo", "valor", [unica])).toBe(true);
+    expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "completed", category: "unique" }])).toBe(true);
+  });
+
+  it("a transação cancelada não conta para virar Fixo", () => {
+    const cancelada = { status: "cancelled", category: "fixed" };
+    expect(podeTrocarDeTipo("acumulo", "valor", [cancelada, unica, cancelada])).toBe(true);
+  });
+
+  it("não vira Fixo com mais de uma transação ativa nem com categoria que o Fixo não aceita", () => {
+    expect(podeTrocarDeTipo("acumulo", "valor", [unica, unica])).toBe(false);
+    for (const category of ["fixed", "installment", "loan", "additional"]) {
+      expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "pending", category }]), category).toBe(false);
+    }
+  });
+
+  it("manter o tipo não pede nada", () => {
+    expect(podeTrocarDeTipo("valor", "valor", [unica, unica])).toBe(true);
+    expect(podeTrocarDeTipo("acumulo", "acumulo", [{ status: "pending", category: "fixed" }])).toBe(true);
   });
 });

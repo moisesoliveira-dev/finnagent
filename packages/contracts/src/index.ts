@@ -9,6 +9,12 @@ export type Grupo = {
 };
 
 export const TIPOS_SESSAO = ["valor", "acumulo"] as const;
+
+/** Como a pessoa vê o tipo da sessão. Fixo guarda uma transação só; Acúmulo junta várias. */
+export const ROTULO_DO_TIPO_DE_SESSAO: Record<(typeof TIPOS_SESSAO)[number], string> = {
+  valor: "Fixo",
+  acumulo: "Acúmulo",
+};
 export type TipoSessao = (typeof TIPOS_SESSAO)[number];
 
 export type Acrescimo = {

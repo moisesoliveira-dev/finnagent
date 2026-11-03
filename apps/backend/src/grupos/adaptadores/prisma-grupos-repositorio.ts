@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { aceitaLancamento, categoriasDaSessao, hojeNoFuso, resumoDaSessao } from "../dominio/sessao.js";
+import { aceitaLancamento, categoriasDaSessao, hojeNoFuso, podeTrocarDeTipo, resumoDaSessao } from "../dominio/sessao.js";
 import { montarVirada, sessoesEncerradas } from "../dominio/virada.js";
 import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
 
@@ -175,7 +175,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     });
   }
 
-  async atualizarSessao(tenantId: string, id: string, dados: DadosDaSessao) {
+  async atualizarSessao(tenantId: string, id: string, dados: DadosDaSessao, kind?: TipoSessao) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.session.findFirst({ where: { id, tenantId } });
@@ -186,14 +186,23 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       if (await nomeDeSessaoOcupado(tx, tenantId, dados.groupId, dados.name, id)) {
         return "nome" as const;
       }
+      const tipoAtual: TipoSessao = atual.kind === "valor" ? "valor" : "acumulo";
+      const trocou = kind !== undefined && kind !== tipoAtual;
+      if (trocou) {
+        const lancamentos = await tx.entry.findMany({
+          where: { sessionId: id, tenantId },
+          select: { status: true, category: true },
+        });
+        if (!podeTrocarDeTipo(tipoAtual, kind, lancamentos)) return "tipo" as const;
+      }
       const gravadas = await tx.session.updateMany({
         where: { id, tenantId },
-        data: gravacao(dados),
+        data: trocou ? { ...gravacao(dados), kind } : gravacao(dados),
       });
       if (gravadas.count !== 1) return "ausente" as const;
       const salva = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
       if (!salva) return "ausente" as const;
-      const payload = { id, ...dados };
+      const payload = trocou ? { id, ...dados, kind } : { id, ...dados };
       await gravarOutbox(tx, tenantId, "atualizar-sessao", id, payload, marcaDe(payload));
       return sessaoDe(salva);
     });

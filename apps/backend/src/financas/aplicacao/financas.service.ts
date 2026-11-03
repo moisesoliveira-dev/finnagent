@@ -127,7 +127,7 @@ export class FinancasService {
       throw new PedidoInvalido(mensagemDaCategoria(resultado === "tipo-valor" ? "valor" : "acumulo"));
     }
     if (resultado === "valor-lancada") {
-      throw new PedidoInvalido("Esta sessão de valor único já foi lançada.");
+      throw new PedidoInvalido("Esta sessão fixa já foi lançada.");
     }
     if (resultado === "reserva") {
       throw new PedidoInvalido("Esta sessão guarda uma meta. O valor separado entra como única, não como série.");
@@ -155,7 +155,7 @@ export class FinancasService {
       throw new PedidoInvalido("O acréscimo não altera o valor base.");
     }
     if (resultado === "valor-lancada") {
-      throw new PedidoInvalido("Esta sessão de valor único já foi lançada.");
+      throw new PedidoInvalido("Esta sessão fixa já foi lançada.");
     }
     if (resultado === "base") {
       throw new Conflito("Movimento e categoria não podem ser alterados.");
