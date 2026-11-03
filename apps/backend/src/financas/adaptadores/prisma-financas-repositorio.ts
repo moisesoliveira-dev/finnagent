@@ -153,7 +153,23 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     return lancamentoDe(row);
   }
 
-  async criar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
+  async lancamentoDaSessaoFixa(tenantId: string, sessionId: string) {
+    const sessao = await this.banco().session.findFirst({
+      where: { id: sessionId, tenantId, kind: "valor", endedAt: null },
+      select: {
+        entries: {
+          where: { tenantId, status: { not: "cancelled" } },
+          orderBy: { position: "asc" },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    const ativo = sessao?.entries[0];
+    return ativo ? { entryId: ativo.id } : null;
+  }
+
+  async criar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis, emPartes = false) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.entry.findFirst({
@@ -169,7 +185,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         if (mesmoLancamento(atual, pedido)) return lancamentoDe(atual);
         return "identificador" as const;
       }
-      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category);
+      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category, undefined, emPartes);
       if (recusa) return recusa;
       const cobertura = await recusaDaCobertura(tx, tenantId, pedido.id, pedido.coveredById ?? null);
       if (cobertura) return cobertura;
@@ -1163,6 +1179,7 @@ async function recusaDaSessao(
     pedidoCents: number;
     pedidoMode: string;
   },
+  emPartes = false,
 ) {
   const sessao = await tx.session.findFirst({
     where: { id: sessionId, tenantId },
@@ -1185,7 +1202,7 @@ async function recusaDaSessao(
     select: { id: true, position: true, status: true },
   });
   const jaEsta = valor != null && irmas.some((item) => item.id === valor.id);
-  if (!jaEsta && irmas.length > 0) return "valor-lancada" as const;
+  if (!jaEsta && irmas.length > 0 && !emPartes) return "valor-lancada" as const;
   if (
     valor &&
     protegeValorBase(

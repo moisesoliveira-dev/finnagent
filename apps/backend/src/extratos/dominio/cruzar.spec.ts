@@ -5,6 +5,7 @@ import {
   cruzaveisDoMes,
   preparoDoCruzamento,
   propostaDaLinha,
+  valorDaSessaoFixa,
   valorDoMes,
   type LancamentoCruzavel,
 } from "./cruzar.js";
@@ -148,5 +149,21 @@ describe("valor do mês no cruzamento", () => {
     expect(preparoDoCruzamento("fixed", -3434, -1178, "lancamento")).toMatchObject({ cents: -3434 });
     expect(preparoDoCruzamento("unique", -10000, -18000)).toMatchObject({ cents: -18000 });
     expect(preparoDoCruzamento("additional", 1500, -1500)).toBe("Adicional só cruza com entrada.");
+  });
+});
+
+describe("valor na sessão Fixo", () => {
+  it("com valores iguais vale o do extrato, sem pedir escolha", () => {
+    expect(valorDaSessaoFixa(-10000, -10000)).toBe(-10000);
+  });
+
+  it("com valores diferentes pede a escolha, mesmo sendo única", () => {
+    expect(valorDaSessaoFixa(-10000, -18000)).toBe("escolha");
+    expect(valorDoMes("unique", -10000, -18000)).toBe(-18000);
+  });
+
+  it("obedece a escolha da pessoa", () => {
+    expect(valorDaSessaoFixa(-10000, -18000, "extrato")).toBe(-18000);
+    expect(valorDaSessaoFixa(-10000, -18000, "lancamento")).toBe(-10000);
   });
 });

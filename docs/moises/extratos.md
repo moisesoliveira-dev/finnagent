@@ -121,3 +121,23 @@ Verificado no navegador (tema escuro, 1280 px): lista no `body` com fixed e z 50
 Arquivos:
 
 - `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
+
+## Sessão Fixo na Conferência: cruza com a transação e fecha
+
+O que foi feito: ao acumular uma linha numa sessão Fixo que já tem a transação dela (lançada à mão), a Conferência passou a cruzar a linha com essa transação em vez de criar outra. Se os valores diferem, a tela pede a escolha entre o do extrato e o do lançamento, mesmo a transação sendo "única". Resolvida a linha, a sessão não recebe outra. Para o pagamento que veio quebrado, a linha tem a caixa "Paga em partes", que libera só aquela linha como mais uma transação da sessão. As sessões Fixo já lançadas passaram a aparecer na lista, marcadas "Fixo já lançado". No lote, a linha que espera a escolha do valor fica de fora e a tela avisa quantas foram. Sessão de acúmulo não mudou: cada linha segue virando um lançamento único e pago por trás, o que mantém painel e relatórios corretos.
+
+Motivo: a sessão Fixo guarda uma única transação, e a Conferência ou escondia a sessão quando já estava lançada ou falhava com "Esta sessão fixa já foi lançada" sem comparar valores.
+
+Verificação: `tsc` limpo no backend e no frontend; 138 testes dos módulos extratos, finanças e grupos passam, com 6 casos novos (valores iguais, divergentes, escolha, sessão já conciliada, "paga em partes") e a regra `valorDaSessaoFixa` testada. Não verificado: a tela no navegador e o Docker, que não foi reconstruído. O mobile segue escondendo as sessões Fixo já lançadas, sem o novo fluxo. Vale em produção depois do deploy de `frontend` e `backend`.
+
+Arquivos:
+
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/dominio/cruzar.ts`
+- `apps/backend/src/extratos/dominio/cruzar.spec.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/financas/portas/financas-repositorio.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`

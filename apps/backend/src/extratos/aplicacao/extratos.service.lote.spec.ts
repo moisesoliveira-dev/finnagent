@@ -8,7 +8,13 @@ const EXTRATO = "00000000-0000-4000-8000-0000000000e1";
 const SESSAO = "00000000-0000-4000-8000-0000000000s1";
 
 /** O repositório e as finanças de mentira: só o que o lote usa. `semLancamento` é o que a conferência ainda mostra. */
-function montar(linhas: Record<number, Linha>, semLancamento: (year: number, month: number) => number) {
+function montar(
+  linhas: Record<number, Linha>,
+  semLancamento: (year: number, month: number) => number,
+  fixa: { entryId: string } | null = null,
+  lancamentoDaFixa: unknown = null,
+  usadas = 0,
+) {
   const lancadas: number[] = [];
   const extratos = {
     obterLinha: async (_tenant: string, _id: string, line: number) => linhas[line] ?? ("ausente" as const),
@@ -17,10 +23,20 @@ function montar(linhas: Record<number, Linha>, semLancamento: (year: number, mon
       return "ok" as const;
     },
     contarSemLancamento: async (_tenant: string, year: number, month: number | null) => semLancamento(year, month ?? 0),
+    contarLinhasDoLancamento: async () => usadas,
   };
+  const criadas: { emPartes: boolean }[] = [];
+  const pagas: { entryId: string; cents: number }[] = [];
   const financas = {
-    criar: async () => ({ id: "00000000-0000-4000-8000-0000000000f1" }),
-    pagarPeloExtrato: async () => undefined,
+    lancamentoDaSessaoFixa: async () => fixa,
+    criar: async (_tenant: string, _pedido: unknown, emPartes = false) => {
+      criadas.push({ emPartes });
+      return { id: "00000000-0000-4000-8000-0000000000f1" };
+    },
+    obterAberto: async () => lancamentoDaFixa,
+    pagarPeloExtrato: async (_tenant: string, entryId: string, _date: string, cents: number) => {
+      pagas.push({ entryId, cents });
+    },
     excluir: async () => undefined,
   };
   const servico = new ExtratosService(
@@ -31,7 +47,7 @@ function montar(linhas: Record<number, Linha>, semLancamento: (year: number, mon
     null as never,
     null as never,
   );
-  return { servico, lancadas };
+  return { servico, lancadas, criadas, pagas };
 }
 
 const linha = (date: string | null, cents = -5000, entryId: string | null = null): Linha => ({ date, cents, description: "MERCADO", entryId });
@@ -66,5 +82,56 @@ describe("lançar linhas do extrato em lote", () => {
     expect(resultado.launched).toBe(1);
     expect(resultado.failed).toEqual([{ statementId: EXTRATO, line: 9, message: "Linha não encontrada." }]);
     expect(resultado.remaining).toEqual([{ year: 2026, month: 10, lines: 2 }]);
+  });
+
+  describe("sessão Fixo que já tem a transação", () => {
+    const FIXA = "00000000-0000-4000-8000-0000000000f9";
+    const dela = (cents: number) => ({
+      id: FIXA,
+      name: "Aluguel",
+      category: "unique",
+      groupName: "Casa",
+      sessionName: "Aluguel",
+      sessionId: SESSAO,
+      occurrences: [{ number: 1, dueDate: "2026-10-05", status: "pending", plannedCents: cents, paidCents: null }],
+    });
+    const pedido = (extra: Record<string, unknown> = {}) => [{ statementId: EXTRATO, line: 1, sessionId: SESSAO, ...extra }];
+
+    it("cruza com a transação em vez de criar outra, quando os valores batem", async () => {
+      const { servico, criadas, pagas } = montar({ 1: linha("2026-10-05", -5000) }, () => 0, { entryId: FIXA }, dela(-5000));
+      const resultado = await servico.acumularVarias(TENANT, pedido());
+      expect(resultado.launched).toBe(1);
+      expect(criadas).toEqual([]);
+      expect(pagas).toEqual([{ entryId: FIXA, cents: -5000 }]);
+    });
+
+    it("com valores diferentes não lança e pede a escolha", async () => {
+      const { servico, criadas, pagas, lancadas } = montar({ 1: linha("2026-10-05", -5000) }, () => 1, { entryId: FIXA }, dela(-4000));
+      const resultado = await servico.acumularVarias(TENANT, pedido());
+      expect(resultado.launched).toBe(0);
+      expect(resultado.failed[0]?.message).toContain("Escolha o valor");
+      expect([criadas, pagas, lancadas]).toEqual([[], [], []]);
+    });
+
+    it("obedece a escolha do valor", async () => {
+      const { servico, pagas } = montar({ 1: linha("2026-10-05", -5000) }, () => 0, { entryId: FIXA }, dela(-4000));
+      await servico.acumularVarias(TENANT, pedido({ valor: "lancamento" }));
+      expect(pagas).toEqual([{ entryId: FIXA, cents: -4000 }]);
+    });
+
+    it("recusa outra linha quando a transação já foi conciliada, e diz como liberar", async () => {
+      const { servico, criadas } = montar({ 1: linha("2026-10-05", -5000) }, () => 1, { entryId: FIXA }, dela(-5000), 1);
+      const resultado = await servico.acumularVarias(TENANT, pedido());
+      expect(resultado.launched).toBe(0);
+      expect(resultado.failed[0]?.message).toContain("Paga em partes");
+      expect(criadas).toEqual([]);
+    });
+
+    it("'paga em partes' libera mais uma transação na sessão", async () => {
+      const { servico, criadas } = montar({ 1: linha("2026-10-05", -5000) }, () => 0, { entryId: FIXA }, dela(-5000), 1);
+      const resultado = await servico.acumularVarias(TENANT, pedido({ emPartes: true }));
+      expect(resultado.launched).toBe(1);
+      expect(criadas).toEqual([{ emPartes: true }]);
+    });
   });
 });

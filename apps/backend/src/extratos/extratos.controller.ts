@@ -117,7 +117,15 @@ export class ExtratosController {
     const pedido = z
       .object({
         items: z
-          .array(z.object({ statementId: z.uuid(), line: z.number().int().min(1), sessionId: z.uuid() }))
+          .array(
+            z.object({
+              statementId: z.uuid(),
+              line: z.number().int().min(1),
+              sessionId: z.uuid(),
+              valor: z.enum(["extrato", "lancamento"]).optional(),
+              emPartes: z.boolean().optional(),
+            }),
+          )
           .min(1)
           .max(500),
       })
@@ -129,11 +137,20 @@ export class ExtratosController {
   @Post("extratos/acumular")
   acumular(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = z
-      .object({ statementId: z.uuid(), line: z.number().int().min(1), sessionId: z.uuid() })
+      .object({
+        statementId: z.uuid(),
+        line: z.number().int().min(1),
+        sessionId: z.uuid(),
+        valor: z.enum(["extrato", "lancamento"]).optional(),
+        emPartes: z.boolean().optional(),
+      })
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha a sessão para acumular a linha.");
     return this.executar(() =>
-      this.extratos.acumular(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.sessionId),
+      this.extratos.acumular(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.sessionId, {
+        ...(pedido.data.valor ? { valor: pedido.data.valor } : {}),
+        ...(pedido.data.emPartes ? { emPartes: true } : {}),
+      }),
     );
   }
 

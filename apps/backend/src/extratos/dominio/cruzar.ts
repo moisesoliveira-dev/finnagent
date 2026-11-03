@@ -112,6 +112,16 @@ export function valorDoMes(
   return "escolha";
 }
 
+/**
+ * Na sessão Fixo, a transação já lançada e a linha do extrato com valores diferentes pedem a escolha da pessoa,
+ * mesmo sendo "única". Com valores iguais, vale o do extrato.
+ */
+export function valorDaSessaoFixa(planejado: number, extrato: number, escolha?: ValorDoMes): number | "escolha" {
+  if (planejado === extrato || escolha === "extrato") return extrato;
+  if (escolha === "lancamento") return planejado;
+  return "escolha";
+}
+
 export function candidatosDaLinha(linha: LinhaParaCruzar, lancamentos: LancamentoCruzavel[]) {
   const dia = Number(linha.date.slice(8, 10));
   return lancamentos

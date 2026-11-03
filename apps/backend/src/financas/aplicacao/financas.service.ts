@@ -112,8 +112,12 @@ export class FinancasService {
     return novoLancamento(normal);
   }
 
-  async criar(tenantId: string, pedido: NovoLancamento): Promise<Lancamento> {
-    const resultado = await this.financas.criar(tenantId, pedido, await this.feriados.calendario(tenantId));
+  lancamentoDaSessaoFixa(tenantId: string, sessionId: string) {
+    return this.financas.lancamentoDaSessaoFixa(tenantId, sessionId);
+  }
+
+  async criar(tenantId: string, pedido: NovoLancamento, emPartes = false): Promise<Lancamento> {
+    const resultado = await this.financas.criar(tenantId, pedido, await this.feriados.calendario(tenantId), emPartes);
     if (resultado === "identificador") {
       throw new Conflito("Esse identificador já pertence a outro lançamento.");
     }

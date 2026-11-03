@@ -80,11 +80,17 @@ export interface FinancasRepositorio {
   obter(tenantId: string, id: string): Promise<Lancamento | null>;
   /** O lançamento, se a sessão ainda não foi encerrada. */
   obterAberto(tenantId: string, id: string): Promise<Lancamento | null>;
-  /** O calendário decide as datas dos vencimentos pela regra (feriados nacionais e os locais da conta). */
+  /** A transação ativa de uma sessão Fixo viva. Nulo quando a sessão não é Fixo, está encerrada ou está vazia. */
+  lancamentoDaSessaoFixa(tenantId: string, sessionId: string): Promise<{ entryId: string } | null>;
+  /**
+   * O calendário decide as datas dos vencimentos pela regra (feriados nacionais e os locais da conta).
+   * `emPartes` libera mais uma transação numa sessão Fixo que já tem a dela.
+   */
   criar(
     tenantId: string,
     pedido: NovoLancamento,
     calendario: CalendarioDeDiasUteis,
+    emPartes?: boolean,
   ): Promise<Lancamento | FalhaDeLancamento>;
   atualizar(
     tenantId: string,
