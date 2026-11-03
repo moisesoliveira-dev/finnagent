@@ -128,3 +128,23 @@ Arquivos:
 - `apps/backend/src/assistente/aplicacao/assistente.service.spec.ts`
 - `apps/frontend/app/assistente/chat.tsx`
 - `apps/frontend/app/configuracoes/ia/comportamento.tsx`
+
+## Consultor que narra o plano em vez de propô-lo
+
+O que foi feito: quando o consultor termina o turno só com texto e esse texto promete uma mudança ("vou criar", "preciso propor o plano", "proponho"; texto que termina em "?" não conta), ou quando o backend acabou de recusar uma escrita fora do plano, o grafo repete a volta uma vez com `tool_choice` em `propor_plano`, levando o texto dele e um aviso do sistema (que não entra no histórico). O texto fica e o plano vem logo depois. Se a segunda volta não propõe ou falha no provedor, a resposta de texto original é mantida e há log. A mensagem de recusa virou a constante `RECUSA_DE_ESCRITA_FORA_DO_PLANO` nos contratos, usada pelo backend ao recusar e pelo agents para reconhecê-la. O prompt ganhou a frase que proíbe dizer em texto que vai propor sem chamar `propor_plano` na mesma resposta.
+
+Motivo: nos logs de produção (03/11/2026) alguns turnos respondiam "Posso organizar isso, mas preciso propor o plano antes de mudar. Vou criar..." sem chamar a ferramenta; o grafo tratava texto sem chamada como fim do turno, o histórico voltava ao modelo e ele repetia a resposta, sem erro, lentidão ou limite do provedor.
+
+Verificação: `anuncio.spec.ts` (promessa real de produção, variações, conversa e pergunta que não disparam) e 6 casos novos em `grafo-do-assistente.spec.ts`; agents com 30 testes, backend com 352, `tsc` dos três apps limpo. Não verificado: o comportamento com o modelo real (só modelo falso em teste) e o Docker não foi reconstruído (rede do container ao npm). A correção só vale em produção depois do deploy de agents e backend.
+
+Sugestão não feita: em Configurações, Inteligência artificial, Agentes, todas as funções usam `gpt-5.4-mini`; testar um modelo maior para o coordenador reduz o problema pela raiz, ao custo de preço por turno.
+
+Arquivos:
+
+- `apps/agents/src/assistente/dominio/anuncio.ts`
+- `apps/agents/src/assistente/dominio/anuncio.spec.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.spec.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts`
+- `packages/contracts/src/index.ts`
