@@ -355,8 +355,15 @@ export class ExtratosService {
     itens: { statementId: string; line: number; sessionId: string }[],
   ) {
     const failed: { statementId: string; line: number; message: string }[] = [];
+    const meses = new Map<string, { year: number; month: number }>();
     let launched = 0;
     for (const item of itens) {
+      // O mês da linha, para dizer no fim o que ainda sobra nele. Não pode virar falha do lançamento.
+      const gravada = await this.extratos.obterLinha(tenantId, item.statementId, item.line).catch(() => "ausente" as const);
+      if (gravada !== "ausente" && gravada.date) {
+        const [year, month] = gravada.date.split("-").map(Number);
+        meses.set(`${year}-${month}`, { year, month });
+      }
       try {
         await this.lancarLinha(tenantId, item.statementId, item.line, item.sessionId);
         launched += 1;
@@ -365,7 +372,16 @@ export class ExtratosService {
         failed.push({ statementId: item.statementId, line: item.line, message });
       }
     }
-    return { launched, failed };
+    // Quem pediu o lote (o assistente, por exemplo) vê quantas linhas ainda ficaram sem lançamento, em vez de supor
+    // que terminou. É o mesmo número da conferência.
+    const remaining = await Promise.all(
+      [...meses.values()].map(async ({ year, month }) => ({
+        year,
+        month,
+        lines: await this.extratos.contarSemLancamento(tenantId, year, month),
+      })),
+    );
+    return { launched, failed, remaining };
   }
 
   private async cruzar(tenantId: string, statementId: string, line: number, entryId: string, description: string) {

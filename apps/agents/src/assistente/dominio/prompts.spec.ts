@@ -55,4 +55,12 @@ describe("prompt do consultor", () => {
     expect(prompt).not.toContain("Preferências da pessoa");
     expect(promptDoConsultor(contexto, "  fale com emojis ").endsWith("Preferências da pessoa (siga quando não conflitar com as regras acima): fale com emojis")).toBe(true);
   });
+
+  it("lê todas as páginas da conferência antes de propor e conta o que sobrou depois de lançar", () => {
+    const texto = promptDoConsultor(contexto, "");
+    expect(texto).toContain("leia todas as páginas");
+    expect(texto).toContain("Nunca proponha com só a primeira página");
+    expect(texto).toContain("remaining");
+    expect(texto).toContain("Só diga que terminou quando não sobrou nenhuma");
+  });
 });
