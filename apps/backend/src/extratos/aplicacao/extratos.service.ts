@@ -25,6 +25,7 @@ import { cabeNaLinha, candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, valorC
 import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
+import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
 import { chaveDoNome } from "../dominio/nome-extrato.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
@@ -171,7 +172,7 @@ export class ExtratosService {
     return this.conferencia(tenantId, pendente?.year ?? year, pendente?.month ?? month);
   }
 
-  async conferencia(tenantId: string, year: number, month: number, pagina?: number): Promise<ConferenciaResposta> {
+  async conferencia(tenantId: string, year: number, month: number, pagina?: number, busca?: string): Promise<ConferenciaResposta> {
     const [pacote, linhas, associacoes, compromissos] = await Promise.all([
       this.financas.listarNoMes(tenantId, year, month),
       this.extratos.listarLinhasNoMes(tenantId, year, month),
@@ -220,7 +221,9 @@ export class ExtratosService {
     const pending = lines.filter((linha) => !linha.entryId).length;
     const resposta = { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
     if (!pagina) return resposta;
-    const semLancamento = lines.filter((linha) => !linha.entryId);
+    // Com busca, só as linhas desses nomes; `pending` continua sendo o total sem lançamento do mês.
+    const termos = termosDaBusca(busca);
+    const semLancamento = lines.filter((linha) => !linha.entryId && casaComABusca(linha.description, termos));
     const inicio = (pagina - 1) * LINHAS_DA_CONFERENCIA_POR_PAGINA;
     return {
       ...resposta,

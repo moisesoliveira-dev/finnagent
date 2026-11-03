@@ -2828,12 +2828,19 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_conferencia",
     agentes: ["extratos"],
-    descricao: `Linhas do mês ainda sem lançamento, ${LINHAS_DA_CONFERENCIA_POR_PAGINA} por página, com a categoria e o valor de cada candidato. pagina começa em 1.`,
+    descricao: `Linhas do mês ainda sem lançamento, ${LINHAS_DA_CONFERENCIA_POR_PAGINA} por página, com a categoria e o valor de cada candidato. pagina começa em 1. page.total é quantas linhas existem (ou quantas casam com a busca) e pending é o total sem lançamento do mês. Com busca, traz só as linhas desses nomes, em vez de ler todas as páginas.`,
     leitura: true,
     esquema: z.object({
       year: anoDoSistema,
       month: mesDoSistema,
       pagina: z.number().int().min(1).max(100).optional().describe("Página, a partir de 1."),
+      busca: z
+        .string()
+        .trim()
+        .min(2)
+        .max(120)
+        .optional()
+        .describe('Nomes a procurar na descrição da linha, separados por "|". Ex.: "uber|99". Sem acento e sem diferenciar maiúsculas.'),
     }),
     rotulo: (args) => `Consultou a conferência de ${args.month}/${args.year}`,
   }),
@@ -2951,6 +2958,12 @@ export const ESQUEMA_PERGUNTAR = z.object({
 /** O plano: toda ação que muda o sistema passa por ele, e o backend só executa depois da aprovação. */
 export const FERRAMENTA_PLANO = "propor_plano";
 
+/** O plano aceita até este número de passos. Várias linhas de extrato únicas vão num passo só, acumular_linhas. */
+export const PASSOS_MAXIMOS_DO_PLANO = 20;
+
+/** O fim do resultado que o backend devolve ao plano recusado. O agents o reconhece para exigir um plano novo. */
+export const RECUSA_DE_PLANO = "Nada foi mostrado à pessoa. Corrija e proponha de novo.";
+
 /** O começo do resultado que o backend devolve à escrita fora do plano. O agents o reconhece para exigir o plano. */
 export const RECUSA_DE_ESCRITA_FORA_DO_PLANO = "Nada foi feito: esta ferramenta muda o sistema e só roda dentro de um plano aprovado.";
 
@@ -2987,7 +3000,7 @@ export const ESQUEMA_PLANO = z.object({
       }),
     )
     .min(1)
-    .max(20),
+    .max(PASSOS_MAXIMOS_DO_PLANO),
 });
 
 export const FERRAMENTAS_POR_NOME = new Map(FERRAMENTAS_DO_ASSISTENTE.map((item) => [item.nome, item]));

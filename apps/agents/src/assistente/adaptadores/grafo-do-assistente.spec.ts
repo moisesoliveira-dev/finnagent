@@ -1,7 +1,13 @@
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { ChatResult } from "@langchain/core/outputs";
-import { RECUSA_DE_ESCRITA_FORA_DO_PLANO, type EventoDoPasso, type ModeloResolvido, type PedidoDePasso } from "@finnagent/contracts";
+import {
+  RECUSA_DE_ESCRITA_FORA_DO_PLANO,
+  RECUSA_DE_PLANO,
+  type EventoDoPasso,
+  type ModeloResolvido,
+  type PedidoDePasso,
+} from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import type { FabricaDeModelos } from "../portas/fabrica-de-modelos.js";
 import { criarGrafoDoAssistente } from "./grafo-do-assistente.js";
@@ -198,6 +204,41 @@ describe("grafo do assistente", () => {
       const { fabrica } = fabricaCom({ consultor });
       const { final } = await rodar(fabrica, pedido());
       expect(final).toMatchObject({ tipo: "resposta", texto: promessa });
+    });
+
+    it("quando o consultor promete consultar, obriga uma ferramenta qualquer e devolve o que ele chamar", async () => {
+      const promessa = "Vou revisar a conferência inteira de outubro e te digo exatamente o que sobrou.";
+      const consultor = new Roteiro([new AIMessage(promessa), chamada("consultar_conferencia", { year: 2026, month: 10, busca: "uber|99" })]);
+      const { fabrica } = fabricaCom({ consultor });
+      const { final } = await rodar(fabrica, pedido({ mensagens: [{ role: "user", content: "ainda faltou lançamentos da 99 e uber" }] }));
+      expect(final).toMatchObject({
+        tipo: "chamadas",
+        texto: promessa,
+        chamadas: [{ nome: "consultar_conferencia", args: { year: 2026, month: 10, busca: "uber|99" } }],
+      });
+      expect(consultor.escolhas).toEqual([undefined, "any"]);
+      expect(String(consultor.vistos[1].at(-1)?.content)).toContain("não chamou nenhuma ferramenta");
+    });
+
+    it("depois de um plano recusado, a volta que só narra é repetida obrigando propor_plano", async () => {
+      const plano = { objetivo: "Lançar Uber e 99", entendimento: "Saídas únicas.", passos: [] };
+      const consultor = new Roteiro([
+        new AIMessage("Preciso refazer o plano. Vou dividir a revisão em blocos e te mostrar o próximo passo para aprovar."),
+        chamada("propor_plano", plano),
+      ]);
+      const { fabrica } = fabricaCom({ consultor });
+      const { final } = await rodar(
+        fabrica,
+        pedido({
+          mensagens: [
+            { role: "user", content: "lance as do uber e da 99" },
+            { role: "assistant", content: "", agente: "coordenador", toolCalls: [{ id: "p1", nome: "propor_plano", args: { passos: [] } }] },
+            { role: "tool", content: `Plano inválido: 25 passos, e o máximo é 20. ${RECUSA_DE_PLANO}`, toolCallId: "p1", nome: "propor_plano", agente: "coordenador" },
+          ],
+        }),
+      );
+      expect(final).toMatchObject({ tipo: "chamadas", chamadas: [{ nome: "propor_plano", args: plano }] });
+      expect(consultor.escolhas).toEqual([undefined, "propor_plano"]);
     });
 
     it("não derruba a resposta quando a segunda volta falha no provedor", async () => {
