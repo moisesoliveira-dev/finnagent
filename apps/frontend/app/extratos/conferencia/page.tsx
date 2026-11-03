@@ -97,10 +97,13 @@ export default function Conferencia() {
   const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
   const [buscando, setBuscando] = useState(false);
-  const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string }>>([]);
+  // `fixa` marca a sessão Fixo que já tem a transação dela: `cents` é o valor lançado.
+  const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string; fixa: { cents: number } | null }>>([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
+  const [valorFixa, setValorFixa] = useState<Record<string, ValorDoMes | "">>({});
+  const [emPartes, setEmPartes] = useState<Record<string, boolean>>({});
   const [busca, setBusca] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("todas");
   const [movimento, setMovimento] = useState<Movimento>("todos");
@@ -168,11 +171,15 @@ export default function Conferencia() {
         const nomes = new Map(resposta.groups.map((grupo) => [grupo.id, grupo.name]));
         setSessoes(
           resposta.sessions
-            .filter((sessao) => !sessao.endedAt && (sessao.kind !== "valor" || sessao.available))
-            .map((sessao) => ({
-              id: sessao.id,
-              rotulo: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}`,
-            })),
+            .filter((sessao) => !sessao.endedAt)
+            .map((sessao) => {
+              const lancada = sessao.kind === "valor" && !sessao.available;
+              return {
+                id: sessao.id,
+                rotulo: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}${lancada ? " · Fixo já lançado" : ""}`,
+                fixa: lancada ? { cents: sessao.cents } : null,
+              };
+            }),
         );
       })
       .catch(() => {
@@ -189,6 +196,8 @@ export default function Conferencia() {
     setMarcadas({});
     setEscolha({});
     setValorMes({});
+    setValorFixa({});
+    setEmPartes({});
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -200,6 +209,25 @@ export default function Conferencia() {
 
   function sessaoDa(linha: LinhaConferencia) {
     return escolha[chaveDa(linha)] ?? linha.sessionId ?? "";
+  }
+
+  // A sessão Fixo escolhida que já tem a transação dela: a linha cruza com ela, a menos que seja "paga em partes".
+  function fixaDa(linha: LinhaConferencia) {
+    const id = sessaoDa(linha);
+    return sessoes.find((sessao) => sessao.id === id)?.fixa ?? null;
+  }
+
+  function pedeEscolhaDaFixa(linha: LinhaConferencia) {
+    const chave = chaveDa(linha);
+    const fixa = fixaDa(linha);
+    return fixa !== null && !emPartes[chave] && fixa.cents !== linha.cents && !valorFixa[chave];
+  }
+
+  function opcoesDaFixa(linha: LinhaConferencia) {
+    const chave = chaveDa(linha);
+    if (!fixaDa(linha)) return {};
+    if (emPartes[chave]) return { emPartes: true };
+    return valorFixa[chave] ? { valor: valorFixa[chave] } : {};
   }
 
   async function confirmar(linha: LinhaConferencia, entryId: string) {
@@ -259,14 +287,24 @@ export default function Conferencia() {
       toast.erro("Escolha a sessão para acumular.");
       return;
     }
+    if (pedeEscolhaDaFixa(linha)) {
+      toast.erro("Escolha o valor desta sessão fixa: o do extrato ou o do lançamento.");
+      return;
+    }
     setOcupado(chave);
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/acumular", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId }),
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...opcoesDaFixa(linha) }),
       });
-      toast.sucesso("Linha lançada na sessão. O nome fica lembrado para a próxima importação.");
+      toast.sucesso(
+        fixaDa(linha) && !emPartes[chave]
+          ? "Linha cruzada com a transação da sessão fixa."
+          : "Linha lançada na sessão. O nome fica lembrado para a próxima importação.",
+      );
       setPar({});
+      setValorFixa({});
+      setEmPartes({});
       setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível acumular a linha.");
@@ -289,7 +327,31 @@ export default function Conferencia() {
     toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
   }
 
-  async function lancarItens(itens: { statementId: string; line: number; sessionId: string }[]) {
+  type ItemDoLote = { statementId: string; line: number; sessionId: string; valor?: ValorDoMes; emPartes?: boolean };
+
+  function itensDoLote(origem: LinhaConferencia[]) {
+    const itens: ItemDoLote[] = [];
+    let aguardando = 0;
+    for (const linha of origem) {
+      const sessionId = sessaoDa(linha);
+      if (linha.link || !sessionId) continue;
+      if (pedeEscolhaDaFixa(linha)) {
+        aguardando += 1;
+        continue;
+      }
+      itens.push({ statementId: linha.statementId, line: linha.line, sessionId, ...opcoesDaFixa(linha) });
+    }
+    if (aguardando > 0) {
+      toast.alerta(
+        aguardando === 1
+          ? "1 linha de sessão fixa espera a escolha do valor e ficou de fora."
+          : `${aguardando} linhas de sessão fixa esperam a escolha do valor e ficaram de fora.`,
+      );
+    }
+    return itens;
+  }
+
+  async function lancarItens(itens: ItemDoLote[]) {
     const preenchidos = itens.filter((item) => item.sessionId);
     if (!preenchidos.length) {
       toast.erro("Preencha a sessão das linhas para lançar.");
@@ -323,6 +385,8 @@ export default function Conferencia() {
       });
       setMarcadas({});
       setPar({});
+      setValorFixa({});
+      setEmPartes({});
       avisarLote(resultado);
       await carregar(year, month);
     } catch (error) {
@@ -338,24 +402,11 @@ export default function Conferencia() {
       toast.erro("Selecione as linhas para lançar.");
       return;
     }
-    return lancarItens(
-      escolhidas.flatMap((linha) => {
-        const sessionId = sessaoDa(linha);
-        if (!sessionId) return [];
-        return [{ statementId: linha.statementId, line: linha.line, sessionId }];
-      }),
-    );
+    return lancarItens(itensDoLote(escolhidas));
   }
 
   function lancarAlteradas() {
-    return lancarItens(
-      linhas.flatMap((linha) => {
-        if (linha.link) return [];
-        const sessionId = sessaoDa(linha);
-        if (!sessionId) return [];
-        return [{ statementId: linha.statementId, line: linha.line, sessionId }];
-      }),
-    );
+    return lancarItens(itensDoLote(linhas));
   }
 
   const falhou = falha === pedido;
@@ -694,6 +745,46 @@ export default function Conferencia() {
                                   {ocupado === chave ? "Lançando" : "Acumular"}
                                 </Button>
                               )}
+                              {!linha.link && fixaDa(linha) ? (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={curva}
+                                  className="col-span-2 col-start-2 flex min-w-0 flex-wrap items-center gap-2 border border-pending-line bg-pending-soft p-3"
+                                >
+                                  <span className="text-sm text-pending">
+                                    Esta sessão fixa já tem a transação dela ({formatarReais(fixaDa(linha)?.cents ?? 0)}).
+                                    {emPartes[chave]
+                                      ? " Esta linha entra como mais uma parte."
+                                      : " A linha cruza com ela e a sessão fecha."}
+                                  </span>
+                                  {!emPartes[chave] && (fixaDa(linha)?.cents ?? 0) !== linha.cents ? (
+                                    <Segmentado<"" | ValorDoMes>
+                                      aria-label="Valor da sessão fixa"
+                                      opcoes={[
+                                        { id: "extrato", label: `Extrato ${formatarReais(linha.cents)}` },
+                                        { id: "lancamento", label: `Lançamento ${formatarReais(fixaDa(linha)?.cents ?? 0)}` },
+                                      ]}
+                                      valor={valorFixa[chave] || ""}
+                                      onEscolher={(id) => {
+                                        if (!id) return;
+                                        setValorFixa((atual) => ({ ...atual, [chave]: id }));
+                                      }}
+                                    />
+                                  ) : null}
+                                  <label className="flex min-h-10 items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      className={caixa}
+                                      checked={emPartes[chave] === true}
+                                      onChange={(event) =>
+                                        setEmPartes((atual) => ({ ...atual, [chave]: event.target.checked }))
+                                      }
+                                    />
+                                    Paga em partes
+                                  </label>
+                                </motion.div>
+                              ) : null}
                               {!linha.link && linha.candidates.length ? (
                                 <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
                                   <select
