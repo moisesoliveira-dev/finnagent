@@ -148,3 +148,20 @@ Arquivos:
 - `apps/agents/src/assistente/adaptadores/grafo-do-assistente.spec.ts`
 - `apps/backend/src/assistente/aplicacao/assistente.service.ts`
 - `packages/contracts/src/index.ts`
+
+## Lançar a conferência inteira e contar o que sobrou
+
+O que foi feito: `acumularVarias` passou a devolver também `remaining`, uma lista `{ year, month, lines }` com as linhas que ainda ficaram sem lançamento em cada mês que o lote tocou (mesmo número da conferência; linha que falha ou não existe não derruba o lote nem inventa mês). No prompt do consultor, o passo 1 manda ler todas as páginas da conferência antes de propor quando o pedido é sobre a conferência toda: a primeira página traz o total `pending` e o tamanho da página, e as demais são pedidas juntas, na mesma resposta, chamando `consultar_conferencia` várias vezes; nunca propor só com a primeira. O passo 5 manda olhar `remaining` depois de lançar, dizer quantas ficaram e por quê (`failed`), propor outro plano para o que sobrou e só dizer que terminou quando não sobrou nenhuma.
+
+Motivo: nos logs de produção (03/11/2026) o plano aprovado rodou `acumular_linhas` (58 s) e o consultor só chamou `consultar_mes_financeiro` e respondeu, deixando linhas sem lançamento; o passo 5 conferia só o mês, a conferência devolve 10 linhas por página e o consultor tem `maxPassos` 8 por turno, então ler tudo e ainda planejar estoura, e o resultado do lote era só `{ launched, failed }`. O log não guarda o conteúdo das mensagens e a leitura do banco de produção foi negada, então a causa exata dessa conversa é inferência.
+
+Verificação: `extratos.service.lote.spec.ts` (novo, 3 casos: `remaining` por mês, linha que falha, linha inexistente) e um caso novo em `prompts.spec.ts`; backend e agents passam, `tsc` limpo. Não verificado: o comportamento com o modelo real (só testes e o código) e o Docker não foi reconstruído (rede do container ao npm). A correção só vale em produção depois do deploy de agents e backend. As linhas que já sobraram precisam ser pedidas de novo ao assistente ou lançadas na Conferência.
+
+Sugestão não feita: subir `maxPassos` para 12 em Configurações, Inteligência artificial, Comportamento, para contas com conferência grande.
+
+Arquivos:
+
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/agents/src/assistente/dominio/prompts.spec.ts`
