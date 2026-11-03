@@ -11,6 +11,7 @@ import {
   type ValorDoMes,
 } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
+import { Dialogo } from "../../../components/ui/dialogo";
 import { Carregando } from "../../../components/ui/esqueleto";
 import { Chip } from "../../../components/ui/chip";
 import { campo, cn, focusRing } from "../../../components/ui/cn";
@@ -98,13 +99,17 @@ export default function Conferencia() {
   const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
   const [buscando, setBuscando] = useState(false);
-  // `fixa` marca a sessão Fixo que já tem a transação dela: `cents` é o valor lançado.
-  const [sessoes, setSessoes] = useState<Array<{ id: string; rotulo: string; fixa: { cents: number } | null }>>([]);
+  // `fixa` marca a sessão Fixo que já tem a transação dela: `cents` é o valor base e `total` o que a sessão soma.
+  const [sessoes, setSessoes] = useState<
+    Array<{ id: string; rotulo: string; fixa: { cents: number; total: number } | null }>
+  >([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
-  const [valorFixa, setValorFixa] = useState<Record<string, ValorDoMes | "">>({});
-  const [emPartes, setEmPartes] = useState<Record<string, boolean>>({});
+  // A linha que espera a decisão da pessoa: a sessão Fixo escolhida já tem transação.
+  const [decisaoFixa, setDecisaoFixa] = useState<LinhaConferencia | null>(null);
+  // Sobe depois de cada lançamento: uma sessão Fixo vira "já lançada" assim que recebe a primeira parte.
+  const [versaoDasSessoes, setVersaoDasSessoes] = useState(0);
   const [busca, setBusca] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("todas");
   const [movimento, setMovimento] = useState<Movimento>("todos");
@@ -178,7 +183,7 @@ export default function Conferencia() {
               return {
                 id: sessao.id,
                 rotulo: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}${lancada ? " · Fixo já lançado" : ""}`,
-                fixa: lancada ? { cents: sessao.cents } : null,
+                fixa: lancada ? { cents: sessao.cents, total: sessao.totalCents } : null,
               };
             }),
         );
@@ -189,7 +194,7 @@ export default function Conferencia() {
     return () => {
       ativo = false;
     };
-  }, []);
+  }, [versaoDasSessoes]);
 
   function mudar(delta: number) {
     manual.current = true;
@@ -197,8 +202,6 @@ export default function Conferencia() {
     setMarcadas({});
     setEscolha({});
     setValorMes({});
-    setValorFixa({});
-    setEmPartes({});
     const data = new Date(year, month - 1 + delta, 1);
     setYear(data.getFullYear());
     setMonth(data.getMonth() + 1);
@@ -216,19 +219,6 @@ export default function Conferencia() {
   function fixaDa(linha: LinhaConferencia) {
     const id = sessaoDa(linha);
     return sessoes.find((sessao) => sessao.id === id)?.fixa ?? null;
-  }
-
-  function pedeEscolhaDaFixa(linha: LinhaConferencia) {
-    const chave = chaveDa(linha);
-    const fixa = fixaDa(linha);
-    return fixa !== null && !emPartes[chave] && fixa.cents !== linha.cents && !valorFixa[chave];
-  }
-
-  function opcoesDaFixa(linha: LinhaConferencia) {
-    const chave = chaveDa(linha);
-    if (!fixaDa(linha)) return {};
-    if (emPartes[chave]) return { emPartes: true };
-    return valorFixa[chave] ? { valor: valorFixa[chave] } : {};
   }
 
   async function confirmar(linha: LinhaConferencia, entryId: string) {
@@ -281,31 +271,32 @@ export default function Conferencia() {
     }
   }
 
-  async function acumular(linha: LinhaConferencia) {
+  async function acumular(linha: LinhaConferencia, decisao?: { valor?: ValorDoMes; emPartes?: boolean }) {
     const chave = chaveDa(linha);
     const sessionId = sessaoDa(linha);
     if (!sessionId) {
       toast.erro("Escolha a sessão para acumular.");
       return;
     }
-    if (pedeEscolhaDaFixa(linha)) {
-      toast.erro("Escolha o valor desta sessão fixa: o do extrato ou o do lançamento.");
+    // Sessão Fixo que já tem a transação: a pessoa vê a conta e decide antes de qualquer coisa ser gravada.
+    if (fixaDa(linha) && !decisao) {
+      setDecisaoFixa(linha);
       return;
     }
     setOcupado(chave);
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/acumular", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...opcoesDaFixa(linha) }),
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...decisao }),
       });
       toast.sucesso(
-        fixaDa(linha) && !emPartes[chave]
+        fixaDa(linha) && !decisao?.emPartes
           ? "Linha cruzada com a transação da sessão fixa."
           : "Linha lançada na sessão. O nome fica lembrado para a próxima importação.",
       );
+      setDecisaoFixa(null);
       setPar({});
-      setValorFixa({});
-      setEmPartes({});
+      setVersaoDasSessoes((versao) => versao + 1);
       setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível acumular a linha.");
@@ -328,7 +319,7 @@ export default function Conferencia() {
     toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
   }
 
-  type ItemDoLote = { statementId: string; line: number; sessionId: string; valor?: ValorDoMes; emPartes?: boolean };
+  type ItemDoLote = { statementId: string; line: number; sessionId: string };
 
   function itensDoLote(origem: LinhaConferencia[]) {
     const itens: ItemDoLote[] = [];
@@ -336,17 +327,17 @@ export default function Conferencia() {
     for (const linha of origem) {
       const sessionId = sessaoDa(linha);
       if (linha.link || !sessionId) continue;
-      if (pedeEscolhaDaFixa(linha)) {
+      if (fixaDa(linha)) {
         aguardando += 1;
         continue;
       }
-      itens.push({ statementId: linha.statementId, line: linha.line, sessionId, ...opcoesDaFixa(linha) });
+      itens.push({ statementId: linha.statementId, line: linha.line, sessionId });
     }
     if (aguardando > 0) {
       toast.alerta(
         aguardando === 1
-          ? "1 linha de sessão fixa espera a escolha do valor e ficou de fora."
-          : `${aguardando} linhas de sessão fixa esperam a escolha do valor e ficaram de fora.`,
+          ? "1 linha de sessão fixa já lançada pede confirmação e ficou de fora. Use Acumular nela."
+          : `${aguardando} linhas de sessão fixa já lançada pedem confirmação e ficaram de fora. Use Acumular em cada uma.`,
       );
     }
     return itens;
@@ -386,8 +377,7 @@ export default function Conferencia() {
       });
       setMarcadas({});
       setPar({});
-      setValorFixa({});
-      setEmPartes({});
+      setVersaoDasSessoes((versao) => versao + 1);
       avisarLote(resultado);
       await carregar(year, month);
     } catch (error) {
@@ -811,46 +801,6 @@ export default function Conferencia() {
                                   {ocupado === chave ? "Lançando" : "Acumular"}
                                 </Button>
                               )}
-                              {!linha.link && fixaDa(linha) ? (
-                                <motion.div
-                                  initial={{ opacity: 0, y: -4 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={curva}
-                                  className="col-span-2 col-start-2 flex min-w-0 flex-wrap items-center gap-2 border border-pending-line bg-pending-soft p-3"
-                                >
-                                  <span className="text-sm text-pending">
-                                    Esta sessão fixa já tem a transação dela ({formatarReais(fixaDa(linha)?.cents ?? 0)}).
-                                    {emPartes[chave]
-                                      ? " Esta linha entra como mais uma parte."
-                                      : " A linha cruza com ela e a sessão fecha."}
-                                  </span>
-                                  {!emPartes[chave] && (fixaDa(linha)?.cents ?? 0) !== linha.cents ? (
-                                    <Segmentado<"" | ValorDoMes>
-                                      aria-label="Valor da sessão fixa"
-                                      opcoes={[
-                                        { id: "extrato", label: `Extrato ${formatarReais(linha.cents)}` },
-                                        { id: "lancamento", label: `Lançamento ${formatarReais(fixaDa(linha)?.cents ?? 0)}` },
-                                      ]}
-                                      valor={valorFixa[chave] || ""}
-                                      onEscolher={(id) => {
-                                        if (!id) return;
-                                        setValorFixa((atual) => ({ ...atual, [chave]: id }));
-                                      }}
-                                    />
-                                  ) : null}
-                                  <label className="flex min-h-10 items-center gap-2 text-sm">
-                                    <input
-                                      type="checkbox"
-                                      className={caixa}
-                                      checked={emPartes[chave] === true}
-                                      onChange={(event) =>
-                                        setEmPartes((atual) => ({ ...atual, [chave]: event.target.checked }))
-                                      }
-                                    />
-                                    Paga em partes
-                                  </label>
-                                </motion.div>
-                              ) : null}
                               {!linha.link && linha.candidates.length ? (
                                 <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
                                   <select
@@ -934,7 +884,89 @@ export default function Conferencia() {
         </motion.div>
       ) : null}
       </Troca>
+      <DialogoDaFixa
+        linha={decisaoFixa}
+        fixa={decisaoFixa ? fixaDa(decisaoFixa) : null}
+        ocupado={ocupado !== ""}
+        onDecidir={(decisao) => decisaoFixa && void acumular(decisaoFixa, decisao)}
+        onFechar={() => setDecisaoFixa(null)}
+      />
     </>
+  );
+}
+
+// A sessão Fixo guarda uma transação. A conta mostra o que ela já soma, o valor desta linha e o total se as duas
+// forem somadas; com valores diferentes, a pessoa escolhe qual vale, soma como parte ou deixa para depois.
+function DialogoDaFixa({
+  linha,
+  fixa,
+  ocupado,
+  onDecidir,
+  onFechar,
+}: {
+  linha: LinhaConferencia | null;
+  fixa: { cents: number; total: number } | null;
+  ocupado: boolean;
+  onDecidir: (decisao: { valor?: ValorDoMes; emPartes?: boolean }) => void;
+  onFechar: () => void;
+}) {
+  const aberto = linha !== null && fixa !== null;
+  const igual = linha && fixa ? fixa.cents === linha.cents : false;
+  return (
+    <Dialogo aberto={aberto} aria-labelledby="titulo-fixa" onClose={onFechar}>
+      {linha && fixa ? (
+        <div className="grid gap-4">
+          <h2 id="titulo-fixa" className="font-display text-lg">
+            Esta sessão fixa já tem a transação dela
+          </h2>
+          <dl className="grid gap-2 border border-line p-3 text-sm">
+            <div className="flex items-baseline justify-between gap-4">
+              <dt className="text-ink-2">Já lançado na sessão</dt>
+              <dd className="font-display font-bold">{formatarReais(fixa.total)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-4">
+              <dt className="min-w-0 text-ink-2">Esta linha: {linha.description || "sem descrição"}</dt>
+              <dd className="font-display font-bold">{formatarReais(linha.cents)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
+              <dt className="text-ink-2">Se somar as duas</dt>
+              <dd className="font-display font-bold">{formatarReais(fixa.total + linha.cents)}</dd>
+            </div>
+          </dl>
+          {igual ? (
+            <p className="text-sm text-ink-2">
+              Os valores batem: a linha é o pagamento da transação lançada. Confirme para cruzar e fechar a sessão.
+            </p>
+          ) : (
+            <p className="text-sm text-pending">
+              Os valores são diferentes. Escolha qual vale, some como mais uma parte ou deixe para depois.
+            </p>
+          )}
+          <div className="grid gap-2">
+            {igual ? (
+              <Button variant="primary" disabled={ocupado} onClick={() => onDecidir({})}>
+                Confirmar e cruzar
+              </Button>
+            ) : (
+              <>
+                <Button variant="primary" disabled={ocupado} onClick={() => onDecidir({ valor: "extrato" })}>
+                  Usar o do extrato ({formatarReais(linha.cents)})
+                </Button>
+                <Button disabled={ocupado} onClick={() => onDecidir({ valor: "lancamento" })}>
+                  Manter o lançado ({formatarReais(fixa.cents)})
+                </Button>
+              </>
+            )}
+            <Button disabled={ocupado} onClick={() => onDecidir({ emPartes: true })}>
+              Somar como mais uma parte ({formatarReais(fixa.total + linha.cents)})
+            </Button>
+            <Button variant="quiet" disabled={ocupado} onClick={onFechar}>
+              Deixar assim por enquanto
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Dialogo>
   );
 }
 
