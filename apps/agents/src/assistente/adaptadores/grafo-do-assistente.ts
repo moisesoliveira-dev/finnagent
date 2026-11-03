@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CallbackHandler } from "@langfuse/langchain";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { AIMessageChunk, SystemMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage, AIMessageChunk, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import {
@@ -17,9 +17,11 @@ import {
   type ModeloResolvido,
   type PedidoDePasso,
 } from "@finnagent/contracts";
+import { AVISO_DA_SEGUNDA_CHANCE, anunciaMudanca, recusouEscrita } from "../dominio/anuncio.js";
 import { mensagensPara, textoDe } from "../dominio/mensagens.js";
 import { promptDoConsultor } from "../dominio/prompts.js";
 import { FalhaDoModelo, ModeloAusente } from "../dominio/erros.js";
+import { log } from "../../log.js";
 import type { FabricaDeModelos } from "../portas/fabrica-de-modelos.js";
 
 /** O assistente é um agente só, o consultor, com todas as ferramentas. Ele usa o modelo da função coordenador. */
@@ -105,6 +107,41 @@ const FERRAMENTAS = [
   },
 ];
 
+function chamadasDe(final: AIMessageChunk) {
+  return (final.tool_calls ?? []).map((chamada) => ({
+    id: chamada.id || randomUUID(),
+    nome: chamada.name,
+    args: (chamada.args ?? {}) as Record<string, unknown>,
+  }));
+}
+
+/**
+ * A segunda volta do consultor: a mesma conversa, mais o que ele acabou de dizer e o aviso do sistema, com
+ * propor_plano como única saída. Se o provedor não aceitar escolher a ferramenta, repete só com o aviso.
+ */
+async function proporOPlano(
+  fabrica: FabricaDeModelos,
+  pedido: PedidoDePasso,
+  mensagens: BaseMessage[],
+  texto: string,
+  config: RunnableConfig,
+  emitir: Emitir,
+) {
+  const segunda = [...mensagens, ...(texto.trim() ? [new AIMessage(texto)] : []), new HumanMessage(AVISO_DA_SEGUNDA_CHANCE)];
+  try {
+    const final = await comTemperatura(fabrica, modeloDe(pedido), pedido.temperatura, (chat, mostrar) => {
+      if (!chat.bindTools) throw new FalhaDoModelo(`O modelo do ${INFO_DOS_AGENTES[CONSULTOR].nome} não aceita ferramentas.`);
+      return transmitir(chat.bindTools(FERRAMENTAS, { tool_choice: FERRAMENTA_PLANO }), segunda, config, emitir, mostrar);
+    });
+    return chamadasDe(final).filter((chamada) => chamada.nome === FERRAMENTA_PLANO);
+  } catch (error) {
+    if (error instanceof FalhaDoModelo || error instanceof ModeloAusente) throw error;
+    // Um erro aqui não pode derrubar a resposta que o consultor já deu.
+    log.warn({ err: error instanceof Error ? error.message : String(error) }, "a segunda volta do consultor falhou");
+    return [];
+  }
+}
+
 export function criarGrafoDoAssistente(fabrica: FabricaDeModelos) {
   /** O consultor: lê a conversa, consulta, pergunta ou propõe o plano. Uma volta por passo do backend. */
   async function consultor(estado: EstadoDoGrafo, config: RunnableConfig): Promise<Partial<EstadoDoGrafo>> {
@@ -119,12 +156,20 @@ export function criarGrafoDoAssistente(fabrica: FabricaDeModelos) {
       return transmitir(chat.bindTools(FERRAMENTAS), mensagens, config, emitir, mostrar);
     });
     const texto = textoDe(final.content);
-    const chamadas = (final.tool_calls ?? []).map((chamada) => ({
-      id: chamada.id || randomUUID(),
-      nome: chamada.name,
-      args: (chamada.args ?? {}) as Record<string, unknown>,
-    }));
+    const chamadas = chamadasDe(final);
     if (chamadas.length) return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas, notas: [] } };
+
+    // Só texto, mas o texto promete uma mudança ("vou criar...") ou vem logo depois de uma escrita recusada: o
+    // consultor narrou o plano em vez de propô-lo. Uma segunda volta obriga propor_plano. O texto fica, e o plano
+    // aparece logo depois dele.
+    if (anunciaMudanca(texto) || recusouEscrita(pedido.mensagens)) {
+      const plano = await proporOPlano(fabrica, pedido, mensagens, texto, config, emitir);
+      if (plano.length) {
+        log.info({ ferramenta: FERRAMENTA_PLANO }, "o consultor anunciou a mudança sem propor o plano; a segunda volta propôs");
+        return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas: plano, notas: [] } };
+      }
+      log.warn("o consultor anunciou a mudança sem propor o plano, e a segunda volta também não propôs");
+    }
     return { saida: { tipo: "resposta", agente: CONSULTOR, texto: texto || "Não consegui concluir esse pedido.", notas: [] } };
   }
 
