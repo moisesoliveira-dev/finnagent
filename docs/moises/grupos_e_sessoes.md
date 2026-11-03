@@ -202,3 +202,32 @@ Motivo: a pessoa pediu a tela de grupos no estilo do Prumo.
 Arquivos:
 
 - `apps/frontend/app/grupos/page.tsx`
+
+## Tipo da sessão na edição: Fixo ou Acúmulo
+
+O que foi feito: a edição da sessão passa a permitir trocar o tipo. "Fixo" é o nome na tela do tipo valor (antes "Valor único"); o valor guardado continua `valor`/`acumulo`.
+
+- `packages/contracts`: `ROTULO_DO_TIPO_DE_SESSAO`.
+- Backend: `PATCH sessoes/:id` aceita `kind` opcional. O domínio ganhou `podeTrocarDeTipo` e `MENSAGEM_DA_TROCA_DE_TIPO`: virar Acúmulo é sempre seguro; virar Fixo só cabe com no máximo uma transação ativa, e ela precisa ser única (a cancelada não conta). O repositório confere os lançamentos da sessão na mesma transação, devolve `tipo` quando não cabe e só grava `kind` no evento `atualizar-sessao` do outbox quando o tipo muda. O serviço responde 409 Conflito com a mensagem.
+- Frontend: a tela de grupos mostra o seletor Fixo/Acúmulo também na edição, envia `kind` no PATCH e usa o rótulo novo. Os textos "valor único" viraram "fixa" em Finanças e nas duas mensagens do `financas.service.ts` ("Esta sessão fixa já foi lançada.").
+- O assistente e o contrato técnico seguem com `valor`/`acumulo`.
+
+Motivo: a pessoa precisa corrigir o tipo de uma sessão já criada, sem perder o lançamento que não cabe no tipo novo.
+
+Testes: 5 casos de `podeTrocarDeTipo` em `sessao.spec.ts` e `grupos.service.spec.ts` novo com 3 casos; backend com 360 testes passando, `tsc` do backend e do frontend limpos, eslint sem achado.
+
+Verificado na tela (backend e frontend rodando fora do Docker): o seletor aparece na edição; trocar Contas (vários lançamentos, categorias fixa e parcela) para Fixo é recusado com a mensagem; Viagem (uma única) virou Fixo, o cartão mostrou Fixo, o seletor reaberto veio com Fixo marcado e voltou para Acúmulo; o banco voltou a `acumulo`. Não verificado: o Docker não foi reconstruído (rede do container ao npm); o app mobile não tem tela de grupos.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/grupos/grupos.controller.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts`
+- `apps/backend/src/grupos/dominio/sessao.spec.ts`
+- `apps/backend/src/grupos/portas/grupos-repositorio.ts`
+- `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+- `apps/backend/src/grupos/aplicacao/grupos.service.ts`
+- `apps/backend/src/grupos/aplicacao/grupos.service.spec.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/frontend/app/grupos/page.tsx`
+- `apps/frontend/app/financas/page.tsx`

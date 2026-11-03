@@ -35,6 +35,23 @@ export function mensagemDaCategoria(kind: TipoSessao) {
   return "Esta sessão acumula única, extra, parcela, empréstimo e fixa.";
 }
 
+export const MENSAGEM_DA_TROCA_DE_TIPO =
+  "Um Fixo guarda só uma transação única. Cancele ou mova os outros lançamentos desta sessão antes de trocar.";
+
+/**
+ * Trocar o tipo da sessão que já tem lançamentos. Acúmulo aceita tudo que o Fixo aceita, então virar Acúmulo é
+ * sempre seguro. Virar Fixo só cabe com no máximo uma transação única ativa; a cancelada não conta.
+ */
+export function podeTrocarDeTipo(
+  atual: TipoSessao,
+  para: TipoSessao,
+  lancamentos: { status: string; category: string }[],
+) {
+  if (para === atual || para !== "valor") return true;
+  const ativos = lancamentos.filter((item) => item.status !== "cancelled");
+  return ativos.length <= 1 && ativos.every((item) => item.category === "unique");
+}
+
 export function protegeValorBase(
   kind: TipoSessao,
   lancamentoId: string,

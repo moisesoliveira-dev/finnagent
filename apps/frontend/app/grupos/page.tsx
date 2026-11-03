@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { GruposResposta, TipoSessao } from "@finnagent/contracts";
+import { ROTULO_DO_TIPO_DE_SESSAO, type GruposResposta, type TipoSessao } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
@@ -66,7 +66,7 @@ function texto(value: string | undefined) {
 }
 
 function rotuloDoTipo(kind: TipoSessao) {
-  return kind === "valor" ? "Valor único" : "Acúmulo";
+  return ROTULO_DO_TIPO_DE_SESSAO[kind];
 }
 
 function inicioDaSessao(iso: string | null) {
@@ -226,7 +226,7 @@ export default function Grupos() {
       const session = sessionDraft.id
         ? await api<Session>(`/api/sessoes/${sessionDraft.id}`, {
             method: "PATCH",
-            body: JSON.stringify(corpo),
+            body: JSON.stringify({ ...corpo, kind: sessionDraft.kind }),
           })
         : await api<Session>("/api/sessoes", {
             method: "POST",
@@ -520,36 +520,31 @@ export default function Grupos() {
               Até 160 caracteres. A IA usa a justificativa no contexto da sessão.
             </p>
           </div>
-          {sessionDraft?.id ? (
-            <p className="max-w-prose text-sm text-ink-2">
-              {sessionDraft.kind === "valor"
-                ? "Valor único. A transação define a entrada, a saída e o valor."
-                : "Acúmulo. Cada transação define o próprio valor."}
+          <div className="grid gap-1">
+            <span className="text-sm font-medium" id="sessao-tipo">
+              Tipo
+            </span>
+            <Segmentado
+              radio
+              aria-labelledby="sessao-tipo"
+              opcoes={[
+                { id: "valor", label: ROTULO_DO_TIPO_DE_SESSAO.valor },
+                { id: "acumulo", label: ROTULO_DO_TIPO_DE_SESSAO.acumulo },
+              ]}
+              valor={sessionDraft?.kind ?? "acumulo"}
+              onEscolher={(kind) =>
+                setSessionDraft((current) => (current ? { ...current, kind } : current))
+              }
+            />
+            <p className="text-xs text-ink-2">
+              {sessionDraft?.kind === "valor"
+                ? "Aceita uma transação única. Ela define a entrada ou a saída e o valor. Depois de lançada, sai das opções."
+                : "Aceita única, extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
+              {sessionDraft?.id
+                ? " Para virar Fixo, a sessão não pode ter mais de uma transação ativa, e a que tiver precisa ser única."
+                : ""}
             </p>
-          ) : (
-            <div className="grid gap-1">
-              <span className="text-sm font-medium" id="sessao-tipo">
-                Tipo
-              </span>
-              <Segmentado
-                radio
-                aria-labelledby="sessao-tipo"
-                opcoes={[
-                  { id: "valor", label: "Valor único" },
-                  { id: "acumulo", label: "Acúmulo" },
-                ]}
-                valor={sessionDraft?.kind ?? "acumulo"}
-                onEscolher={(kind) =>
-                  setSessionDraft((current) => (current ? { ...current, kind } : current))
-                }
-              />
-              <p className="text-xs text-ink-2">
-                {sessionDraft?.kind === "valor"
-                  ? "Aceita uma transação única. Ela define a entrada ou a saída e o valor. Depois de lançada, sai das opções."
-                  : "Aceita única, extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
-              </p>
-            </div>
-          )}
+          </div>
           {sessionDraft?.escolherGrupo ? (
             <div className="grid gap-1">
               <Rotulo htmlFor="sessao-grupo" dica="O grupo para onde esta sessão vai.">

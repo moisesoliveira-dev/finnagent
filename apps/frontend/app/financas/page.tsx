@@ -249,7 +249,7 @@ export default function Financas() {
         toast.alerta(
           abertas.length === 0
             ? "Crie um grupo e uma sessão antes do lançamento."
-            : "As sessões de valor único já foram lançadas.",
+            : "As sessões fixas já foram lançadas.",
         );
         return;
       }

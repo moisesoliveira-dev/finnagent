@@ -46,6 +46,7 @@ const atualizarSessao = z.object({
   description: descricao,
   justification: justificativa,
   groupId: z.uuid(),
+  kind: z.enum(TIPOS_SESSAO).optional(),
 });
 
 @Controller()
@@ -149,7 +150,7 @@ export class GruposController {
         name: pedido.name,
         description: pedido.description,
         justification: pedido.justification,
-      }),
+      }, pedido.kind),
     );
   }
 
