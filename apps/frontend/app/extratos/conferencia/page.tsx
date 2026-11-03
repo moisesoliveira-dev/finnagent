@@ -23,6 +23,7 @@ import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
 
 const field = campo;
+const LINHAS_POR_PEDIDO_DO_LOTE = 8;
 const caixa = `size-4 accent-brand ${focusRing}`;
 
 type Situacao = "todas" | "abertas" | "cruzadas" | "propostas";
@@ -296,10 +297,22 @@ export default function Conferencia() {
     }
     setOcupado("lote");
     try {
-      const resultado = await api<AcumuloEmLote>("/api/extratos/acumular-lote", {
-        method: "POST",
-        body: JSON.stringify({ items: preenchidos }),
-      });
+      // Em blocos: cada linha custa vários acessos ao banco, e um lote grande passa do tempo do pedido (504).
+      const resultado: AcumuloEmLote = { launched: 0, failed: [] };
+      for (let inicio = 0; inicio < preenchidos.length; inicio += LINHAS_POR_PEDIDO_DO_LOTE) {
+        const bloco = preenchidos.slice(inicio, inicio + LINHAS_POR_PEDIDO_DO_LOTE);
+        try {
+          const parcial = await api<AcumuloEmLote>("/api/extratos/acumular-lote", {
+            method: "POST",
+            body: JSON.stringify({ items: bloco }),
+          });
+          resultado.launched += parcial.launched;
+          resultado.failed.push(...parcial.failed);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Não foi possível lançar as linhas.";
+          resultado.failed.push(...bloco.map((item) => ({ statementId: item.statementId, line: item.line, message })));
+        }
+      }
       const falhas = new Set(resultado.failed.map((falha) => `${falha.statementId}:${falha.line}`));
       setEscolha((atual) => {
         const proximo = { ...atual };
