@@ -26,7 +26,7 @@ const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
 const caixa = `size-4 accent-brand ${focusRing}`;
 
-type Situacao = "todas" | "abertas" | "cruzadas" | "propostas";
+type Situacao = "todas" | "abertas" | "cruzadas" | "propostas" | "ignoradas";
 type Movimento = "todos" | "entradas" | "saidas";
 
 const situacoes: { id: Situacao; label: string }[] = [
@@ -34,6 +34,7 @@ const situacoes: { id: Situacao; label: string }[] = [
   { id: "abertas", label: "Sem lançamento" },
   { id: "cruzadas", label: "Cruzadas" },
   { id: "propostas", label: "Com proposta" },
+  { id: "ignoradas", label: "Ignoradas" },
 ];
 
 const meses = [
@@ -396,8 +397,30 @@ export default function Conferencia() {
     }
   }
 
+  async function ignorar(escolhidas: LinhaConferencia[], ignorada: boolean) {
+    if (!escolhidas.length) return;
+    setOcupado("ignorar");
+    try {
+      const resultado = await api<{ changed: number }>("/api/extratos/ignorar", {
+        method: "POST",
+        body: JSON.stringify({
+          items: escolhidas.map((linha) => ({ statementId: linha.statementId, line: linha.line })),
+          ignored: ignorada,
+        }),
+      });
+      const quantas = resultado.changed === 1 ? "1 linha" : `${resultado.changed} linhas`;
+      toast.sucesso(ignorada ? `${quantas} ignorada. Ela não é apagada e pode ser reativada.` : `${quantas} reativada.`);
+      setMarcadas({});
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível alterar as linhas.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
   function lancarSelecionadas() {
-    const escolhidas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link);
+    const escolhidas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link && !linha.ignored);
     if (!escolhidas.length) {
       toast.erro("Selecione as linhas para lançar.");
       return;
@@ -406,7 +429,7 @@ export default function Conferencia() {
   }
 
   function lancarAlteradas() {
-    return lancarItens(itensDoLote(linhas));
+    return lancarItens(itensDoLote(linhas.filter((linha) => !linha.ignored)));
   }
 
   const falhou = falha === pedido;
@@ -418,6 +441,7 @@ export default function Conferencia() {
     if (termo && ![linha.description, linha.accountName, linha.filename].some((valor) => valor.toLowerCase().includes(termo))) {
       return false;
     }
+    if (situacao === "ignoradas" ? !linha.ignored : linha.ignored) return false;
     if (situacao === "abertas" && linha.link) return false;
     if (situacao === "cruzadas" && !linha.link) return false;
     if (situacao === "propostas" && !linha.suggestion) return false;
@@ -429,11 +453,14 @@ export default function Conferencia() {
   });
   const abertasFiltradas = filtradas.filter((linha) => !linha.link);
   const todasMarcadas = abertasFiltradas.length > 0 && abertasFiltradas.every((linha) => marcadas[chaveDa(linha)]);
-  const selecionadas = linhas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link).length;
-  const alteradas = linhas.filter((linha) => !linha.link && Boolean(sessaoDa(linha))).length;
-  const entradas = linhas.reduce((soma, linha) => soma + (linha.cents > 0 ? linha.cents : 0), 0);
-  const saidas = linhas.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);
-  const cruzadas = linhas.filter((linha) => linha.link).length;
+  const ativas = linhas.filter((linha) => !linha.ignored);
+  const ignoradas = linhas.length - ativas.length;
+  const selecionadas = ativas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link).length;
+  const reativaveis = linhas.filter((linha) => linha.ignored && marcadas[chaveDa(linha)]);
+  const alteradas = ativas.filter((linha) => !linha.link && Boolean(sessaoDa(linha))).length;
+  const entradas = ativas.reduce((soma, linha) => soma + (linha.cents > 0 ? linha.cents : 0), 0);
+  const saidas = ativas.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);
+  const cruzadas = ativas.filter((linha) => linha.link).length;
   const ordenadas = [...filtradas].sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
   const dias = ordenadas.reduce<{ data: string; itens: LinhaConferencia[] }[]>((grupos, linha) => {
     const atual = grupos.at(-1);
@@ -539,11 +566,14 @@ export default function Conferencia() {
             />
             <div className="flex flex-wrap items-center gap-2">
               <Segmentado
-                opcoes={situacoes}
+                opcoes={situacoes.map((item) =>
+                  item.id === "ignoradas" && ignoradas > 0 ? { ...item, label: `Ignoradas ${ignoradas}` } : item,
+                )}
                 valor={situacao}
                 aria-label="Situação"
                 onEscolher={(valor) => {
                   setSituacao(valor);
+                  setMarcadas({});
                 }}
               />
               <select
@@ -618,6 +648,18 @@ export default function Conferencia() {
                 />
                 Selecionar sem lançamento
               </label>
+              {situacao === "ignoradas" ? (
+                <span className="flex flex-wrap items-center gap-2 tab:ml-auto">
+                  <Button
+                    variant="primary"
+                    carregando={ocupado === "ignorar"}
+                    disabled={ocupado !== "" || reativaveis.length === 0}
+                    onClick={() => void ignorar(reativaveis, false)}
+                  >
+                    {ocupado === "ignorar" ? "Reativando" : reativaveis.length > 0 ? `Reativar ${reativaveis.length}` : "Reativar selecionadas"}
+                  </Button>
+                </span>
+              ) : (
               <span className="flex flex-wrap items-center gap-2 tab:ml-auto">
                 <Button
                   variant="primary"
@@ -634,7 +676,16 @@ export default function Conferencia() {
                 >
                   {ocupado === "lote" ? "Lançando" : alteradas > 0 ? `Lançar ${alteradas} alteradas` : "Lançar alteradas"}
                 </Button>
+                <Button
+                  variant="quiet"
+                  carregando={ocupado === "ignorar"}
+                  disabled={ocupado !== "" || selecionadas === 0}
+                  onClick={() => void ignorar(ativas.filter((linha) => marcadas[chaveDa(linha)] && !linha.link), true)}
+                >
+                  {ocupado === "ignorar" ? "Ignorando" : selecionadas > 0 ? `Ignorar ${selecionadas}` : "Ignorar selecionadas"}
+                </Button>
               </span>
+              )}
             </motion.div>
           ) : null}
           {dias.length ? (
@@ -697,6 +748,7 @@ export default function Conferencia() {
                                   {linha.description || "—"}
                                 </span>
                                 {linha.link ? <Chip tone="ok">Cruzado</Chip> : null}
+                                {linha.ignored ? <Chip>Ignorada</Chip> : null}
                                 {!linha.link && linha.suggestion ? (
                                   <Chip tone="ai">{linha.suggestionSource === "nome" ? "Nome" : "Valor"}</Chip>
                                 ) : null}
@@ -712,6 +764,10 @@ export default function Conferencia() {
                               {linha.link ? (
                                 <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
                                   {textoDoVinculo(linha.link)}
+                                </span>
+                              ) : linha.ignored ? (
+                                <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
+                                  Ignorada: não entra na conferência nem nas finanças. Continua guardada.
                                 </span>
                               ) : sessoes.length ? (
                                 <BuscaSessao
@@ -733,6 +789,16 @@ export default function Conferencia() {
                                   onClick={() => void desfazer(linha)}
                                 >
                                   {ocupado === chave ? "Desfazendo" : "Desfazer"}
+                                </Button>
+                              ) : linha.ignored ? (
+                                <Button
+                                  className="col-start-3 row-start-2"
+                                  variant="quiet"
+                                  carregando={ocupado === chave}
+                                  disabled={ocupado !== ""}
+                                  onClick={() => void ignorar([linha], false)}
+                                >
+                                  Reativar
                                 </Button>
                               ) : (
                                 <Button

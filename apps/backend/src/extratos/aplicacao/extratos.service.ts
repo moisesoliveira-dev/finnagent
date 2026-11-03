@@ -26,7 +26,7 @@ import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
-import { chaveDoNome } from "../dominio/nome-extrato.js";
+import { chaveDoNome, ehTransferenciaDePessoa } from "../dominio/nome-extrato.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
 import {
@@ -43,6 +43,8 @@ type LinhaGravada = Exclude<Awaited<ReturnType<ExtratosRepositorio["obterLinha"]
 
 /** Como o lançamento da linha trata a sessão: `valor` decide a divergência na Fixo, `emPartes` libera mais uma. */
 export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean };
+
+const MENSAGEM_DA_LINHA_IGNORADA = "Essa linha está ignorada. Reative-a para lançar.";
 
 const MENSAGEM_DA_SESSAO_FIXA_LANCADA =
   'Esta sessão fixa já tem a transação dela e ela não cabe nesta linha (outro mês, outro sinal ou já conciliada). Se o pagamento veio em partes, marque "Paga em partes" nesta linha.';
@@ -198,7 +200,7 @@ export class ExtratosService {
     );
     const lines = linhas.map(({ importedAt: _importedAt, ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
-      if (linha.entryId) {
+      if (linha.entryId || linha.ignored) {
         return {
           ...linha,
           link,
@@ -211,7 +213,8 @@ export class ExtratosService {
         };
       }
       const candidatos = candidatosDaLinha(linha, cruzaveis);
-      const lembrado = lembrados.get(chaveDoNome(linha.description));
+      // Transferência para pessoa não tem memória: o motivo muda a cada uma.
+      const lembrado = ehTransferenciaDePessoa(linha.description) ? undefined : lembrados.get(chaveDoNome(linha.description));
       const proposta = propostaDaLinha(linha, candidatos, lembrado);
       // O nome já lançado antes vale mais; sem ele, vale a sessão do compromisso que cai no dia da linha.
       const doCompromisso = lembrado?.sessionId ? null : sessaoDoCompromisso(linha.date, compromissos);
@@ -226,12 +229,12 @@ export class ExtratosService {
         appointmentTitle: doCompromisso?.title ?? null,
       };
     });
-    const pending = lines.filter((linha) => !linha.entryId).length;
+    const pending = lines.filter((linha) => !linha.entryId && !linha.ignored).length;
     const resposta = { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
     if (!pagina) return resposta;
     // Com busca, só as linhas desses nomes; `pending` continua sendo o total sem lançamento do mês.
     const termos = termosDaBusca(busca);
-    const semLancamento = lines.filter((linha) => !linha.entryId && casaComABusca(linha.description, termos));
+    const semLancamento = lines.filter((linha) => !linha.entryId && !linha.ignored && casaComABusca(linha.description, termos));
     const inicio = (pagina - 1) * LINHAS_DA_CONFERENCIA_POR_PAGINA;
     return {
       ...resposta,
@@ -263,6 +266,7 @@ export class ExtratosService {
     daSessaoFixa = false,
   ) {
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
     const [year, month] = gravada.date.split("-").map(Number);
     const entry = await this.financas.obterAberto(tenantId, entryId);
     const planejado = entry ? valorContado(entry, gravada.date) : null;
@@ -351,6 +355,7 @@ export class ExtratosService {
     if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
     const gravada = { ...lida, date: lida.date };
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
     if (!gravada.cents) throw new PedidoInvalido("A linha não tem valor para acumular.");
     if (!opcoes.emPartes) {
       const fixa = await this.financas.lancamentoDaSessaoFixa(tenantId, sessionId);
@@ -443,13 +448,19 @@ export class ExtratosService {
     return { launched, failed, remaining };
   }
 
+  /** Ignora ou reativa linhas do extrato. Ignorada não é apagada: sai da conferência e volta quando reativada. */
+  async ignorar(tenantId: string, itens: { statementId: string; line: number }[], ignorar: boolean) {
+    const changed = await this.extratos.ignorarLinhas(tenantId, itens, ignorar);
+    return { changed };
+  }
+
   private async cruzar(tenantId: string, statementId: string, line: number, entryId: string, description: string) {
     const resultado = await this.extratos.confirmarCruzamento(
       tenantId,
       statementId,
       line,
       entryId,
-      chaveDoNome(description) || null,
+      ehTransferenciaDePessoa(description) ? null : chaveDoNome(description) || null,
     );
     if (resultado === "ausente") throw new NaoEncontrado("Linha não encontrada.");
     if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");

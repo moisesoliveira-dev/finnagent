@@ -171,6 +171,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
+        ignoredAt: true,
         statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
@@ -185,6 +186,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         accountName: row.statement.account.name,
         filename: row.statement.filename,
         entryId: row.entryId,
+        ignored: row.ignoredAt !== null,
         importedAt: row.statement.importedAt.toISOString(),
       };
       return [linha];
@@ -194,7 +196,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async ultimoMesPendente(tenantId: string) {
     const db = this.banco();
     const row = await db.statementLine.findFirst({
-      where: { tenantId, entryId: null, error: "", cents: { not: null }, postedOn: { not: null } },
+      where: { tenantId, entryId: null, ignoredAt: null, error: "", cents: { not: null }, postedOn: { not: null } },
       orderBy: { postedOn: "desc" },
       select: { postedOn: true },
     });
@@ -210,6 +212,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       where: {
         tenantId,
         entryId: null,
+        ignoredAt: null,
         error: "",
         cents: { not: null },
         postedOn: { gte: inicio, lt: fim },
@@ -228,6 +231,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
+        ignoredAt: true,
         statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
@@ -241,6 +245,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       accountName: row.statement.account.name,
       filename: row.statement.filename,
       entryId: row.entryId,
+      ignored: row.ignoredAt !== null,
       importedAt: row.statement.importedAt.toISOString(),
     };
   }
@@ -296,6 +301,32 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       const payload = { statementId, line, entryId: linha.entryId };
       await gravarOutbox(tx, tenantId, "desfazer-cruzamento", `${statementId}:${line}`, payload, `${linha.entryId}:${Date.now()}`);
       return { entryId: linha.entryId };
+    });
+  }
+
+  async ignorarLinhas(tenantId: string, itens: { statementId: string; line: number }[], ignorar: boolean) {
+    const db = this.banco();
+    // Uma atualização por extrato, com todas as linhas dele, em vez de uma por linha.
+    const porExtrato = new Map<string, number[]>();
+    for (const item of itens) porExtrato.set(item.statementId, [...(porExtrato.get(item.statementId) ?? []), item.line]);
+    return db.$transaction(async (tx) => {
+      let mudaram = 0;
+      for (const [statementId, linhas] of porExtrato) {
+        const { count } = await tx.statementLine.updateMany({
+          where: {
+            tenantId,
+            statementId,
+            line: { in: linhas },
+            ...(ignorar ? { entryId: null, ignoredAt: null } : { ignoredAt: { not: null } }),
+          },
+          data: { ignoredAt: ignorar ? new Date() : null },
+        });
+        if (count === 0) continue;
+        mudaram += count;
+        const payload = { statementId, lines: linhas, ignored: ignorar };
+        await gravarOutbox(tx, tenantId, ignorar ? "ignorar-linhas" : "reativar-linhas", statementId, payload, String(Date.now()));
+      }
+      return mudaram;
     });
   }
 

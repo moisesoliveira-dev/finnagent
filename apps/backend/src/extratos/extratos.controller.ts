@@ -134,6 +134,18 @@ export class ExtratosController {
     return this.executar(() => this.extratos.acumularVarias(this.tenant(tenant), pedido.data.items));
   }
 
+  @Post("extratos/ignorar")
+  ignorar(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z
+      .object({
+        items: z.array(z.object({ statementId: z.uuid(), line: z.number().int().min(1) })).min(1).max(500),
+        ignored: z.boolean(),
+      })
+      .safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha as linhas para ignorar ou reativar.");
+    return this.executar(() => this.extratos.ignorar(this.tenant(tenant), pedido.data.items, pedido.data.ignored));
+  }
+
   @Post("extratos/acumular")
   acumular(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = z
