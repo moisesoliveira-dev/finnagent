@@ -2945,6 +2945,9 @@ export const ESQUEMA_PERGUNTAR = z.object({
 /** O plano: toda ação que muda o sistema passa por ele, e o backend só executa depois da aprovação. */
 export const FERRAMENTA_PLANO = "propor_plano";
 
+/** O começo do resultado que o backend devolve à escrita fora do plano. O agents o reconhece para exigir o plano. */
+export const RECUSA_DE_ESCRITA_FORA_DO_PLANO = "Nada foi feito: esta ferramenta muda o sistema e só roda dentro de um plano aprovado.";
+
 /** As ferramentas que criam algo novo: o passo dá o id, e os seguintes apontam para ele com @passo:N. */
 export const FERRAMENTAS_QUE_CRIAM: ReadonlySet<string> = new Set([
   "criar_grupo",

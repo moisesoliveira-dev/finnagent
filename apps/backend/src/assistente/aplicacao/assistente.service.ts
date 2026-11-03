@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
+  RECUSA_DE_ESCRITA_FORA_DO_PLANO,
   APROVAR_PLANO,
   CANCELAR_PLANO,
   ESQUEMA_PERGUNTAR,
@@ -507,7 +508,7 @@ export class AssistenteService {
         this.resultado(
           turno,
           chamada,
-          "Nada foi feito: esta ferramenta muda o sistema e só roda dentro de um plano aprovado. Chame propor_plano com este passo e os outros que o pedido precisa; o sistema mostra à pessoa e executa depois que ela aprovar.",
+          `${RECUSA_DE_ESCRITA_FORA_DO_PLANO} Chame propor_plano com este passo e os outros que o pedido precisa; o sistema mostra à pessoa e executa depois que ela aprovar.`,
         );
         continue;
       }
