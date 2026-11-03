@@ -57,6 +57,7 @@ export class ExtratosController {
     @Query("month") month: string | undefined,
     @Query("abrir") abrir: string | undefined,
     @Query("pagina") pagina: string | undefined,
+    @Query("busca") busca: string | undefined,
   ) {
     const pedido = z
       .object({
@@ -64,15 +65,21 @@ export class ExtratosController {
         month: z.coerce.number().int().min(1).max(12),
         abrir: z.enum(["pendente"]).optional(),
         pagina: z.coerce.number().int().min(1).max(100).optional(),
+        busca: z.string().trim().min(2).max(120).optional(),
       })
-      .safeParse({ year, month, abrir, pagina });
-    if (!pedido.success) throw new BadRequestException("Informe o mês.");
+      .safeParse({ year, month, abrir, pagina, busca });
+    if (!pedido.success) {
+      const campo = pedido.error.issues[0]?.path[0];
+      if (campo === "busca") throw new BadRequestException("A busca precisa ter de 2 a 120 letras.");
+      if (campo === "pagina") throw new BadRequestException("Informe uma página de 1 a 100.");
+      throw new BadRequestException("Informe o mês.");
+    }
     const { year: ano, month: mes } = pedido.data;
     const tenantId = this.tenant(tenant);
     return this.executar(() =>
       pedido.data.abrir
         ? this.extratos.abrirConferencia(tenantId, ano, mes)
-        : this.extratos.conferencia(tenantId, ano, mes, pedido.data.pagina),
+        : this.extratos.conferencia(tenantId, ano, mes, pedido.data.pagina, pedido.data.busca),
     );
   }
 

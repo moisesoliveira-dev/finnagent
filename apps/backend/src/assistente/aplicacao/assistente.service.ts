@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   RECUSA_DE_ESCRITA_FORA_DO_PLANO,
+  RECUSA_DE_PLANO,
   APROVAR_PLANO,
   CANCELAR_PLANO,
   ESQUEMA_PERGUNTAR,
@@ -459,13 +460,13 @@ export class AssistenteService {
         const plano = validarPlano(chamada.args, randomUUID);
         if (typeof plano === "string") {
           log.warn({ conversa: turno.conversaId, motivo: plano }, "plano recusado");
-          this.resultado(turno, chamada, `${plano} Nada foi mostrado à pessoa. Corrija e proponha de novo.`);
+          this.resultado(turno, chamada, `${plano} ${RECUSA_DE_PLANO}`);
           continue;
         }
         const fatos = await this.medir(quem.tenantId, plano);
         if (typeof fatos === "string") {
           log.warn({ conversa: turno.conversaId, motivo: fatos }, "plano recusado");
-          this.resultado(turno, chamada, `${fatos} Nada foi mostrado à pessoa. Corrija e proponha de novo.`);
+          this.resultado(turno, chamada, `${fatos} ${RECUSA_DE_PLANO}`);
           continue;
         }
         log.info(

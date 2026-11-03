@@ -4,6 +4,7 @@ import {
   FERRAMENTA_PLANO,
   FERRAMENTAS_POR_NOME,
   FERRAMENTAS_QUE_CRIAM,
+  PASSOS_MAXIMOS_DO_PLANO,
 } from "@finnagent/contracts";
 
 /** Um passo pronto para executar: os argumentos já validados e as referências trocadas pelos ids reais. */
@@ -30,7 +31,14 @@ const REFERENCIA = /^@passo:(\d+)$/;
  * válidos. Os ids dos passos que criam são dados aqui, então os seguintes podem apontar para eles com
  * "@passo:N" e o plano é validado por inteiro antes de qualquer coisa rodar. Devolve o motivo, se recusar.
  */
+/** O plano passou do limite de passos. Diz ao consultor o que fazer, em vez de devolver o erro do esquema. */
+export function mensagemDoPlanoGrande(passos: number) {
+  return `Plano inválido: ${passos} passos, e o máximo é ${PASSOS_MAXIMOS_DO_PLANO}. Junte as linhas de extrato de categoria única num passo só, acumular_linhas (até 500 linhas por passo), em vez de um passo por linha. Se ainda passar de ${PASSOS_MAXIMOS_DO_PLANO}, proponha só os ${PASSOS_MAXIMOS_DO_PLANO} primeiros e avise que o resto vem em outro plano.`;
+}
+
 export function validarPlano(entrada: unknown, gerarId: () => string): PlanoValidado | string {
+  const dados = typeof entrada === "object" && entrada !== null && "passos" in entrada ? entrada.passos : undefined;
+  if (Array.isArray(dados) && dados.length > PASSOS_MAXIMOS_DO_PLANO) return mensagemDoPlanoGrande(dados.length);
   const lido = ESQUEMA_PLANO.safeParse(entrada);
   if (!lido.success) return `Plano inválido: ${problemasDe(lido.error.issues)}.`;
   const passos: PassoValidado[] = [];

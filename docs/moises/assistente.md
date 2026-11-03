@@ -165,3 +165,38 @@ Arquivos:
 - `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
 - `apps/agents/src/assistente/dominio/prompts.ts`
 - `apps/agents/src/assistente/dominio/prompts.spec.ts`
+
+## Auditoria do agente: narrar em vez de agir, plano grande e conferência lenta
+
+O que foi feito, a partir dos logs de produção do Railway (03/11/2026, conversa de lançar as linhas de Uber e 99 da conferência):
+
+- Narrar em vez de agir: um passo de 2,2 s terminou só com texto ("Vou revisar a conferência inteira... e te digo exatamente o que sobrou"), sem ferramenta. `dominio/anuncio.ts` ganhou mais verbos de promessa (revisar, conferir, verificar, dividir, refazer, mostrar...), as formas "te mostro/digo", "em seguida" e "próximo passo" (saiu "posso", para não pegar oferta), `recusouPlano` e `escolhaDaSegundaChance` (`propor_plano` depois de recusa ou quando o texto fala do plano; qualquer ferramenta, `any`, quando a promessa é de consultar). No grafo, a segunda volta passou a valer para promessa em qualquer assunto e para qualquer recusa do backend (escrita fora do plano ou plano recusado): obriga a ferramenta escolhida, mantém o texto e devolve as chamadas; se falhar, mantém a resposta original. O prompt ganhou a regra de que cada resposta ou chama ferramenta ou é a resposta final.
+- Plano com mais de 20 passos: o consultor leu 3 páginas da conferência, chamou `propor_plano` com mais de 20 passos, o backend recusou ("Plano inválido: passos: Too big: expected array to have <=20 items") e a volta seguinte respondeu "Vou dividir em blocos e te mostrar o próximo passo", encerrando o turno sem plano. Em `packages/contracts` entraram `PASSOS_MAXIMOS_DO_PLANO` (20, usado no esquema), `RECUSA_DE_PLANO` (o fim do resultado do plano recusado) e o limite na descrição do `propor_plano`. `plano.ts` devolve a mensagem `mensagemDoPlanoGrande`, que manda juntar as linhas únicas em `acumular_linhas`; `assistente.service.ts` usa `RECUSA_DE_PLANO` nas duas recusas. O prompt passou a dizer o limite de 20 passos, que várias linhas únicas vão em um passo só (`acumular_linhas`, até 500 linhas) e que plano recusado se corrige na mesma resposta.
+- Conferência lenta: ela só era lida em páginas de 10, sem busca por nome. `consultar_conferencia` ganhou o parâmetro `busca` (nomes separados por `|`). Novo `extratos/dominio/busca.ts` (`termosDaBusca`, `casaComABusca`: sem acento, sem diferenciar caixa, termo de menos de 2 letras descartado, no máximo 8 termos). `extratos.service.ts` e `extratos.controller.ts` aceitam a busca junto com `pagina`: `page.total` passa a ser quantas casam, `pending` continua sendo o total sem lançamento do mês, e busca inválida responde com mensagem própria. `rotas-das-ferramentas.ts` repassa a busca. O prompt explica o uso.
+
+Motivo: nada no prompt dizia o limite do plano nem que linhas únicas cabem em um passo, a recusa voltava com o erro cru do esquema, a correção anterior só tratava escrita fora do plano com lista fixa de verbos, e a conferência não tinha busca. Essa conversa já rodava as correções anteriores (os deploys do backend e do `agents` foram às 15:31 UTC e os turnos com falha são de 15:34 e 15:35), então o que falhou foi o que elas não cobriam: a lista fixa de verbos e a recusa do plano. O log não guarda o conteúdo das mensagens, então o desenho vem dos logs e do código.
+
+Verificação: `anuncio.spec.ts` ampliado com os dois textos reais da conversa e os que não podem disparar; 2 casos novos no grafo (promessa de consultar obriga `any`; plano recusado obriga `propor_plano`); `plano.limite.spec.ts` e `busca.spec.ts` novos; backend com 368 testes e agents com 39 passam; `tsc` dos três apps limpo. Ao vivo, na rota real da conferência (backend de teste fora do Docker contra o Postgres do Compose): sem busca, 6 linhas; busca `shell|mercado` traz 2 linhas com `pending` 6 e `page.total` 2; busca sem resultado volta vazia. Não verificado: o comportamento com o modelo real, e o Docker não foi reconstruído (rede do container ao npm). A correção só vale em produção depois do deploy de agents e backend.
+
+Pendências sugeridas, sem código:
+
+- Todas as funções usam `gpt-5.4-mini`; testar um modelo maior para o coordenador.
+- O histórico inteiro volta ao modelo a cada turno: conversa longa pesa e uma resposta travada vira exemplo para as seguintes. Aparar o histórico é uma melhoria futura.
+- `maxPassos` está em 8 por turno em Configurações, Inteligência artificial, Comportamento; pode subir a 12.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/assistente/dominio/plano.ts`
+- `apps/backend/src/assistente/dominio/plano.limite.spec.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/backend/src/extratos/dominio/busca.ts`
+- `apps/backend/src/extratos/dominio/busca.spec.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/agents/src/assistente/dominio/anuncio.ts`
+- `apps/agents/src/assistente/dominio/anuncio.spec.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.spec.ts`

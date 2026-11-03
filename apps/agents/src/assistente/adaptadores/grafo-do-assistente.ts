@@ -17,7 +17,14 @@ import {
   type ModeloResolvido,
   type PedidoDePasso,
 } from "@finnagent/contracts";
-import { AVISO_DA_SEGUNDA_CHANCE, anunciaMudanca, recusouEscrita } from "../dominio/anuncio.js";
+import {
+  AVISO_DA_PROMESSA,
+  AVISO_DA_SEGUNDA_CHANCE,
+  anunciaMudanca,
+  escolhaDaSegundaChance,
+  recusouEscrita,
+  recusouPlano,
+} from "../dominio/anuncio.js";
 import { mensagensPara, textoDe } from "../dominio/mensagens.js";
 import { promptDoConsultor } from "../dominio/prompts.js";
 import { FalhaDoModelo, ModeloAusente } from "../dominio/erros.js";
@@ -102,7 +109,7 @@ const FERRAMENTAS = [
   {
     name: FERRAMENTA_PLANO,
     description:
-      "Propõe à pessoa o plano do que vai mudar no sistema: o entendimento, as suposições e os passos com as ferramentas e os argumentos exatos. Nada muda antes de ela aprovar; depois, o sistema executa os passos na ordem. É o único jeito de criar, editar, pagar, cancelar ou apagar.",
+      "Propõe à pessoa o plano do que vai mudar no sistema: o entendimento, as suposições e os passos com as ferramentas e os argumentos exatos. Nada muda antes de ela aprovar; depois, o sistema executa os passos na ordem. É o único jeito de criar, editar, pagar, cancelar ou apagar. No máximo 20 passos: várias linhas de extrato únicas vão num passo só, acumular_linhas.",
     schema: ESQUEMA_PLANO,
   },
 ];
@@ -116,24 +123,28 @@ function chamadasDe(final: AIMessageChunk) {
 }
 
 /**
- * A segunda volta do consultor: a mesma conversa, mais o que ele acabou de dizer e o aviso do sistema, com
- * propor_plano como única saída. Se o provedor não aceitar escolher a ferramenta, repete só com o aviso.
+ * A segunda volta do consultor: a mesma conversa, mais o que ele acabou de dizer e o aviso do sistema, com uma
+ * ferramenta obrigada (propor_plano, ou qualquer uma). Se o provedor não aceitar escolher a ferramenta, a volta
+ * falha e a resposta de texto original é mantida. Com propor_plano obrigado, só o plano conta.
  */
-async function proporOPlano(
+async function segundaVolta(
   fabrica: FabricaDeModelos,
   pedido: PedidoDePasso,
   mensagens: BaseMessage[],
   texto: string,
+  escolha: string,
+  aviso: string,
   config: RunnableConfig,
   emitir: Emitir,
 ) {
-  const segunda = [...mensagens, ...(texto.trim() ? [new AIMessage(texto)] : []), new HumanMessage(AVISO_DA_SEGUNDA_CHANCE)];
+  const segunda = [...mensagens, ...(texto.trim() ? [new AIMessage(texto)] : []), new HumanMessage(aviso)];
   try {
     const final = await comTemperatura(fabrica, modeloDe(pedido), pedido.temperatura, (chat, mostrar) => {
       if (!chat.bindTools) throw new FalhaDoModelo(`O modelo do ${INFO_DOS_AGENTES[CONSULTOR].nome} não aceita ferramentas.`);
-      return transmitir(chat.bindTools(FERRAMENTAS, { tool_choice: FERRAMENTA_PLANO }), segunda, config, emitir, mostrar);
+      return transmitir(chat.bindTools(FERRAMENTAS, { tool_choice: escolha }), segunda, config, emitir, mostrar);
     });
-    return chamadasDe(final).filter((chamada) => chamada.nome === FERRAMENTA_PLANO);
+    const chamadas = chamadasDe(final);
+    return escolha === FERRAMENTA_PLANO ? chamadas.filter((chamada) => chamada.nome === FERRAMENTA_PLANO) : chamadas;
   } catch (error) {
     if (error instanceof FalhaDoModelo || error instanceof ModeloAusente) throw error;
     // Um erro aqui não pode derrubar a resposta que o consultor já deu.
@@ -159,16 +170,19 @@ export function criarGrafoDoAssistente(fabrica: FabricaDeModelos) {
     const chamadas = chamadasDe(final);
     if (chamadas.length) return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas, notas: [] } };
 
-    // Só texto, mas o texto promete uma mudança ("vou criar...") ou vem logo depois de uma escrita recusada: o
-    // consultor narrou o plano em vez de propô-lo. Uma segunda volta obriga propor_plano. O texto fica, e o plano
-    // aparece logo depois dele.
-    if (anunciaMudanca(texto) || recusouEscrita(pedido.mensagens)) {
-      const plano = await proporOPlano(fabrica, pedido, mensagens, texto, config, emitir);
-      if (plano.length) {
-        log.info({ ferramenta: FERRAMENTA_PLANO }, "o consultor anunciou a mudança sem propor o plano; a segunda volta propôs");
-        return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas: plano, notas: [] } };
+    // Só texto, mas o texto promete agir ("vou criar...", "vou revisar a conferência"), ou vem logo depois de uma
+    // recusa do backend (escrita fora do plano, plano grande demais): o consultor narrou em vez de agir. Uma segunda
+    // volta obriga a ferramenta. O texto fica, e o que ele chamou aparece logo depois dele.
+    const refazOPlano = recusouEscrita(pedido.mensagens) || recusouPlano(pedido.mensagens);
+    if (refazOPlano || anunciaMudanca(texto)) {
+      const escolha = escolhaDaSegundaChance(texto, pedido.mensagens);
+      const aviso = escolha === FERRAMENTA_PLANO ? AVISO_DA_SEGUNDA_CHANCE : AVISO_DA_PROMESSA;
+      const segunda = await segundaVolta(fabrica, pedido, mensagens, texto, escolha, aviso, config, emitir);
+      if (segunda.length) {
+        log.info({ escolha, ferramentas: segunda.map((chamada) => chamada.nome) }, "o consultor narrou em vez de agir; a segunda volta chamou a ferramenta");
+        return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas: segunda, notas: [] } };
       }
-      log.warn("o consultor anunciou a mudança sem propor o plano, e a segunda volta também não propôs");
+      log.warn({ escolha }, "o consultor narrou em vez de agir, e a segunda volta também não chamou ferramenta");
     }
     return { saida: { tipo: "resposta", agente: CONSULTOR, texto: texto || "Não consegui concluir esse pedido.", notas: [] } };
   }
