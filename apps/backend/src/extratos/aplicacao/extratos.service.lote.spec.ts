@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ExtratosService } from "./extratos.service.js";
 
-type Linha = { date: string | null; cents: number; description: string; entryId: string | null };
+type Linha = { date: string | null; cents: number; description: string; entryId: string | null; ignored?: boolean };
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const EXTRATO = "00000000-0000-4000-8000-0000000000e1";
@@ -16,6 +16,7 @@ function montar(
   usadas = 0,
 ) {
   const lancadas: number[] = [];
+  const ignoradas: { quantas: number; ignorar: boolean }[] = [];
   const extratos = {
     obterLinha: async (_tenant: string, _id: string, line: number) => linhas[line] ?? ("ausente" as const),
     confirmarCruzamento: async (_tenant: string, _id: string, line: number) => {
@@ -24,6 +25,10 @@ function montar(
     },
     contarSemLancamento: async (_tenant: string, year: number, month: number | null) => semLancamento(year, month ?? 0),
     contarLinhasDoLancamento: async () => usadas,
+    ignorarLinhas: async (_tenant: string, itens: unknown[], ignorar: boolean) => {
+      ignoradas.push({ quantas: itens.length, ignorar });
+      return itens.length;
+    },
   };
   const criadas: { emPartes: boolean }[] = [];
   const pagas: { entryId: string; cents: number }[] = [];
@@ -47,7 +52,7 @@ function montar(
     null as never,
     null as never,
   );
-  return { servico, lancadas, criadas, pagas };
+  return { servico, lancadas, criadas, pagas, ignoradas };
 }
 
 const linha = (date: string | null, cents = -5000, entryId: string | null = null): Linha => ({ date, cents, description: "MERCADO", entryId });
@@ -132,6 +137,24 @@ describe("lançar linhas do extrato em lote", () => {
       const resultado = await servico.acumularVarias(TENANT, pedido({ emPartes: true }));
       expect(resultado.launched).toBe(1);
       expect(criadas).toEqual([{ emPartes: true }]);
+    });
+  });
+
+  describe("linhas ignoradas", () => {
+    it("não deixa lançar uma linha ignorada e diz como voltar", async () => {
+      const { servico, criadas } = montar({ 1: { ...linha("2026-10-05"), ignored: true } }, () => 0);
+      const resultado = await servico.acumularVarias(TENANT, [{ statementId: EXTRATO, line: 1, sessionId: SESSAO }]);
+      expect(resultado.launched).toBe(0);
+      expect(resultado.failed[0]?.message).toContain("Reative-a");
+      expect(criadas).toEqual([]);
+    });
+
+    it("ignorar e reativar passam as linhas ao repositório e devolvem quantas mudaram", async () => {
+      const { servico, ignoradas } = montar({}, () => 0);
+      const itens = [1, 2, 3].map((line) => ({ statementId: EXTRATO, line }));
+      expect(await servico.ignorar(TENANT, itens, true)).toEqual({ changed: 3 });
+      expect(await servico.ignorar(TENANT, itens.slice(0, 1), false)).toEqual({ changed: 1 });
+      expect(ignoradas).toEqual([{ quantas: 3, ignorar: true }, { quantas: 1, ignorar: false }]);
     });
   });
 });

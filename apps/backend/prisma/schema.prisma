@@ -256,6 +256,8 @@ model StatementLine {
   cents       Int?
   error       String    @default("")
   entryId     String?   @map("entry_id")
+  // A pessoa marcou a linha como sem importância: ela sai da conferência e da contagem, mas não é apagada.
+  ignoredAt   DateTime? @map("ignored_at")
   statement   Statement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Cascade)
   entry       Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
 

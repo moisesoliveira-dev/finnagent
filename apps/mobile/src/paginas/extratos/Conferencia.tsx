@@ -131,7 +131,8 @@ export function Conferencia() {
     );
   }
 
-  const linhas = dados?.lines ?? [];
+  // Linha ignorada na Conferência do web não é pendente: o mobile ainda não mostra nem reativa essas linhas.
+  const linhas = (dados?.lines ?? []).filter((linha) => !linha.ignored);
   const cruzadas = linhas.filter((linha) => linha.link).length;
   const entradas = linhas.reduce((soma, linha) => soma + (linha.cents > 0 ? linha.cents : 0), 0);
   const saidas = linhas.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);

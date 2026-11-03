@@ -141,3 +141,39 @@ Arquivos:
 - `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
 - `apps/backend/src/financas/aplicacao/financas.service.ts`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Transferência para pessoa não é lembrada
+
+O que foi feito: a Conferência deixou de lembrar a sessão (e o lançamento) de linhas que são Pix, TED ou DOC para ou de uma pessoa. Ao cruzar ou acumular essas linhas, o nome não é gravado como associação, e a leitura ignora a associação que já existia para elas. É pessoa quando a descrição tem "transferência", "Pix", "TED" ou "DOC" e não traz CNPJ nem nome de empresa (Ltda, mercado, padaria, posto e parecidos). Pix para empresa continua lembrado.
+
+Motivo: o motivo de uma transferência para pessoa muda a cada vez, então o nome não diz a sessão.
+
+Verificação: `tsc` limpo e os testes de extratos passam, com casos novos para Pix com CPF mascarado, sem documento, com CNPJ e compra comum. Não verificado na tela. Pix sem documento e sem nome de empresa conta como pessoa, então um Pix genérico para um comércio de nome incomum também deixa de ser lembrado; a sessão se escolhe à mão. Vale em produção depois do deploy do `backend`.
+
+Arquivos:
+
+- `apps/backend/src/extratos/dominio/nome-extrato.ts`
+- `apps/backend/src/extratos/dominio/nome-extrato.spec.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+
+## Ignorar linhas do extrato
+
+O que foi feito: na Conferência do web, a pessoa seleciona linhas e usa "Ignorar N". A linha ignorada não é apagada: ela sai da conferência, da contagem de pendentes (o mês pode ficar conferido sem ela), do resumo de entradas e saídas e do que o assistente enxerga como pendente. Fica na aba "Ignoradas", com o número ao lado, onde "Reativar" (na linha ou em lote) a devolve. Linha ignorada não pode ser lançada nem cruzada até ser reativada, e linha já cruzada não pode ser ignorada. O mobile esconde as ignoradas da lista.
+
+Motivo: há linhas do extrato sem importância para a gestão das finanças, e a pessoa quer tirá-las do caminho sem perder o registro.
+
+Verificação: `tsc` limpo no backend, frontend e mobile; 380 testes do backend passam, com casos novos (linha ignorada recusa o lançamento, ignorar e reativar chegam ao repositório) e o catálogo de eventos do outbox com `ignorar-linhas` e `reativar-linhas`. A migração `20261103180000_linhas_ignoradas` foi aplicada no Postgres local e a coluna `ignored_at` existe. Não verificado: a tela no navegador e o Docker, que não foi reconstruído. Reprocessar o extrato recria as linhas e perde a marca de ignorada. O `backend` aplica a migração sozinho ao subir.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261103180000_linhas_ignoradas/migration.sql`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `packages/contracts/src/index.ts`
+- `apps/frontend/app/api/extratos/ignorar/route.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/mobile/src/paginas/extratos/Conferencia.tsx`

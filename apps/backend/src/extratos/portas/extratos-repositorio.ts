@@ -39,6 +39,7 @@ export type LinhaImportada = {
   accountName: string;
   filename: string;
   entryId: string | null;
+  ignored: boolean;
   importedAt: string;
 };
 
@@ -70,6 +71,12 @@ export type ExtratosRepositorio = {
   ultimoMesPendente(tenantId: string): Promise<{ year: number; month: number } | null>;
   contarSemLancamento(tenantId: string, year: number, month: number | null): Promise<number>;
   obterLinha(tenantId: string, statementId: string, line: number): Promise<LinhaImportada | "ausente">;
+  /** Ignora ou reativa linhas. Ignorar só vale para linha sem lançamento. Devolve quantas mudaram. */
+  ignorarLinhas(
+    tenantId: string,
+    itens: { statementId: string; line: number }[],
+    ignorar: boolean,
+  ): Promise<number>;
   confirmarCruzamento(
     tenantId: string,
     statementId: string,

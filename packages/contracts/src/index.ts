@@ -1124,6 +1124,8 @@ export type LinhaConferencia = {
   accountName: string;
   filename: string;
   entryId: string | null;
+  /** A pessoa marcou a linha como sem importância: não conta como pendente e não é lançada. */
+  ignored: boolean;
   link: VinculoCruzado | null;
   suggestion: VinculoCruzado | null;
   suggestionSource: OrigemDaProposta | null;
@@ -1770,7 +1772,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
   ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato"]),
-  ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento"]),
+  ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
   ...grupo("agente", "Conversa", [
     "criar-conversa",
