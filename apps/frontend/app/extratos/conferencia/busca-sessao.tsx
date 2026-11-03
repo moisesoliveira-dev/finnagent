@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { campo, cn } from "../../../components/ui/cn";
 
 export type SessaoOpcao = { id: string; rotulo: string };
+
+/** O espaço que a lista deixa da borda da janela, e o mínimo que ela mostra antes de abrir para o outro lado. */
+const FOLGA = 8;
+const ALTURA_MINIMA = 160;
+const ALTURA_MAXIMA = 240;
 
 function normalizar(valor: string) {
   return valor
@@ -30,6 +36,8 @@ export function BuscaSessao({
   const [aberto, setAberto] = useState(false);
   const [indice, setIndice] = useState(0);
   const caixa = useRef<HTMLDivElement>(null);
+  const entrada = useRef<HTMLInputElement>(null);
+  const lista = useRef<HTMLUListElement>(null);
   const listaId = useId();
   const texto = rascunho ?? escolhida?.rotulo ?? "";
   const termo = normalizar(texto.trim());
@@ -44,7 +52,8 @@ export function BuscaSessao({
   useEffect(() => {
     if (!aberto) return;
     function aoClicarFora(event: MouseEvent) {
-      if (!caixa.current?.contains(event.target as Node)) {
+      const alvo = event.target as Node;
+      if (!caixa.current?.contains(alvo) && !lista.current?.contains(alvo)) {
         setAberto(false);
         setRascunho(null);
       }
@@ -53,6 +62,39 @@ export function BuscaSessao({
     return () => document.removeEventListener("mousedown", aoClicarFora);
   }, [aberto]);
 
+  // A lista mora no body: dentro da linha, o contexto de empilhamento que o Motion cria em cada uma a deixava
+  // por baixo da linha seguinte, e o mouse acertava a linha em vez da opção. Aqui ela fica fixa, colada no campo,
+  // e abre para cima quando falta lugar embaixo. A posição é escrita direto no elemento, sem passar por estado.
+  useLayoutEffect(() => {
+    if (!aberto) return;
+    function posicionar() {
+      const campoDaBusca = entrada.current;
+      const ul = lista.current;
+      if (!campoDaBusca || !ul) return;
+      const medida = campoDaBusca.getBoundingClientRect();
+      const abaixo = window.innerHeight - medida.bottom - FOLGA;
+      const acima = medida.top - FOLGA;
+      const paraBaixo = abaixo >= ALTURA_MINIMA || abaixo >= acima;
+      ul.style.left = `${medida.left}px`;
+      ul.style.width = `${medida.width}px`;
+      ul.style.maxHeight = `${Math.max(Math.min(ALTURA_MAXIMA, paraBaixo ? abaixo : acima), 96)}px`;
+      ul.style.top = paraBaixo ? `${medida.bottom + 4}px` : "auto";
+      ul.style.bottom = paraBaixo ? "auto" : `${window.innerHeight - medida.top + 4}px`;
+    }
+    posicionar();
+    window.addEventListener("resize", posicionar);
+    window.addEventListener("scroll", posicionar, true);
+    return () => {
+      window.removeEventListener("resize", posicionar);
+      window.removeEventListener("scroll", posicionar, true);
+    };
+  }, [aberto]);
+
+  // A opção marcada pelo teclado acompanha a rolagem da lista.
+  useEffect(() => {
+    if (aberto) lista.current?.children[indice]?.scrollIntoView({ block: "nearest" });
+  }, [aberto, indice]);
+
   function escolher(id: string) {
     onEscolher(id);
     setRascunho(null);
@@ -60,8 +102,9 @@ export function BuscaSessao({
   }
 
   return (
-    <div ref={caixa} className={cn("relative min-w-0 flex-1", aberto && "z-20", className)}>
+    <div ref={caixa} className={cn("relative min-w-0 flex-1", className)}>
       <input
+        ref={entrada}
         className={cn(campo, "w-full")}
         role="combobox"
         aria-expanded={aberto}
@@ -100,35 +143,40 @@ export function BuscaSessao({
           if (event.key === "Escape") fechar();
         }}
       />
-      {aberto ? (
-        <ul
-          id={listaId}
-          role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-sm border border-line bg-surface"
-        >
-          {encontradas.length ? (
-            encontradas.map((sessao, posicao) => (
-              <li key={sessao.id} role="option" aria-selected={sessao.id === valor}>
-                <button
-                  type="button"
-                  className={cn(
-                    "w-full px-3 py-2 text-left text-sm hover:bg-surface-2",
-                    posicao === indice && "bg-brand-soft text-brand",
-                  )}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    escolher(sessao.id);
-                  }}
-                >
-                  {sessao.rotulo}
-                </button>
-              </li>
-            ))
-          ) : (
-            <li className="px-3 py-2 text-sm text-ink-2">Nenhuma sessão encontrada.</li>
-          )}
-        </ul>
-      ) : null}
+      {aberto
+        ? createPortal(
+            <ul
+              ref={lista}
+              id={listaId}
+              role="listbox"
+              aria-label={rotulo}
+              className="fixed z-50 overflow-auto rounded-sm border border-line bg-surface"
+            >
+              {encontradas.length ? (
+                encontradas.map((sessao, posicao) => (
+                  <li key={sessao.id} role="option" aria-selected={sessao.id === valor}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "w-full px-3 py-2 text-left text-sm hover:bg-surface-2",
+                        posicao === indice && "bg-brand-soft text-brand",
+                      )}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        escolher(sessao.id);
+                      }}
+                    >
+                      {sessao.rotulo}
+                    </button>
+                  </li>
+                ))
+              ) : (
+                <li className="px-3 py-2 text-sm text-ink-2">Nenhuma sessão encontrada.</li>
+              )}
+            </ul>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

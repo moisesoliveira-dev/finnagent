@@ -109,3 +109,15 @@ Arquivos:
 - `apps/frontend/app/agenda/itens.ts`
 - `apps/frontend/app/agenda/lista.tsx`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Lista de sessões da Conferência por cima das linhas
+
+O que foi feito: na Conferência do web, a lista do campo "Pesquisar a sessão" passou a ser renderizada por `createPortal` no `body`, em `position: fixed` e `z-50`. Um `useLayoutEffect` escreve a posição direto no estilo do elemento, sem estado, colada no campo, e recalcula em resize e scroll. A lista abre para cima quando falta espaço embaixo, o clique fora considera a lista e a opção marcada pelo teclado entra na vista.
+
+Motivo: a lista era `absolute` dentro da linha, e cada linha é um `ItemAnimado` (`layout=position`, `whileHover x:2`) que o Motion põe em contexto de empilhamento próprio, então a linha seguinte cobria a lista e o mouse acertava a linha, que balançava e roubava hover e clique.
+
+Verificado no navegador (tema escuro, 1280 px): lista no `body` com fixed e z 50, ponteiro caiu na lista nas 3 opções, nenhuma linha deslocada no hover, clique e teclado escolhem a sessão, a lista acompanha o campo ao rolar. Não verificado: lista longa com rolagem interna (o banco de teste só tem 3 sessões).
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
