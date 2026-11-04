@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ContaDoMenu } from "../auth/conta-do-menu";
 import { Marca, PainelDaMarca } from "../auth/painel-da-marca";
 import { SessaoExpirada } from "../auth/sessao-expirada";
+import { BotaoDaCalculadora, CalculadoraProvider, JanelaDaCalculadora } from "../calculadora/calculadora";
 import { SinoDoMenu } from "../notificacoes/central";
 import { cn, focusRing } from "./cn";
 import { useCurva } from "./movimento";
@@ -80,6 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
   return (
+    <CalculadoraProvider>
     <div className="grid min-h-dvh grid-cols-1 content-start pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] tab:grid-cols-[200px_minmax(0,1fr)]">
       <nav
         aria-label="Principal"
@@ -131,6 +133,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-8 tab:pb-12">
         {children}
       </main>
+      <BotaoDaCalculadora />
+      <JanelaDaCalculadora />
     </div>
+    </CalculadoraProvider>
   );
 }
