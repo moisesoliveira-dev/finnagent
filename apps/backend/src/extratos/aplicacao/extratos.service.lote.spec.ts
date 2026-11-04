@@ -31,8 +31,13 @@ function montar(
   const divididas: { line: number; partes: unknown[]; lembrar: unknown[] }[] = [];
   const nomes: string[] = [];
   const excluidas: string[] = [];
+  const extratosExcluidos: string[] = [];
+  const anexos = new Map<string, { name: string; content: Buffer }>();
+  const gravados: unknown[] = [];
   const reabertas: { entryId: string; cents: number }[] = [];
   const criadosPelaLinha: boolean[] = [];
+  // Lançamentos nascidos do extrato que nenhuma linha usa mais.
+  const soltos = new Set<string>();
   const extratos = {
     obterLinha: async (_tenant: string, _id: string, line: number) => linhas[line] ?? ("ausente" as const),
     confirmarCruzamento: async (
@@ -60,6 +65,23 @@ function montar(
       return gravada?.entryId ? { entryId: gravada.entryId, created: gravada.entryCreated === true } : ("livre" as const);
     },
     listarNomes: async () => [],
+    linhasCruzadasDoExtrato: async () =>
+      Object.entries(linhas).filter(([, gravada]) => gravada.entryId).map(([numero]) => ({ statementId: EXTRATO, line: Number(numero) })),
+    linhasDosLancamentos: async (_tenant: string, onde: { entryIds?: string[] }) =>
+      Object.entries(linhas)
+        .filter(([, gravada]) => {
+          const ids = [gravada.entryId, ...(gravada.parts ?? []).map((parte) => parte.entryId)];
+          return !onde.entryIds || ids.some((id) => id !== null && onde.entryIds?.includes(id));
+        })
+        .map(([numero]) => ({ statementId: EXTRATO, line: Number(numero) })),
+    excluir: async () => {
+      extratosExcluidos.push(EXTRATO);
+    },
+    criar: async (_tenant: string, gravacao: unknown) => {
+      gravados.push(gravacao);
+      return { id: (gravacao as { id: string }).id };
+    },
+    lancamentoSoltoDoExtrato: async (_tenant: string, entryId: string) => soltos.has(entryId),
     ignorarLinhas: async (_tenant: string, itens: unknown[], ignorar: boolean) => {
       ignoradas.push({ quantas: itens.length, ignorar });
       return itens.length;
@@ -94,8 +116,9 @@ function montar(
     financas as never,
     null as never,
     null as never,
+    { obter: async (_tenant: string, id: string) => anexos.get(id) ?? null } as never,
   );
-  return { servico, lancadas, criadas, pagas, ignoradas, divididas, nomes, excluidas, reabertas, lembrados, criadosPelaLinha };
+  return { servico, lancadas, criadas, pagas, ignoradas, divididas, nomes, excluidas, reabertas, lembrados, criadosPelaLinha, soltos, extratosExcluidos, anexos, gravados };
 }
 
 const linha = (date: string | null, cents = -5000, entryId: string | null = null): Linha => ({ date, cents, description: "MERCADO", entryId });
@@ -180,6 +203,33 @@ describe("lançar linhas do extrato em lote", () => {
       const resultado = await servico.acumularVarias(TENANT, pedido({ emPartes: true }));
       expect(resultado.launched).toBe(1);
       expect(criadas).toEqual([{ emPartes: true }]);
+    });
+  });
+
+  describe("extrato anexado no chat", () => {
+    const ANEXO = "00000000-0000-4000-8000-0000000000a1";
+    const csv = Buffer.from("data,descricao,valor\n2026-10-02,MERCADO,-50.00\n");
+
+    it("importa o arquivo anexado, na conta pedida, guardando o que a pessoa escreveu", async () => {
+      const { servico, anexos, gravados } = montar({}, () => 0);
+      anexos.set(ANEXO, { name: "extrato.csv", content: csv });
+      await servico.criarDeAnexo(TENANT, {
+        id: EXTRATO,
+        anexoId: ANEXO,
+        accountName: "Conta PJ",
+        observacao: "  Transferências para a Ana são pró-labore.  ",
+        mapping: { date: 0, description: 1, amount: 2 },
+      });
+      expect(gravados).toHaveLength(1);
+      expect(gravados[0]).toMatchObject({ id: EXTRATO, filename: "extrato.csv", accountName: "Conta PJ", note: "Transferências para a Ana são pró-labore." });
+    });
+
+    it("anexo que não existe pede para anexar de novo, sem importar nada", async () => {
+      const { servico, gravados } = montar({}, () => 0);
+      await expect(
+        servico.criarDeAnexo(TENANT, { id: EXTRATO, anexoId: ANEXO, accountName: "Conta", observacao: "", mapping: null }),
+      ).rejects.toThrow("Anexo não encontrado");
+      expect(gravados).toEqual([]);
     });
   });
 
@@ -357,6 +407,68 @@ describe("lançar linhas do extrato em lote", () => {
       await servico.desfazer(TENANT, EXTRATO, 1);
       expect(excluidas).toEqual([]);
       expect(reabertas).toEqual([{ entryId: "existente", cents: -5000 }]);
+    });
+
+    it("desfazer apaga o lançamento do extrato que ficou sem linha, em vez de deixá-lo pendente na sessão", async () => {
+      const partes = [
+        { entryId: "da-fixa", cents: -6000, created: false },
+        { entryId: "parte-2", cents: -4000, created: true },
+      ];
+      const { servico, excluidas, reabertas, soltos } = montar(
+        { 1: { ...linha("2026-10-05", -10000, "da-fixa"), parts: partes }, 2: linha("2026-10-06", -5000, "antigo") },
+        () => 0,
+      );
+      soltos.add("da-fixa");
+      soltos.add("antigo");
+      servico.conferencia = async () => ({}) as never;
+      await servico.desfazer(TENANT, EXTRATO, 1);
+      await servico.desfazer(TENANT, EXTRATO, 2);
+      expect(excluidas).toEqual(["da-fixa", "parte-2", "antigo"]);
+      expect(reabertas).toEqual([]);
+    });
+
+    describe("apagar leva em conta o que a linha fez", () => {
+      it("apagar o lançamento solta a linha dele sem reabrir nem apagar de novo o que já vai sair", async () => {
+        const { servico, excluidas, reabertas } = montar({ 1: linha("2026-10-05", -5000, "alvo") }, () => 0);
+        await servico.liberarLinhas(TENANT, { entryIds: ["alvo"] }, new Set(["alvo"]));
+        expect(excluidas).toEqual([]);
+        expect(reabertas).toEqual([]);
+      });
+
+      it("encerrar a sessão apaga o que a linha criou e reabre o que ela pagou", async () => {
+        const { servico, excluidas, reabertas } = montar(
+          {
+            1: { ...linha("2026-10-05", -5000, "criado"), entryCreated: true },
+            2: linha("2026-10-06", -3000, "existente"),
+          },
+          () => 0,
+        );
+        await servico.liberarLinhas(TENANT, { sessionId: SESSAO });
+        expect(excluidas).toEqual(["criado"]);
+        expect(reabertas).toEqual([{ entryId: "existente", cents: -3000 }]);
+      });
+
+      it("a linha dividida volta inteira, mesmo apagando só uma das partes", async () => {
+        const partes = [
+          { entryId: "da-fixa", cents: -6000, created: false },
+          { entryId: "parte-2", cents: -4000, created: true },
+        ];
+        const { servico, excluidas, reabertas } = montar({ 1: { ...linha("2026-10-05", -10000, "da-fixa"), parts: partes } }, () => 0);
+        await servico.liberarLinhas(TENANT, { entryIds: ["parte-2"] }, new Set(["parte-2"]));
+        expect(excluidas).toEqual([]);
+        expect(reabertas).toEqual([{ entryId: "da-fixa", cents: -6000 }]);
+      });
+
+      it("excluir ou reprocessar o extrato desfaz as linhas cruzadas antes, em vez de recusar", async () => {
+        const { servico, excluidas, reabertas, extratosExcluidos } = montar(
+          { 1: { ...linha("2026-10-05", -5000, "criado"), entryCreated: true }, 2: linha("2026-10-06", -3000, "existente"), 3: linha("2026-10-07") },
+          () => 0,
+        );
+        await servico.excluir(TENANT, EXTRATO);
+        expect(excluidas).toEqual(["criado"]);
+        expect(reabertas).toEqual([{ entryId: "existente", cents: -3000 }]);
+        expect(extratosExcluidos).toEqual([EXTRATO]);
+      });
     });
 
     it("acumular com o próprio nome da descrição não guarda nome novo", async () => {

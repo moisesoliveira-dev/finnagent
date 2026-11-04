@@ -3,10 +3,12 @@ import {
   FUNCOES_DE_MODELO,
   INFO_DOS_PROVEDORES,
   LIMITE_INSTRUCOES_IA,
+  LIMITE_ANEXOS_DO_CHAT,
   LIMITE_MENSAGEM_DO_CHAT,
   LIMITE_MODELOS_POR_PROVEDOR,
   PROVEDORES_IA,
   RETENCOES_DO_CHAT,
+  TEXTO_SO_COM_ANEXO,
   idDeModelo,
   type ConfiguracaoDoAssistente,
   type PedidoDeMensagem,
@@ -93,14 +95,22 @@ const mensagem = z
     resposta: z
       .object({ perguntaId: z.string().min(1).max(200), escolha: z.string().trim().min(1).max(300) })
       .optional(),
+    anexos: z
+      .array(z.object({ name: z.string().trim().min(1).max(180), mediaType: z.string().max(100).default(""), content: z.string().min(1) }))
+      .max(LIMITE_ANEXOS_DO_CHAT)
+      .optional(),
   })
-  .refine((pedido) => Boolean(pedido.texto) !== Boolean(pedido.resposta));
+  // Só com anexo, a mensagem não precisa de texto: o anexo é o pedido.
+  .transform((pedido) => (pedido.anexos?.length && !pedido.texto && !pedido.resposta ? { ...pedido, texto: TEXTO_SO_COM_ANEXO } : pedido))
+  .refine((pedido) => Boolean(pedido.texto) !== Boolean(pedido.resposta))
+  .refine((pedido) => !pedido.resposta || !pedido.anexos?.length);
 
 export function interpretarMensagem(corpo: unknown): PedidoDeMensagem | string {
   const lido = mensagem.safeParse(corpo);
   if (lido.success) return lido.data;
   const caminho = lido.error.issues[0]?.path.join(".") ?? "";
   if (caminho === "texto") return `Escreva uma mensagem de até ${LIMITE_MENSAGEM_DO_CHAT} caracteres.`;
+  if (caminho.startsWith("anexos")) return `Anexe até ${LIMITE_ANEXOS_DO_CHAT} arquivos, cada um com nome e conteúdo.`;
   return "Escreva uma mensagem ou escolha uma opção.";
 }
 

@@ -12,6 +12,7 @@ const Estado = Annotation.Root({
   filename: Annotation<string>,
   mediaType: Annotation<string>,
   conteudo: Annotation<string>,
+  observacao: Annotation<string>({ reducer: (_atual, proximo) => proximo, default: () => "" }),
   texto: Annotation<string>({
     reducer: (_atual, proximo) => proximo,
     default: () => "",
@@ -29,10 +30,11 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
         filename: estado.filename,
         mediaType: estado.mediaType,
         conteudo: estado.conteudo,
+        observacao: estado.observacao,
       }),
     }))
     .addNode("organizar", async (estado) => {
-      const { linhas, cortada } = await modelo.organizarTexto(estado.texto);
+      const { linhas, cortada } = await modelo.organizarTexto(estado.texto, estado.observacao);
       const lidas = normalizarLinhas(linhas);
       if (!cortada) return { linhas: lidas };
       // Resposta cortada: sem linha inteira, diz o que fazer; com algumas, guarda o que chegou e marca onde parou.
@@ -53,6 +55,7 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
             filename: pedido.filename,
             mediaType: pedido.mediaType,
             conteudo: pedido.content,
+            observacao: pedido.observacao ?? "",
           },
           { callbacks: observadores() },
         );

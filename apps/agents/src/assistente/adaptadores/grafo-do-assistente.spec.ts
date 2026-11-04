@@ -113,7 +113,8 @@ describe("grafo do assistente", () => {
       expect(nomes).toContain(nome);
     }
     expect(nomes).not.toContain("encaminhar");
-    expect(nomes.some((nome) => /perfil|configurac|usuario|exportar|importar/.test(nome))).toBe(false);
+    // Importar extrato anexado é do assistente; importar ou exportar o pacote de dados do sistema, não.
+    expect(nomes.some((nome) => /perfil|configurac|usuario|exportar|importar/.test(nome) && nome !== "importar_extrato")).toBe(false);
     expect(criados.map((item) => item.model)).toEqual(["consultor"]);
   });
 

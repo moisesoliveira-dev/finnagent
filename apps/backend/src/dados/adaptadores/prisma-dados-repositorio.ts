@@ -131,6 +131,8 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
         );
         await gravar(dados.yearStays.length, (data) => tx.yearStay.createMany({ data }), com(dados.yearStays));
         // O vínculo com o compromisso é texto solto (sem chave estrangeira), então a ordem é livre.
+        // As contas antes dos lançamentos: o lançamento aponta para a conta dele.
+        await gravar(dados.accounts.length, (data) => tx.account.createMany({ data }), com(dados.accounts));
         await gravar(dados.entries.length, (data) => tx.entry.createMany({ data }), com(dados.entries));
         await gravar(
           dados.entryOccurrences.length,
@@ -153,7 +155,6 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           com(dados.appointments),
         );
         await gravar(dados.calendars.length, (data) => tx.calendar.createMany({ data }), com(dados.calendars));
-        await gravar(dados.accounts.length, (data) => tx.account.createMany({ data }), com(dados.accounts));
         await gravar(
           dados.statements.length,
           (data) => tx.statement.createMany({ data }),

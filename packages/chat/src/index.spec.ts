@@ -41,3 +41,13 @@ describe("estado do chat", () => {
     ]);
   });
 });
+
+describe("mensagem provisória com anexos", () => {
+  it("mostra os arquivos da mensagem enquanto o servidor não responde", () => {
+    const mensagem = mensagemProvisoria("importe", [{ name: "extrato.csv", mediaType: "text/csv", size: 120 }]);
+    expect(mensagem.partes).toEqual([
+      { tipo: "texto", texto: "importe" },
+      { tipo: "anexo", anexo: { id: `${ID_PROVISORIO}-0`, name: "extrato.csv", mediaType: "text/csv", size: 120 } },
+    ]);
+  });
+});

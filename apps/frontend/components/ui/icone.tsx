@@ -10,13 +10,20 @@ const comum = {
 export function Icone({
   name,
 }: {
-  name: "add" | "bell" | "calc" | "edit" | "remove" | "refresh" | "search" | "upload";
+  name: "add" | "bell" | "calc" | "clip" | "edit" | "remove" | "refresh" | "search" | "upload";
 }) {
   if (name === "calc") {
     return (
       <svg {...comum}>
         <rect x="5" y="3" width="14" height="18" />
         <path d="M8 7h8M8 12h1M12 12h1M16 12h0M8 16h1M12 16h1M16 15v2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "clip") {
+    return (
+      <svg {...comum}>
+        <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7-7l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }

@@ -17,9 +17,11 @@ function lancamento(args: Args, identificador: string) {
   return {
     id: identificador,
     sessionId: args.sessionId,
+    accountId: args.accountId ?? null,
+    transfer: args.transfer ?? false,
     name: args.name,
     description: args.description ?? "",
-    justification: args.justification?.trim() || "Registrado pelo assistente.",
+    justification: args.justification?.trim() ?? "",
     date: args.date,
     mode: args.mode,
     status: args.status ?? "pending",
@@ -224,6 +226,17 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     corpo: (a) => ({ statementId: a.statementId, line: a.line, sessionId: a.sessionId }),
   },
   acumular_linhas: { metodo: "POST", caminho: () => "extratos/acumular-lote", corpo: (a) => ({ items: a.items }) },
+  importar_extrato: {
+    metodo: "POST",
+    caminho: () => "extratos/de-anexo",
+    corpo: (a, _fuso, idGerado) => ({
+      id: idGerado ?? randomUUID(),
+      anexoId: a.anexoId,
+      accountName: a.accountName,
+      observacao: a.observacao ?? "",
+      mapping: a.colunas ?? null,
+    }),
+  },
   reprocessar_extrato: { metodo: "POST", caminho: (a) => `extratos/${id(a.id)}/reprocessar` },
   excluir_extrato: { metodo: "DELETE", caminho: (a) => `extratos/${id(a.id)}` },
   consultar_painel: {

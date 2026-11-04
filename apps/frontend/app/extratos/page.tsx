@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
   LIMITE_EXTRATO_BYTES,
+  LIMITE_OBSERVACAO_DO_EXTRATO,
   STATUS_EXTRATO,
   type FormatoExtrato,
   type Extrato,
@@ -23,7 +24,7 @@ import { Vazio } from "../../components/ui/vazio";
 import { Abas } from "../eventos/ferramentas";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
-import { campo, cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
 import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
@@ -82,7 +83,7 @@ function quando(iso: string) {
 
 function tom(status: StatusExtrato) {
   if (status === "importado") return "ok" as const;
-  if (status === "processando") return "default" as const;
+  if (status === "processando") return "pending" as const;
   return "neg" as const;
 }
 
@@ -127,6 +128,7 @@ export default function Extratos() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [contaId, setContaId] = useState("");
   const [nomeConta, setNomeConta] = useState("");
+  const [observacao, setObservacao] = useState("");
   const [colunas, setColunas] = useState<string[]>([]);
   const [mapeamento, setMapeamento] = useState<MapeamentoExtrato>({ date: 0, description: 1, amount: 2 });
   const [previa, setPrevia] = useState<LinhaExtrato[]>([]);
@@ -193,6 +195,7 @@ export default function Extratos() {
     setFormato(null);
     setContaId("");
     setNomeConta("");
+    setObservacao("");
     setMapeamento({ date: 0, description: 1, amount: 2 });
     if (arquivoInput.current) arquivoInput.current.value = "";
     importacao.current?.showModal();
@@ -260,6 +263,7 @@ export default function Extratos() {
           accountId: contaId === NOVA ? null : contaId,
           accountName: contaId === NOVA ? nomeConta.trim() : null,
           mapping: formato === "csv" ? mapeamento : null,
+          note: observacao.trim(),
         }),
       });
       toast.sucesso(formato === "ocr" ? "Extrato recebido. A leitura segue na lista." : "Extrato importado.");
@@ -454,6 +458,11 @@ export default function Extratos() {
                     <div className="grid min-w-0 flex-1 gap-1">
                       <div className="font-medium break-all">{item.filename}</div>
                       <div className="text-sm text-ink-2">{item.accountName}</div>
+                      {item.note ? (
+                        <p className="text-sm text-ink-2 break-words" title="O que você escreveu junto com este extrato">
+                          {item.note}
+                        </p>
+                      ) : null}
                     </div>
                     <Chip tone={tom(item.status)}>{ROTULO[item.status]}</Chip>
                   </div>
@@ -580,6 +589,22 @@ export default function Extratos() {
               />
             </div>
           ) : null}
+          <div className="grid gap-1">
+            <Rotulo
+              htmlFor="extrato-observacao"
+              dica="Opcional. Conte o que ajuda a ler e conferir: de quem é a conta, o que ignorar, quem é cada nome. Fica guardado com o extrato e o assistente lê."
+            >
+              Observação
+            </Rotulo>
+            <textarea
+              id="extrato-observacao"
+              className={cn(field, "min-h-20 resize-y")}
+              maxLength={LIMITE_OBSERVACAO_DO_EXTRATO}
+              value={observacao}
+              placeholder="Ex.: conta da empresa; transferências para a Ana são pró-labore"
+              onChange={(event) => setObservacao(event.target.value)}
+            />
+          </div>
           {formato === "csv" && colunas.length ? (
             <div className="grid gap-2">
               <p className="text-xs text-ink-2">Este CSV precisa de mapeamento: indique qual coluna é cada campo.</p>
@@ -675,7 +700,7 @@ export default function Extratos() {
         <label className="mb-3 flex min-h-10 items-center gap-2 text-sm">
           <input
             type="checkbox"
-            className={`size-4 accent-brand ${focusRing}`}
+            className={caixaDeMarcar}
             checked={soErros}
             onChange={(event) => {
               if (aberto) void verLinhas(aberto, event.target.checked);

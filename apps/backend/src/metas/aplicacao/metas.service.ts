@@ -122,6 +122,12 @@ export class MetasService {
     if (resultado === "diferente") throw new Conflito("A lista de metas mudou. Atualize a tela e organize de novo.");
   }
 
+  /** A meta que guarda o valor em alguma destas sessões, se houver. */
+  async metaDasSessoes(tenantId: string, sessionIds: string[]) {
+    const metas = await this.metas.listar(tenantId);
+    return metas.find((meta) => meta.sessionId !== null && sessionIds.includes(meta.sessionId)) ?? null;
+  }
+
   async excluir(tenantId: string, id: string) {
     const meta = (await this.metas.listar(tenantId)).find((item) => item.id === id);
     const apagou = await this.metas.excluir(tenantId, id);

@@ -4,6 +4,7 @@ import { Prisma, type AiConversation, type AiMessage } from "@prisma/client";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { gravarOutbox } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
+import type { AnexoGravado } from "../dominio/anexos.js";
 import type { ConversaGravada, ConversasRepositorio, Pendencia } from "../portas/conversas-repositorio.js";
 
 /** Os eventos levam só ids e contagens: o texto da conversa não sai daqui. */
@@ -41,7 +42,7 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
     });
   }
 
-  async gravarMensagem(tenantId: string, conversationId: string, mensagem: MensagemDoChat) {
+  async gravarMensagem(tenantId: string, conversationId: string, mensagem: MensagemDoChat, anexos: AnexoGravado[] = []) {
     await this.banco().$transaction(async (tx) => {
       const dados = {
         role: mensagem.role,
@@ -53,6 +54,13 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
         create: { id: mensagem.id, tenantId, conversationId, createdAt: new Date(mensagem.createdAt), ...dados },
         update: dados,
       });
+      for (const anexo of anexos) {
+        await tx.aiAttachment.create({
+          data: { id: anexo.id, tenantId, conversationId, name: anexo.name, mediaType: anexo.mediaType, size: anexo.size, content: new Uint8Array(anexo.content) },
+        });
+        const payload = { id: anexo.id, conversationId, mensagemId: mensagem.id, name: anexo.name, mediaType: anexo.mediaType, size: anexo.size };
+        await gravarOutbox(tx, tenantId, "anexar-arquivo-ao-chat", anexo.id, payload);
+      }
       await tx.aiConversation.updateMany({ where: { id: conversationId, tenantId }, data: { updatedAt: new Date() } });
       const acoes = mensagem.partes.filter((parte) => parte.tipo === "acao").length;
       await gravarOutbox(tx, tenantId, "registrar-mensagem-do-assistente", mensagem.id, {
@@ -64,11 +72,22 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
     });
   }
 
+  async obterAnexo(tenantId: string, id: string) {
+    const linha = await this.banco().aiAttachment.findFirst({ where: { id, tenantId } });
+    if (!linha) return null;
+    return { id: linha.id, name: linha.name, mediaType: linha.mediaType, size: linha.size, content: Buffer.from(linha.content) };
+  }
+
   async definirPendencia(tenantId: string, conversationId: string, pendencia: Pendencia | null) {
-    await this.banco().aiConversation.updateMany({
-      where: { id: conversationId, tenantId },
-      // NULL numa coluna JSON pede o valor especial do Prisma.
-      data: { pending: pendencia === null ? Prisma.DbNull : (pendencia as unknown as Prisma.InputJsonValue) },
+    await this.banco().$transaction(async (tx) => {
+      const { count } = await tx.aiConversation.updateMany({
+        where: { id: conversationId, tenantId },
+        // NULL numa coluna JSON pede o valor especial do Prisma.
+        data: { pending: pendencia === null ? Prisma.DbNull : (pendencia as unknown as Prisma.InputJsonValue) },
+      });
+      if (count === 0) return;
+      const payload = { conversationId, pending: pendencia !== null };
+      await gravarOutbox(tx, tenantId, "definir-pendencia-da-conversa", conversationId, payload, String(Date.now()));
     });
   }
 

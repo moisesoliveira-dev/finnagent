@@ -26,3 +26,9 @@ export function erroDaDivisao(total: number, partes: number[]) {
 export function nomeDaLinha(nome: string | undefined, descricao: string) {
   return (nome?.trim() || descricao.trim() || "Extrato").slice(0, 160);
 }
+
+/**
+ * A justificativa do lançamento que nasce de uma linha do extrato. Ela marca que o lançamento só existe por causa da
+ * linha: sem nenhuma linha ligada a ele, desfazer o apaga em vez de deixá-lo pendente na sessão.
+ */
+export const JUSTIFICATIVA_DO_EXTRATO = "Lançamento do extrato.";

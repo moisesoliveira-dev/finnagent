@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import type { Extrato, LinhaExtrato, MapeamentoExtrato, StatusExtrato } from "@finnagent/contracts";
+import { TIPOS_DE_CONTA, type Extrato, type LinhaExtrato, type MapeamentoExtrato, type StatusExtrato } from "@finnagent/contracts";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
+import { JUSTIFICATIVA_DO_EXTRATO } from "../dominio/divisao.js";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
 import { avisoDeRepetidas, descartarRepetidas } from "../dominio/repetidas.js";
 import type { Prisma } from "@prisma/client";
@@ -12,6 +13,7 @@ import type {
   GravacaoExtrato,
   LinhaImportada,
   NomeLembrado,
+  OndeEstaoOsLancamentos,
   ParteGravada,
   ReservaExtrato,
 } from "../portas/extratos-repositorio.js";
@@ -25,14 +27,17 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async listar(tenantId: string) {
     const db = this.banco();
     const [accounts, rows] = await Promise.all([
-      db.account.findMany({ where: { tenantId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+      db.account.findMany({ where: { tenantId }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, openingCents: true } }),
       db.statement.findMany({
         where: { tenantId },
         orderBy: { importedAt: "desc" },
         select: selecao,
       }),
     ]);
-    return { accounts, statements: rows.map(extratoDe) };
+    return {
+      accounts: accounts.map((conta) => ({ ...conta, kind: TIPOS_DE_CONTA.find((item) => item === conta.kind) ?? "conta" })),
+      statements: rows.map(extratoDe),
+    };
   }
 
   async criar(tenantId: string, pedido: GravacaoExtrato) {
@@ -65,6 +70,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
           importedAt,
           content: new Uint8Array(pedido.bytes),
           contentHash: pedido.contentHash,
+          note: pedido.note,
           dateColumn: pedido.mapping?.date ?? null,
           descriptionColumn: pedido.mapping?.description ?? null,
           amountColumn: pedido.mapping?.amount ?? null,
@@ -106,13 +112,14 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       select: {
         filename: true,
         content: true,
+        note: true,
         dateColumn: true,
         descriptionColumn: true,
         amountColumn: true,
       },
     });
     if (!row) return "ausente" as const;
-    return { filename: row.filename, bytes: Buffer.from(row.content), mapping: mapeamentoDe(row) };
+    return { filename: row.filename, bytes: Buffer.from(row.content), note: row.note, mapping: mapeamentoDe(row) };
   }
 
   async substituir(
@@ -187,7 +194,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         entryCreated: true,
         ignoredAt: true,
         parts: { where: { tenantId }, orderBy: { position: "asc" }, select: { entryId: true, cents: true, created: true } },
-        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
+        statement: { select: { filename: true, importedAt: true, account: { select: { id: true, name: true } } } },
       },
     });
     return rows.flatMap((row) => {
@@ -198,6 +205,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         date: isoDe(row.postedOn) ?? "",
         description: row.description,
         cents: row.cents,
+        accountId: row.statement.account.id,
         accountName: row.statement.account.name,
         filename: row.statement.filename,
         entryId: row.entryId,
@@ -251,7 +259,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         entryCreated: true,
         ignoredAt: true,
         parts: { where: { tenantId }, orderBy: { position: "asc" }, select: { entryId: true, cents: true, created: true } },
-        statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
+        statement: { select: { filename: true, importedAt: true, account: { select: { id: true, name: true } } } },
       },
     });
     if (!row?.postedOn || row.cents === null) return "ausente" as const;
@@ -261,7 +269,8 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       date: isoDe(row.postedOn) ?? "",
       description: row.description,
       cents: row.cents,
-      accountName: row.statement.account.name,
+      accountId: row.statement.account.id,
+        accountName: row.statement.account.name,
       filename: row.statement.filename,
       entryId: row.entryId,
         entryCreated: row.entryCreated,
@@ -428,9 +437,52 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     });
   }
 
-  async contarCruzadas(tenantId: string, id: string) {
-    const db = this.banco();
-    return db.statementLine.count({ where: { tenantId, statementId: id, entryId: { not: null } } });
+  async linhasCruzadasDoExtrato(tenantId: string, id: string) {
+    return this.banco().statementLine.findMany({
+      where: { tenantId, statementId: id, entryId: { not: null } },
+      orderBy: { line: "asc" },
+      select: { statementId: true, line: true },
+    });
+  }
+
+  async linhasDosLancamentos(tenantId: string, onde: OndeEstaoOsLancamentos) {
+    const lancamento: Prisma.EntryWhereInput = {
+      tenantId,
+      ...(onde.entryIds ? { id: { in: onde.entryIds } } : {}),
+      ...(onde.sessionId ? { sessionId: onde.sessionId } : {}),
+      ...(onde.groupId ? { session: { groupId: onde.groupId } } : {}),
+    };
+    return this.banco().statementLine.findMany({
+      where: { tenantId, OR: [{ entry: lancamento }, { parts: { some: { tenantId, entry: lancamento } } }] },
+      orderBy: [{ statementId: "asc" }, { line: "asc" }],
+      select: { statementId: true, line: true },
+    });
+  }
+
+  async esquecerAssociacoesDaSessao(tenantId: string, sessionId: string) {
+    await this.banco().$transaction(async (tx) => {
+      const nomes = await tx.statementAlias.findMany({ where: { tenantId, sessionId }, select: { name: true, entryId: true } });
+      if (!nomes.length) return;
+      await tx.statementAlias.deleteMany({ where: { tenantId, sessionId } });
+      for (const { name, entryId } of nomes) {
+        const payload = { name, entryId, removed: true };
+        await gravarOutbox(tx, tenantId, "associar-nome-extrato", name, payload, marcaDe(payload));
+      }
+    });
+  }
+
+  async lancamentoSoltoDoExtrato(tenantId: string, entryId: string) {
+    const solto = await this.banco().entry.count({
+      where: {
+        id: entryId,
+        tenantId,
+        justification: JUSTIFICATIVA_DO_EXTRATO,
+        category: "unique",
+        statementLines: { none: { tenantId } },
+        statementLineParts: { none: { tenantId } },
+      },
+    });
+    return solto > 0;
   }
 
   async listarAssociacoes(tenantId: string) {
@@ -467,6 +519,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
           importedAt,
           content: new Uint8Array(pedido.bytes),
           contentHash: pedido.contentHash,
+          note: pedido.note,
         },
       });
       const payload = { id: pedido.id, status: "processando" };
@@ -535,6 +588,7 @@ const selecao = {
   format: true,
   status: true,
   message: true,
+  note: true,
   startDate: true,
   endDate: true,
   lineCount: true,
@@ -664,6 +718,7 @@ function extratoDe(row: {
   format: string;
   status: string;
   message: string;
+  note: string;
   startDate: Date | null;
   endDate: Date | null;
   lineCount: number;
@@ -683,6 +738,7 @@ function extratoDe(row: {
     errorCount: row.errorCount,
     status: statusDe(row.status),
     message: row.message,
+    note: row.note,
     importedAt: row.importedAt.toISOString(),
   };
 }

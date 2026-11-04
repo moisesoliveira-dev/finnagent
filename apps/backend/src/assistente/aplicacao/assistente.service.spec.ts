@@ -19,6 +19,7 @@ import type { Credencial, ExecutorDeFerramentas, ResultadoDaExecucao } from "../
 import type { MotorDeIa } from "../portas/motor-de-ia.js";
 import type { RealidadeDaConta } from "../portas/realidade-da-conta.js";
 import { CALENDARIO_NACIONAL, PADROES_DE_VENCIMENTO_INICIAIS } from "@finnagent/contracts";
+import type { AnexoGravado } from "../dominio/anexos.js";
 import { AssistenteService } from "./assistente.service.js";
 import type { IaService } from "./ia.service.js";
 
@@ -38,7 +39,12 @@ class Conversas implements ConversasRepositorio {
     this.dados.set(id, { tenantId, userId, resumo, pendencia: null, mensagens: [] });
     return resumo;
   }
-  async gravarMensagem(_tenantId: string, conversationId: string, mensagem: MensagemDoChat) {
+  anexos = new Map<string, AnexoGravado>();
+  async obterAnexo(_tenantId: string, id: string) {
+    return this.anexos.get(id) ?? null;
+  }
+  async gravarMensagem(_tenantId: string, conversationId: string, mensagem: MensagemDoChat, anexos: AnexoGravado[] = []) {
+    for (const anexo of anexos) this.anexos.set(anexo.id, anexo);
     const item = this.dados.get(conversationId)!;
     const copia = structuredClone(mensagem);
     const indice = item.mensagens.findIndex((atual) => atual.id === mensagem.id);
@@ -196,6 +202,62 @@ describe("orquestrador do assistente", () => {
     expect(ultimaMensagem().partes).toEqual([{ tipo: "texto", texto: "Oi, Ana!" }]);
     expect(motor.pedidos[0].contexto.usuario).toBe("Ana");
     expect(motor.pedidos[0]).not.toHaveProperty("modelos.leitor");
+  });
+
+  describe("anexos", () => {
+    const csv = Buffer.from("data,descricao,valor\n2026-10-02,MERCADO,-50.00\n").toString("base64");
+
+    it("guarda o arquivo, mostra o anexo na mensagem e o modelo lê o texto e o id", async () => {
+      const motor = new Motor([{ final: resposta("coordenador", "Li o arquivo.") }]);
+      await servico(motor).conversar(quem, { texto: "importe este extrato", anexos: [{ name: "extrato.csv", mediaType: "text/csv", content: csv }] }, emitir);
+      const conversa = [...conversas.dados.values()][0];
+      const usuario = conversa.mensagens[0];
+      const anexo = usuario.partes.find((parte) => parte.tipo === "anexo");
+      expect(anexo).toMatchObject({ tipo: "anexo", anexo: { name: "extrato.csv", mediaType: "text/csv" } });
+      expect(usuario.partes.some((parte) => "anexo" in parte && "content" in parte.anexo)).toBe(false);
+      const id = anexo && anexo.tipo === "anexo" ? anexo.anexo.id : "";
+      expect(conversas.anexos.get(id)?.content.toString()).toContain("MERCADO");
+      const lido = motor.pedidos[0].mensagens[0];
+      expect(lido.content).toContain("importe este extrato");
+      expect(lido.content).toContain(`anexoId: ${id}`);
+      expect(lido.content).toContain("2026-10-02,MERCADO,-50.00");
+    });
+
+    it("imagem e PDF não entram como texto: o modelo recebe só a linha com o id e o aviso", async () => {
+      const motor = new Motor([{ final: resposta("coordenador", "ok") }]);
+      await servico(motor).conversar(quem, { texto: "veja", anexos: [{ name: "extrato.pdf", mediaType: "application/pdf", content: Buffer.from("%PDF-1.4 teste").toString("base64") }] }, emitir);
+      const lido = String(motor.pedidos[0].mensagens[0].content);
+      expect(lido).toContain("extrato.pdf");
+      expect(lido).toContain("importar_extrato");
+      expect(lido).not.toContain("%PDF");
+    });
+
+    it("só o anexo, sem texto, vira o pedido", async () => {
+      const motor = new Motor([{ final: resposta("coordenador", "ok") }]);
+      await servico(motor).conversar(quem, { anexos: [{ name: "extrato.csv", mediaType: "text/csv", content: csv }] }, emitir);
+      expect(String(motor.pedidos[0].mensagens[0].content)).toContain("Anexei o arquivo.");
+    });
+
+    it("recusa arquivo de tipo não aceito ou conteúdo inválido, sem criar conversa", async () => {
+      const motor = new Motor([]);
+      await expect(
+        servico(motor).conversar(quem, { texto: "oi", anexos: [{ name: "programa.exe", mediaType: "", content: csv }] }, emitir),
+      ).rejects.toThrow("não pode ser anexado");
+      await expect(
+        servico(motor).conversar(quem, { texto: "oi", anexos: [{ name: "extrato.csv", mediaType: "", content: "###" }] }, emitir),
+      ).rejects.toThrow("Não consegui ler");
+      expect(conversas.dados.size).toBe(0);
+    });
+
+    it("nas conversas seguintes o modelo ainda sabe o id do anexo antigo", async () => {
+      const motor = new Motor([{ final: resposta("coordenador", "ok") }, { final: resposta("coordenador", "ok") }]);
+      await servico(motor).conversar(quem, { texto: "guarde", anexos: [{ name: "extrato.csv", mediaType: "text/csv", content: csv }] }, emitir);
+      const id = [...conversas.anexos.keys()][0];
+      await servico(motor).conversar(quem, { conversationId: [...conversas.dados.keys()][0], texto: "importe aquele" }, emitir);
+      const historico = motor.pedidos[1].mensagens.map((item) => String(item.content)).join("\n");
+      expect(historico).toContain(`anexoId: ${id}`);
+      expect(historico).not.toContain("2026-10-02,MERCADO");
+    });
   });
 
   it("consulta direto, com o token de quem conversa, e devolve o resultado ao modelo", async () => {

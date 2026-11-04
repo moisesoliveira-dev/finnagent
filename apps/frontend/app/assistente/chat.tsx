@@ -18,6 +18,7 @@ import { useToast } from "../../components/ui/toast";
 import { Compositor } from "./compositor";
 import { Conversas } from "./conversas";
 import { ID_PROVISORIO, aplicarEvento, lerEventos, marcarResposta, mensagemProvisoria } from "@finnagent/chat";
+import { juntarArquivos, paraOPedido, type AnexoPendente } from "./anexos";
 import { Mensagem } from "./mensagem";
 import { Vazio } from "./vazio";
 
@@ -65,6 +66,7 @@ export function Chat() {
   const [trabalhando, setTrabalhando] = useState(false);
   const [agente, setAgente] = useState<AgenteIa | null>(null);
   const [rascunho, setRascunho] = useState("");
+  const [anexos, setAnexos] = useState<AnexoPendente[]>([]);
   const [apagando, setApagando] = useState<ConversaResumo | null>(null);
   const [longe, setLonge] = useState(false);
   const parar = useRef<AbortController | null>(null);
@@ -209,7 +211,13 @@ export function Chat() {
     parar.current.abort();
   }
 
-  async function conversar(corpo: { texto: string } | { resposta: { perguntaId: string; escolha: string } }) {
+  async function anexar(arquivos: File[]) {
+    const { anexos: juntos, erro } = await juntarArquivos(arquivos, anexos);
+    setAnexos(juntos);
+    if (erro) toast.alerta(erro);
+  }
+
+  async function conversar(corpo: { texto: string; anexos?: AnexoPendente[] } | { resposta: { perguntaId: string; escolha: string } }) {
     if (trabalhando) {
       toast.alerta("O assistente ainda está trabalhando. Espere ele terminar ou pare a resposta.");
       return;
@@ -220,8 +228,9 @@ export function Chat() {
     seguir.current = true;
     const texto = "texto" in corpo ? corpo.texto : "";
     if ("texto" in corpo) {
-      setMensagens((lista) => [...lista, mensagemProvisoria(texto)]);
+      setMensagens((lista) => [...lista, mensagemProvisoria(texto, corpo.anexos)]);
       setRascunho("");
+      setAnexos([]);
     } else {
       setMensagens((lista) => marcarResposta(lista, corpo.resposta.perguntaId, corpo.resposta.escolha));
     }
@@ -234,7 +243,10 @@ export function Chat() {
       const resposta = await fetch("/api/assistente/mensagens", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId: atual?.id ?? null, ...corpo }),
+        body: JSON.stringify({
+          conversationId: atual?.id ?? null,
+          ...("texto" in corpo ? { texto: corpo.texto, ...(corpo.anexos?.length ? { anexos: paraOPedido(corpo.anexos) } : {}) } : corpo),
+        }),
         signal: controle.signal,
       });
       if (!resposta.ok) {
@@ -296,6 +308,7 @@ export function Chat() {
         if ("texto" in corpo) {
           setMensagens((lista) => lista.filter((item) => item.id !== ID_PROVISORIO));
           setRascunho(texto);
+          setAnexos(corpo.anexos ?? []);
         }
       }
     } finally {
@@ -449,7 +462,7 @@ export function Chat() {
           <div ref={fim} />
         </div>
 
-        <div className="sticky bottom-0 z-10 bg-bg pt-3 pb-4">
+        <div className="sticky bottom-0 z-10 bg-bg pt-3 pr-12 pb-4">
           <div className="relative mx-auto w-full max-w-3xl">
             <AnimatePresence>
               {longe ? (
@@ -471,11 +484,14 @@ export function Chat() {
             </AnimatePresence>
             <Compositor
               valor={rascunho}
+              anexos={anexos}
               trabalhando={aqui}
               desativado={!carregando && !configurado}
               aviso=""
               onMudar={setRascunho}
-              onEnviar={() => void conversar({ texto: rascunho.trim() })}
+              onAnexar={(arquivos) => void anexar(arquivos)}
+              onRemoverAnexo={(indice) => setAnexos((lista) => lista.filter((_, posicao) => posicao !== indice))}
+              onEnviar={() => void conversar({ texto: rascunho.trim(), anexos })}
               onParar={pararTurno}
             />
           </div>

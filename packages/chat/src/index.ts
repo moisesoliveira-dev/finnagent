@@ -9,11 +9,11 @@ import type {
 export const ID_PROVISORIO = "provisoria";
 
 /** A mensagem da pessoa aparece na hora; o backend devolve a definitiva no evento de início. */
-export function mensagemProvisoria(texto: string): MensagemDoChat {
+export function mensagemProvisoria(texto: string, anexos: Array<{ name: string; mediaType: string; size: number }> = []): MensagemDoChat {
   return {
     id: ID_PROVISORIO,
     role: "user",
-    partes: [{ tipo: "texto", texto }],
+    partes: [{ tipo: "texto", texto }, ...anexos.map((anexo, indice) => ({ tipo: "anexo" as const, anexo: { id: `${ID_PROVISORIO}-${indice}`, ...anexo } }))],
     agente: null,
     createdAt: new Date().toISOString(),
   };

@@ -13,6 +13,7 @@ import {
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { LIMITE_OBSERVACAO_DO_EXTRATO } from "@finnagent/contracts";
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
@@ -36,12 +37,21 @@ const criarExtrato = arquivo
     id: z.uuid(),
     accountId: z.uuid().nullable(),
     accountName: z.string().trim().min(1).max(80).nullable(),
+    note: z.string().trim().max(LIMITE_OBSERVACAO_DO_EXTRATO).optional(),
   })
   .superRefine((pedido, contexto) => {
     if (!pedido.accountId && !pedido.accountName) {
       contexto.addIssue({ code: "custom", message: "Escolha a conta.", path: ["accountId"] });
     }
   });
+
+const deAnexo = z.object({
+  id: z.uuid(),
+  anexoId: z.uuid(),
+  accountName: z.string().trim().min(1).max(80),
+  observacao: z.string().trim().max(LIMITE_OBSERVACAO_DO_EXTRATO).default(""),
+  mapping: mapeamento.nullable().default(null),
+});
 
 @Controller()
 export class ExtratosController {
@@ -211,6 +221,13 @@ export class ExtratosController {
     const pedido = criarExtrato.safeParse(body);
     if (!pedido.success) throw new BadRequestException(this.mensagem(pedido.error.issues[0]));
     return this.executar(() => this.extratos.criar(this.tenant(tenant), pedido.data));
+  }
+
+  @Post("extratos/de-anexo")
+  criarDeAnexo(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = deAnexo.safeParse(body);
+    if (!pedido.success) throw new BadRequestException(this.mensagem(pedido.error.issues[0]));
+    return this.executar(() => this.extratos.criarDeAnexo(this.tenant(tenant), pedido.data));
   }
 
   @Get("extratos/:id/linhas")

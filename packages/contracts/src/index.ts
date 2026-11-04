@@ -335,6 +335,10 @@ export type Lancamento = {
   synced: boolean;
   /** Preenchido: este valor já entra em outro lançamento e não soma de novo na sobra. */
   coveredById?: string | null;
+  /** A conta de onde sai ou em que entra. Sem conta, o lançamento só conta na sobra. */
+  accountId?: string | null;
+  /** Transferência entre contas da própria pessoa: muda o saldo das contas e não entra na sobra. */
+  transfer?: boolean;
   occurrences?: Ocorrencia[];
   /** Como cada vencimento cai em dia útil. Sem regra, é o dia como está. */
   dueRule?: RegraDeVencimento;
@@ -397,6 +401,8 @@ export type LinhaBase = {
   installment: { number: number; total: number } | null;
   remove: "entry" | "occurrence" | null;
   synced: boolean;
+  /** Transferência entre contas próprias: aparece na lista, mas não soma na sobra. */
+  transfer: boolean;
 };
 
 export type BaseResposta = {
@@ -454,7 +460,7 @@ export function centavosNoMes(
   year: number,
   monthIndex: number,
 ) {
-  if (entry.coveredById) return undefined;
+  if (entry.coveredById || entry.transfer) return undefined;
   const bruto = centavosAgendados(entry, year, monthIndex);
   if (bruto === undefined) return undefined;
   const cortaInicio =
@@ -563,7 +569,6 @@ function valorDoCalendario(entry: Lancamento, year: number, monthIndex: number) 
   const distancia = indice(year, monthIndex) - indice(entry.startYear, entry.startMonth - 1);
   if (distancia < 0) return undefined;
   if (entry.type === "fixo") {
-    if (year !== entry.startYear) return undefined;
     const vezes = vezesDaRecorrencia(
       entry.recurrence ?? "monthly",
       entry.recurrenceInterval ?? 1,
@@ -646,7 +651,26 @@ export function ocorrenciasDoLancamento(entry: Lancamento) {
   return gradeDoLancamento(entry);
 }
 
-export function gradeDoLancamento(entry: ContratoLancamento, calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL): Ocorrencia[] {
+/**
+ * Até que ano a fixa sem fim gera ocorrências: o ano seguinte ao atual (ou ao de início, se for depois). A grade
+ * cresce sozinha conforme o tempo passa; o que já foi gravado não muda.
+ */
+export function horizonteDaFixa(startYear: number, hoje = new Date()) {
+  return Math.max(startYear, hoje.getFullYear()) + 1;
+}
+
+/** Junta à grade gravada as ocorrências novas que a grade de hoje alcança (a fixa que entrou em outro ano). */
+export function estenderGrade(gravadas: Ocorrencia[], grade: Ocorrencia[]): Ocorrencia[] {
+  const maior = gravadas.reduce((max, item) => Math.max(max, item.number), 0);
+  const novas = grade.filter((item) => item.number > maior);
+  return novas.length ? [...gravadas, ...novas] : gravadas;
+}
+
+export function gradeDoLancamento(
+  entry: ContratoLancamento,
+  calendario: CalendarioDeDiasUteis = CALENDARIO_NACIONAL,
+  ateAno = horizonteDaFixa(entry.startYear),
+): Ocorrencia[] {
   if (entry.type === "adicional" || entry.type === "variável") {
     return [...entry.months]
       .sort((a, b) => a.year - b.year || a.month - b.month)
@@ -661,7 +685,7 @@ export function gradeDoLancamento(entry: ContratoLancamento, calendario: Calenda
       );
   }
   if (entry.type === "fixo") {
-    return datasFixas(entry, calendario).map((dueDate, index) =>
+    return datasFixas(entry, calendario, ateAno).map((dueDate, index) =>
       montarOcorrencia(index + 1, dueDate, entry.cents, entry, entry.status),
     );
   }
@@ -808,33 +832,30 @@ function statusDaGrade(
   return statusPedido;
 }
 
-function datasFixas(entry: ContratoLancamento, calendario: CalendarioDeDiasUteis) {
+// A fixa não para em dezembro: as datas seguem do ano de início até `ateAno`, inclusive.
+function datasFixas(entry: ContratoLancamento, calendario: CalendarioDeDiasUteis, ateAno: number) {
   const regra = entry.dueRule ?? REGRA_SEM_AJUSTE;
   const recurrence = entry.recurrence ?? "monthly";
   const passo = Math.max(entry.recurrenceInterval ?? 1, 1);
+  const anos: number[] = [];
+  for (let year = entry.startYear; year <= Math.max(ateAno, entry.startYear); year += 1) anos.push(year);
   if (recurrence === "weekly" || recurrence === "customize") {
     const stepDays = recurrence === "weekly" ? 7 * passo : passo;
     const datas: string[] = [];
-    for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
-      datas.push(
-        ...datasNoMes(entry.startYear, entry.startMonth, entry.day, entry.startYear, monthIndex, stepDays),
-      );
+    for (const year of anos) {
+      for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+        datas.push(...datasNoMes(entry.startYear, entry.startMonth, entry.day, year, monthIndex, stepDays));
+      }
     }
     // Semanal e a cada N dias: "Nº dia útil" não se aplica; só o ajuste quando cai em dia não útil.
     return datas.map((data) => ajustarAoDiaUtil(data, { ...regra, tipo: "dia" }, calendario));
   }
   const datas: string[] = [];
-  for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
-    const vezes = vezesDaRecorrencia(
-      recurrence,
-      passo,
-      entry.startYear,
-      entry.startMonth,
-      entry.day,
-      entry.startYear,
-      monthIndex,
-    );
-    if (vezes === 1) datas.push(dataPelaRegra(entry.startYear, monthIndex + 1, entry.day, regra, calendario));
+  for (const year of anos) {
+    for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+      const vezes = vezesDaRecorrencia(recurrence, passo, entry.startYear, entry.startMonth, entry.day, year, monthIndex);
+      if (vezes === 1) datas.push(dataPelaRegra(year, monthIndex + 1, entry.day, regra, calendario));
+    }
   }
   return datas;
 }
@@ -849,7 +870,8 @@ export const AGENDAS = ["Pessoal", "Trabalho"] as const;
 
 export type NomeAgenda = (typeof AGENDAS)[number];
 
-export const CATEGORIAS_COMPROMISSO = ["fixed", "periodical", "time"] as const;
+/** fixed: uma vez. periodical: todo mês. time: todo mês até uma data. weekly: toda semana. yearly: todo ano. */
+export const CATEGORIAS_COMPROMISSO = ["fixed", "periodical", "time", "weekly", "yearly"] as const;
 
 export type CategoriaCompromisso = (typeof CATEGORIAS_COMPROMISSO)[number];
 
@@ -1046,10 +1068,43 @@ export type MapeamentoExtrato = {
   amount: number;
 };
 
+export const TIPOS_DE_CONTA = ["conta", "cartao"] as const;
+export type TipoDeConta = (typeof TIPOS_DE_CONTA)[number];
+export const ROTULO_DO_TIPO_DE_CONTA: Record<TipoDeConta, string> = { conta: "Conta", cartao: "Cartão de crédito" };
+
 export type Conta = {
   id: string;
   name: string;
+  kind: TipoDeConta;
+  /** O saldo no dia em que a pessoa começou a controlar a conta aqui. */
+  openingCents: number;
 };
+
+export type PedidoDeConta = { name: string; kind: TipoDeConta; openingCents: number };
+
+export type ContasResposta = { accounts: Conta[] };
+
+/** O que uma conta tem hoje e o que fica no fim do mês, pelos lançamentos ligados a ela. */
+export type ResumoDaConta = {
+  /** Saldo inicial mais o que já foi pago ou recebido até hoje. No cartão, o que já foi lançado na fatura. */
+  saldoCents: number;
+  /** O saldo depois do que ainda vence neste mês. No cartão, a fatura prevista. */
+  previstoCents: number;
+};
+
+export function resumoDaConta(conta: Conta, entries: Lancamento[], hoje: string): ResumoDaConta {
+  const fimDoMes = `${hoje.slice(0, 7)}-31`;
+  let saldo = conta.openingCents;
+  let pendente = 0;
+  for (const entry of entries) {
+    if (entry.accountId !== conta.id) continue;
+    for (const item of ocorrenciasDoLancamento(entry)) {
+      if (item.status === "completed" && (item.paidOn ?? item.dueDate) <= hoje) saldo += item.paidCents ?? item.plannedCents;
+      if (item.status === "pending" && item.dueDate <= fimDoMes) pendente += item.plannedCents;
+    }
+  }
+  return { saldoCents: saldo, previstoCents: saldo + pendente };
+}
 
 export type LinhaExtrato = {
   line: number;
@@ -1064,6 +1119,8 @@ export type PedidoOrganizarExtrato = {
   filename: string;
   mediaType: string;
   content: string;
+  /** O que a pessoa escreveu sobre o extrato: a conta, o que cada nome é, o que ignorar. */
+  observacao?: string;
   apiKey?: string;
   model?: string;
   /** Provedor no formato da OpenAI fora da OpenAI (OpenRouter, Ollama...). */
@@ -1082,6 +1139,8 @@ export type Extrato = {
   errorCount: number;
   status: StatusExtrato;
   message: string;
+  /** O que a pessoa escreveu junto com o extrato. Vazio quando não escreveu nada. */
+  note: string;
   importedAt: string;
 };
 
@@ -1765,7 +1824,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("financeiro", "Grupo", ["criar-grupo", "atualizar-grupo", "remover-grupo", "permanecer-ano"]),
   ...grupo("financeiro", "Sessão", ["criar-sessao", "atualizar-sessao", "encerrar-sessao", "remover-sessao"]),
-  ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta", "reordenar-metas", "dividir-sobra-das-metas", "aprovar-sobra-da-meta"]),
+  ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta", "reordenar-metas", "dividir-sobra-das-metas", "aprovar-sobra-da-meta", "reabrir-sobra-da-meta"]),
   ...grupo("financeiro", "Feriado", ["criar-feriado-local", "remover-feriado-local"]),
   ...grupo("agenda", "Compromisso", [
     "criar-compromisso",
@@ -1775,17 +1834,19 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
+  ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta"]),
   ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato"]),
   ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas", "dividir-linha", "desfazer-divisao"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
   ...grupo("agente", "Conversa", [
     "criar-conversa",
     "renomear-conversa",
+    "definir-pendencia-da-conversa",
     "remover-conversa",
     "remover-conversas",
     "expirar-conversas",
   ]),
-  ...grupo("agente", "Mensagem", ["registrar-mensagem-do-assistente"]),
+  ...grupo("agente", "Mensagem", ["registrar-mensagem-do-assistente", "anexar-arquivo-ao-chat"]),
   ...grupo("configuracoes", "Configurações", [
     "salvar-configuracoes",
     "iniciar-google",
@@ -2124,6 +2185,36 @@ export const LIMITE_MODELOS_POR_PROVEDOR = 40;
 export const LIMITE_INSTRUCOES_IA = 2000;
 export const LIMITE_MENSAGEM_DO_CHAT = 4000;
 
+/** Anexos de uma mensagem do chat: quantos, o tamanho de cada um e o total, em bytes. */
+export const LIMITE_ANEXOS_DO_CHAT = 5;
+export const LIMITE_ANEXO_DO_CHAT_BYTES = LIMITE_EXTRATO_BYTES;
+export const LIMITE_ANEXOS_DO_CHAT_TOTAL_BYTES = 6 * 1024 * 1024;
+/** O que a pessoa escreve junto com o extrato (a conta, o que é cada transferência, o que ignorar). */
+export const LIMITE_OBSERVACAO_DO_EXTRATO = 1000;
+/** Do arquivo de texto, o que o modelo lê na própria mensagem. O resto o modelo lê pela ferramenta. */
+export const LIMITE_TEXTO_DO_ANEXO = 12_000;
+
+/** O que a mensagem diz quando a pessoa só anexa arquivo e não escreve nada. */
+export const TEXTO_SO_COM_ANEXO = "Anexei o arquivo.";
+
+/** Extensões que o chat aceita como anexo: texto, que o modelo lê, e imagem ou PDF, que só viram extrato. */
+export const EXTENSOES_DE_ANEXO_DO_CHAT = ["csv", "ofx", "txt", "tsv", "json", "md", "pdf", "png", "jpg", "jpeg", "webp"] as const;
+const EXTENSOES_DE_ANEXO_EM_TEXTO: ReadonlySet<string> = new Set(["csv", "ofx", "txt", "tsv", "json", "md"]);
+
+function extensaoDoArquivo(nome: string) {
+  const ponto = nome.lastIndexOf(".");
+  return ponto < 0 ? "" : nome.slice(ponto + 1).toLowerCase();
+}
+
+export function anexoAceito(nome: string) {
+  return (EXTENSOES_DE_ANEXO_DO_CHAT as readonly string[]).includes(extensaoDoArquivo(nome));
+}
+
+/** Arquivo de texto: vai (até o limite) na mensagem que o modelo lê. Imagem e PDF não. */
+export function anexoEmTexto(nome: string) {
+  return EXTENSOES_DE_ANEXO_EM_TEXTO.has(extensaoDoArquivo(nome));
+}
+
 export const PASSOS_DO_ASSISTENTE = [4, 8, 12] as const;
 
 export type PassosDoAssistente = (typeof PASSOS_DO_ASSISTENTE)[number];
@@ -2253,7 +2344,14 @@ export type ParteDaMensagem =
   | { tipo: "texto"; texto: string }
   | { tipo: "acao"; acao: AcaoDoAssistente }
   | { tipo: "pergunta"; pergunta: PerguntaDoAssistente }
-  | { tipo: "agente"; agente: AgenteIa };
+  | { tipo: "agente"; agente: AgenteIa }
+  | { tipo: "anexo"; anexo: AnexoDaMensagem };
+
+/** O anexo como a tela o vê, na mensagem. O conteúdo fica no servidor; o `id` é o que as ferramentas usam. */
+export type AnexoDaMensagem = { id: string; name: string; mediaType: string; size: number };
+
+/** O anexo como a tela o envia: o conteúdo em base64. */
+export type AnexoDoPedido = { name: string; mediaType: string; content: string };
 
 export type MensagemDoChat = {
   id: string;
@@ -2273,6 +2371,8 @@ export type PedidoDeMensagem = {
   conversationId: string | null;
   texto?: string;
   resposta?: { perguntaId: string; escolha: string };
+  /** Arquivos que vão com a mensagem. Só valem junto com `texto`. */
+  anexos?: AnexoDoPedido[];
 };
 
 /** O que o backend manda para a tela, uma linha JSON por evento, enquanto o assistente trabalha. */
@@ -2340,6 +2440,14 @@ const resumoDoQueApaga = z
   .describe("Em português, o que será apagado, para a pessoa confirmar. Ex.: 'o lançamento Aluguel de outubro'.");
 
 const camposDoLancamento = z.object({
+  accountId: idDoSistema
+    .nullable()
+    .optional()
+    .describe("A conta de onde o dinheiro sai ou em que entra (consultar_extratos lista as contas). Sem conta, o lançamento só conta na sobra."),
+  transfer: z
+    .boolean()
+    .optional()
+    .describe("true quando é transferência entre contas da própria pessoa: muda o saldo das contas e não entra na sobra."),
   sessionId: idDoSistema.describe(
     "Sessão onde o lançamento entra, com grupo e nome que combinam com o valor. Consulte com listar_grupos_e_sessoes; se nenhuma combinar, pergunte à pessoa antes.",
   ),
@@ -2402,8 +2510,8 @@ const camposDoCompromisso = z.object({
   calendar: z.enum(AGENDAS).describe("Agenda: Pessoal ou Trabalho."),
   category: z
     .enum(CATEGORIAS_COMPROMISSO)
-    .describe("time = acontece uma vez; fixed = se repete todo mês no mesmo dia; periodical = vai de uma data até outra."),
-  endYear: anoDoSistema.nullable().optional().describe("Fim do período (só periodical)."),
+    .describe("fixed = acontece uma vez, só nesse dia; periodical = repete nesse dia todo mês, sem fim; time = repete nesse dia todo mês até a data de fim (endYear, endMonth, endDay); weekly = repete toda semana, no mesmo dia da semana; yearly = repete todo ano na mesma data."),
+  endYear: anoDoSistema.nullable().optional().describe("Fim da repetição (só time)."),
   endMonth: mesDoSistema.nullable().optional(),
   endDay: diaDoSistema.nullable().optional(),
   entryId: idDoSistema.nullable().optional().describe("Lançamento ligado a este compromisso, se houver."),
@@ -2890,6 +2998,25 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     rotulo: (args) => `Lançou ${args.items.length} linhas`,
   }),
   ferramenta({
+    nome: "importar_extrato",
+    agentes: ["extratos"],
+    descricao:
+      "Importa um extrato que a pessoa anexou na conversa (CSV, OFX, imagem ou PDF). O `anexoId` está na mensagem, na linha 'Anexo'. Em CSV, `colunas` diz qual coluna (começa em 0) é a data, a descrição e o valor; sem elas o sistema tenta achar. Passe em `observacao` o que a pessoa disse sobre o extrato (a conta, o que ignorar, quem é cada nome): fica guardado com o extrato e ajuda a ler imagem ou PDF. A importação de imagem ou PDF termina em segundos: confira com consultar_extratos.",
+    esquema: z.object({
+      anexoId: idDoSistema.describe("O id do anexo, da linha 'Anexo' da mensagem."),
+      accountName: z.string().trim().min(1).max(80).describe("O nome da conta do extrato, como a pessoa a chama."),
+      observacao: z.string().trim().max(LIMITE_OBSERVACAO_DO_EXTRATO).optional(),
+      colunas: z
+        .object({
+          date: z.number().int().min(0).max(40),
+          description: z.number().int().min(0).max(40),
+          amount: z.number().int().min(0).max(40),
+        })
+        .optional(),
+    }),
+    rotulo: (args) => `Importou o extrato para a conta ${entreAspas(args.accountName)}`,
+  }),
+  ferramenta({
     nome: "reprocessar_extrato",
     agentes: ["extratos"],
     descricao: "Lê de novo um extrato que falhou.",
@@ -2986,6 +3113,7 @@ export const FERRAMENTAS_QUE_CRIAM: ReadonlySet<string> = new Set([
   "criar_lancamento",
   "criar_compromisso",
   "criar_meta",
+  "importar_extrato",
 ]);
 
 export const ESQUEMA_PLANO = z.object({

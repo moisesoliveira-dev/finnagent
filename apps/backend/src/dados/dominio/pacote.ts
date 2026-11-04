@@ -1,3 +1,4 @@
+import { TIPOS_DE_CONTA } from "@finnagent/contracts";
 import { randomUUID } from "node:crypto";
 import { AJUSTES_DE_DIA_UTIL, CONTAGENS_DE_DIA_UTIL, TIPOS_DE_REGRA } from "@finnagent/contracts";
 import { z } from "zod";
@@ -36,6 +37,8 @@ const lancamento = z.object({
   type: texto,
   description: texto,
   justification: texto,
+  accountId: idOuNulo.default(null),
+  transfer: z.boolean().default(false),
   day: inteiro,
   cents: inteiro,
   startYear: inteiro,
@@ -97,7 +100,7 @@ const compromisso = z.object({
   sessionId: idOuNulo.default(null),
 });
 const agenda =z.object({ id, name: texto, timezone: texto });
-const conta = z.object({ id, name: texto });
+const conta = z.object({ id, name: texto, kind: z.enum(TIPOS_DE_CONTA).default("conta"), openingCents: inteiro.default(0) });
 const extrato = z.object({
   id,
   accountId: id,
@@ -105,6 +108,7 @@ const extrato = z.object({
   format: texto,
   status: texto,
   message: texto,
+  note: z.string().default(""),
   startDate: dataOuNulo,
   endDate: dataOuNulo,
   lineCount: inteiro,

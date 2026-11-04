@@ -10,6 +10,7 @@ import { MotorHttp } from "./adaptadores/motor-http.js";
 import { PrismaConversasRepositorio } from "./adaptadores/prisma-conversas-repositorio.js";
 import { PrismaIaRepositorio } from "./adaptadores/prisma-ia-repositorio.js";
 import { RealidadeDoSistema } from "./adaptadores/realidade-do-sistema.js";
+import { AnexosService } from "./aplicacao/anexos.service.js";
 import { AssistenteService } from "./aplicacao/assistente.service.js";
 import { IaService } from "./aplicacao/ia.service.js";
 import { AssistenteController } from "./assistente.controller.js";
@@ -24,7 +25,7 @@ import { REALIDADE_DA_CONTA } from "./portas/realidade-da-conta.js";
 @Module({
   imports: [PersistenciaModule, ConfiguracoesModule, AuthModule, FinancasModule, FeriadosModule],
   controllers: [AssistenteController, IaController],
-  exports: [IaService, AssistenteService],
+  exports: [IaService, AssistenteService, AnexosService],
   providers: [
     PrismaIaRepositorio,
     { provide: IA_REPOSITORIO, useExisting: PrismaIaRepositorio },
@@ -39,6 +40,7 @@ import { REALIDADE_DA_CONTA } from "./portas/realidade-da-conta.js";
     RealidadeDoSistema,
     { provide: REALIDADE_DA_CONTA, useExisting: RealidadeDoSistema },
     IaService,
+    AnexosService,
     AssistenteService,
   ],
 })
