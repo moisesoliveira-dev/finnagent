@@ -7,6 +7,15 @@ import { ROTAS_DAS_FERRAMENTAS, montarUrl } from "./rotas-das-ferramentas.js";
 
 const PRAZO = 60_000;
 
+// Cada linha do extrato custa vários acessos ao banco. Um lote grande num pedido só passa do prazo: vai em blocos.
+const LINHAS_POR_PEDIDO = 8;
+
+type Lote = {
+  launched: number;
+  failed: { statementId: string; line: number; message: string }[];
+  remaining: { year: number; month: number; lines: number }[];
+};
+
 /**
  * Executa a ferramenta chamando a própria API, com o token de quem conversa. A ação passa pelo mesmo
  * guarda, pela mesma validação e grava os mesmos eventos que a tela: a IA age como a pessoa agiria.
@@ -32,24 +41,12 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
     }
 
     const corpo = rota.corpo?.(args.data, credencial.fuso, chamada.idGerado);
-    let resposta: Response;
-    try {
-      resposta = await fetch(montarUrl(this.base, rota, args.data), {
-        method: rota.metodo,
-        headers: {
-          "content-type": "application/json",
-          ...(credencial.token ? { authorization: `Bearer ${credencial.token}` } : {}),
-        },
-        body: corpo === undefined ? undefined : JSON.stringify(corpo),
-        signal: AbortSignal.timeout(PRAZO),
-      });
-    } catch (error) {
-      log.error(
-        { ferramenta: chamada.nome, err: error instanceof Error ? error.message : String(error) },
-        "a ferramenta não obteve resposta da própria API",
-      );
-      return falha("O sistema não respondeu a tempo.", "O sistema não respondeu a tempo.");
-    }
+    const url = montarUrl(this.base, rota, args.data);
+    const itens = chamada.nome === "acumular_linhas" ? itensDoLote(corpo) : null;
+    if (itens && itens.length > LINHAS_POR_PEDIDO) return this.emBlocos(url, rota.metodo, credencial, itens);
+
+    const resposta = await this.pedir(url, rota.metodo, credencial, corpo, chamada.nome);
+    if (!resposta) return falha("O sistema não respondeu a tempo.", "O sistema não respondeu a tempo.");
 
     if (resposta.status === 204) return { ok: true, conteudo: "Feito.", detalhe: "" };
     const texto = await resposta.text();
@@ -64,6 +61,60 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
       lido && typeof lido === "object" && "message" in lido ? String((lido as { message: unknown }).message) : `Erro ${resposta.status}.`;
     return falha(`Erro ${resposta.status}: ${mensagem}`, mensagem);
   }
+
+  private async pedir(url: string | URL, metodo: string, credencial: Credencial, corpo: unknown, ferramenta: string) {
+    try {
+      return await fetch(url, {
+        method: metodo,
+        headers: {
+          "content-type": "application/json",
+          ...(credencial.token ? { authorization: `Bearer ${credencial.token}` } : {}),
+        },
+        body: corpo === undefined ? undefined : JSON.stringify(corpo),
+        signal: AbortSignal.timeout(PRAZO),
+      });
+    } catch (error) {
+      log.error(
+        { ferramenta, err: error instanceof Error ? error.message : String(error) },
+        "a ferramenta não obteve resposta da própria API",
+      );
+      return null;
+    }
+  }
+
+  /** O lote do plano em pedidos de poucas linhas, somados num resultado só, do mesmo formato do lote inteiro. */
+  private async emBlocos(url: string | URL, metodo: string, credencial: Credencial, itens: unknown[]): Promise<ResultadoDaExecucao> {
+    const total: Lote = { launched: 0, failed: [], remaining: [] };
+    const meses = new Map<string, Lote["remaining"][number]>();
+    for (let inicio = 0; inicio < itens.length; inicio += LINHAS_POR_PEDIDO) {
+      const bloco = itens.slice(inicio, inicio + LINHAS_POR_PEDIDO);
+      const resposta = await this.pedir(url, metodo, credencial, { items: bloco }, "acumular_linhas");
+      const lido = resposta?.ok ? ((await resposta.json().catch(() => null)) as Partial<Lote> | null) : null;
+      if (!resposta || !lido) {
+        const corpo = resposta ? ((await resposta.json().catch(() => null)) as { message?: unknown } | null) : null;
+        const message = corpo && typeof corpo.message === "string" ? corpo.message : "O sistema não respondeu a tempo.";
+        total.failed.push(...bloco.map((item) => ({ ...linhaDe(item), message })));
+        continue;
+      }
+      total.launched += lido.launched ?? 0;
+      total.failed.push(...(lido.failed ?? []));
+      // A contagem mais nova de cada mês é a que vale: o bloco seguinte já vê o que o anterior lançou.
+      for (const mes of lido.remaining ?? []) meses.set(`${mes.year}-${mes.month}`, mes);
+    }
+    total.remaining = [...meses.values()];
+    return { ok: true, conteudo: resultadoParaOModelo(total), detalhe: "" };
+  }
+}
+
+function itensDoLote(corpo: unknown) {
+  if (!corpo || typeof corpo !== "object") return null;
+  const itens = (corpo as { items?: unknown }).items;
+  return Array.isArray(itens) ? itens : null;
+}
+
+function linhaDe(item: unknown) {
+  const linha = (item ?? {}) as { statementId?: unknown; line?: unknown };
+  return { statementId: String(linha.statementId ?? ""), line: Number(linha.line ?? 0) };
 }
 
 function falha(conteudo: string, detalhe = conteudo): ResultadoDaExecucao {

@@ -111,6 +111,33 @@ describe("executor das ferramentas", () => {
     expect(resultado.conteudo.length).toBeLessThan(12_200);
     expect(resultado.conteudo).toContain("resultado cortado");
   });
+
+  it("lança o lote grande do plano em blocos de 8 linhas e soma o resultado", async () => {
+    const extrato = "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a02";
+    const items = Array.from({ length: 19 }, (_, indice) => ({ statementId: extrato, line: indice + 1, sessionId: sessao }));
+    let pedidos = 0;
+    responder = () => {
+      pedidos += 1;
+      // O segundo bloco cai: as linhas dele voltam como falha e os outros blocos seguem.
+      if (pedidos === 2) return { status: 500, corpo: { message: "Banco fora do ar." } };
+      return {
+        status: 201,
+        corpo: {
+          launched: pedidos === 1 ? 8 : 3,
+          failed: [],
+          remaining: [{ year: 2026, month: 10, lines: pedidos === 1 ? 11 : 8 }],
+        },
+      };
+    };
+    const resultado = await new ExecutorHttp().executar({ id: "c9", nome: "acumular_linhas", args: { items } }, credencial);
+    expect(recebidos.map((pedido) => (pedido.corpo as { items: unknown[] }).items.length)).toEqual([8, 8, 3]);
+    expect(resultado.ok).toBe(true);
+    const lote = JSON.parse(resultado.conteudo) as { launched: number; failed: { line: number; message: string }[]; remaining: unknown[] };
+    expect(lote.launched).toBe(11);
+    expect(lote.failed.map((falha) => falha.line)).toEqual([9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(lote.failed[0]?.message).toBe("Banco fora do ar.");
+    expect(lote.remaining).toEqual([{ year: 2026, month: 10, lines: 8 }]);
+  });
 });
 
 describe("rotas das ferramentas", () => {
@@ -139,4 +166,6 @@ describe("rotas das ferramentas", () => {
     const url = montarUrl("http://x:1", ROTAS_DAS_FERRAMENTAS.consultar_lancamentos, { year: 2026, q: "", month: undefined });
     expect(url.toString()).toBe("http://x:1/financas/base?year=2026");
   });
+
 });
+

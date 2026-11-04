@@ -9,5 +9,6 @@ export type LeitorDeExtrato = {
 };
 
 export type ModeloDeExtrato = {
-  organizarTexto(texto: string): Promise<unknown>;
+  /** As linhas em JSON, e se a resposta do modelo veio cortada no meio. */
+  organizarTexto(texto: string): Promise<{ linhas: unknown[]; cortada: boolean }>;
 };

@@ -1,7 +1,9 @@
 import { CallbackHandler } from "@langfuse/langchain";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import type { LinhaExtrato } from "@finnagent/contracts";
-import { normalizarLinhas } from "../dominio/linhas.js";
+import { PedidoInvalido } from "../dominio/erros.js";
+import { LINHAS_LIDAS_POR_ARQUIVO, normalizarLinhas } from "../dominio/linhas.js";
+import { MENSAGEM_DA_LEITURA_CORTADA, linhaDoCorte } from "../dominio/resposta.js";
 import { comModelo } from "./openai.js";
 import type { LeitorDeExtrato, ModeloDeExtrato } from "../portas/leitor.js";
 import type { OrganizadorDeExtrato } from "../portas/organizador.js";
@@ -29,9 +31,15 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
         conteudo: estado.conteudo,
       }),
     }))
-    .addNode("organizar", async (estado) => ({
-      linhas: normalizarLinhas(await modelo.organizarTexto(estado.texto)),
-    }))
+    .addNode("organizar", async (estado) => {
+      const { linhas, cortada } = await modelo.organizarTexto(estado.texto);
+      const lidas = normalizarLinhas(linhas);
+      if (!cortada) return { linhas: lidas };
+      // Resposta cortada: sem linha inteira, diz o que fazer; com algumas, guarda o que chegou e marca onde parou.
+      if (!lidas.length) throw new PedidoInvalido(MENSAGEM_DA_LEITURA_CORTADA);
+      const guardadas = lidas.slice(0, LINHAS_LIDAS_POR_ARQUIVO - 1);
+      return { linhas: [...guardadas, linhaDoCorte(guardadas.length + 1)] };
+    })
     .addEdge(START, "ler")
     .addEdge("ler", "organizar")
     .addEdge("organizar", END)

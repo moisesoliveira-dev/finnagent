@@ -4,6 +4,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AIMessage, AIMessageChunk, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import {
   ESQUEMA_PERGUNTAR,
   ESQUEMA_PLANO,
@@ -25,11 +26,13 @@ import {
   recusouEscrita,
   recusouPlano,
 } from "../dominio/anuncio.js";
+import { avisoDeContextoCortado, tokensEstimados } from "../dominio/contexto.js";
 import { mensagensPara, textoDe } from "../dominio/mensagens.js";
 import { promptDoConsultor } from "../dominio/prompts.js";
 import { FalhaDoModelo, ModeloAusente } from "../dominio/erros.js";
 import { log } from "../../log.js";
 import type { FabricaDeModelos } from "../portas/fabrica-de-modelos.js";
+import { ferramentasDoGemini, restaurarJson } from "./esquema-do-gemini.js";
 
 /** O assistente é um agente só, o consultor, com todas as ferramentas. Ele usa o modelo da função coordenador. */
 const CONSULTOR: AgenteIa = "coordenador";
@@ -114,12 +117,47 @@ const FERRAMENTAS = [
   },
 ];
 
-function chamadasDe(final: AIMessageChunk) {
-  return (final.tool_calls ?? []).map((chamada) => ({
-    id: chamada.id || randomUUID(),
-    nome: chamada.name,
-    args: (chamada.args ?? {}) as Record<string, unknown>,
-  }));
+type Ferramentas = Parameters<NonNullable<BaseChatModel["bindTools"]>>[0];
+
+// O Gemini recusa parte do JSON Schema: ele recebe as ferramentas convertidas, montadas uma vez só.
+let doGemini: ReturnType<typeof ferramentasDoGemini> | null = null;
+
+function ferramentasPara(modelo: ModeloResolvido): Ferramentas {
+  if (modelo.kind !== "google") return FERRAMENTAS;
+  doGemini ??= ferramentasDoGemini(FERRAMENTAS);
+  return doGemini.tools;
+}
+
+// O tamanho das ferramentas no pedido, para saber se o Ollama cortou o que recebeu.
+const CARACTERES_DAS_FERRAMENTAS = FERRAMENTAS.reduce(
+  (soma, ferramenta) => soma + ferramenta.name.length + ferramenta.description.length + JSON.stringify(toJsonSchema(ferramenta.schema)).length,
+  0,
+);
+
+function caracteresDe(mensagens: BaseMessage[]) {
+  return mensagens.reduce((soma, mensagem) => {
+    const chamadas = "tool_calls" in mensagem && Array.isArray(mensagem.tool_calls) ? JSON.stringify(mensagem.tool_calls).length : 0;
+    return soma + textoDe(mensagem.content).length + chamadas;
+  }, CARACTERES_DAS_FERRAMENTAS);
+}
+
+/** A instrução do consultor. Na Anthropic, marca o cache: ferramentas e instrução, iguais a cada volta, saem bem mais baratas. */
+function instrucao(modelo: ModeloResolvido, texto: string) {
+  if (modelo.kind !== "anthropic") return new SystemMessage(texto);
+  return new SystemMessage({ content: [{ type: "text", text: texto, cache_control: { type: "ephemeral" } }] });
+}
+
+function chamadasDe(final: AIMessageChunk, modelo: ModeloResolvido) {
+  const emTexto = modelo.kind === "google" ? doGemini?.emTexto : undefined;
+  return (final.tool_calls ?? []).map((chamada) => {
+    const args = (chamada.args ?? {}) as Record<string, unknown>;
+    const caminhos = emTexto?.get(chamada.name);
+    return {
+      id: chamada.id || randomUUID(),
+      nome: chamada.name,
+      args: caminhos ? restaurarJson(args, caminhos) : args,
+    };
+  });
 }
 
 /**
@@ -141,9 +179,9 @@ async function segundaVolta(
   try {
     const final = await comTemperatura(fabrica, modeloDe(pedido), pedido.temperatura, (chat, mostrar) => {
       if (!chat.bindTools) throw new FalhaDoModelo(`O modelo do ${INFO_DOS_AGENTES[CONSULTOR].nome} não aceita ferramentas.`);
-      return transmitir(chat.bindTools(FERRAMENTAS, { tool_choice: escolha }), segunda, config, emitir, mostrar);
+      return transmitir(chat.bindTools(ferramentasPara(modeloDe(pedido)), { tool_choice: escolha }), segunda, config, emitir, mostrar);
     });
-    const chamadas = chamadasDe(final);
+    const chamadas = chamadasDe(final, modeloDe(pedido));
     return escolha === FERRAMENTA_PLANO ? chamadas.filter((chamada) => chamada.nome === FERRAMENTA_PLANO) : chamadas;
   } catch (error) {
     if (error instanceof FalhaDoModelo || error instanceof ModeloAusente) throw error;
@@ -158,16 +196,19 @@ export function criarGrafoDoAssistente(fabrica: FabricaDeModelos) {
   async function consultor(estado: EstadoDoGrafo, config: RunnableConfig): Promise<Partial<EstadoDoGrafo>> {
     const { pedido, emitir } = execucaoDe(config);
     emitir({ tipo: "agente", agente: CONSULTOR });
+    const modelo = modeloDe(pedido);
     const mensagens = [
-      new SystemMessage(promptDoConsultor(pedido.contexto, pedido.instrucoes)),
+      instrucao(modelo, promptDoConsultor(pedido.contexto, pedido.instrucoes)),
       ...mensagensPara(CONSULTOR, estado.mensagens),
     ];
-    const final = await comTemperatura(fabrica, modeloDe(pedido), pedido.temperatura, (chat, mostrar) => {
+    const final = await comTemperatura(fabrica, modelo, pedido.temperatura, (chat, mostrar) => {
       if (!chat.bindTools) throw new FalhaDoModelo(`O modelo do ${INFO_DOS_AGENTES[CONSULTOR].nome} não aceita ferramentas.`);
-      return transmitir(chat.bindTools(FERRAMENTAS), mensagens, config, emitir, mostrar);
+      return transmitir(chat.bindTools(ferramentasPara(modelo)), mensagens, config, emitir, mostrar);
     });
+    const cortado = avisoDeContextoCortado(modelo.kind, final.usage_metadata?.input_tokens, tokensEstimados(caracteresDe(mensagens)));
+    if (cortado) throw new FalhaDoModelo(cortado);
     const texto = textoDe(final.content);
-    const chamadas = chamadasDe(final);
+    const chamadas = chamadasDe(final, modelo);
     if (chamadas.length) return { saida: { tipo: "chamadas", agente: CONSULTOR, texto, chamadas, notas: [] } };
 
     // Só texto, mas o texto promete agir ("vou criar...", "vou revisar a conferência"), ou vem logo depois de uma

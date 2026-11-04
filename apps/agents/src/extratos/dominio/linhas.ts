@@ -7,8 +7,11 @@ export function tipoPermitido(mediaType: string) {
   return TIPOS.has(mediaType);
 }
 
+/** Quantas linhas um arquivo lido pela IA guarda. */
+export const LINHAS_LIDAS_POR_ARQUIVO = 500;
+
 export function normalizarLinhas(bruto: unknown): LinhaExtrato[] {
-  const lista = Array.isArray(bruto) ? bruto.slice(0, 500) : [];
+  const lista = Array.isArray(bruto) ? bruto.slice(0, LINHAS_LIDAS_POR_ARQUIVO) : [];
   return lista.map((item, index) => {
     const linha = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     const description = typeof linha.description === "string" ? linha.description.trim().slice(0, 160) : "";
