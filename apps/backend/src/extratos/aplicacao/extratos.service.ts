@@ -27,12 +27,14 @@ import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
 import { chaveDoNome, ehTransferenciaDePessoa } from "../dominio/nome-extrato.js";
+import { erroDaDivisao, nomeDaLinha } from "../dominio/divisao.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
 import {
   EXTRATOS_REPOSITORIO,
   type ExtratosRepositorio,
   type GravacaoExtrato,
+  type ParteGravada,
 } from "../portas/extratos-repositorio.js";
 import {
   ORGANIZADOR_DE_EXTRATO,
@@ -42,7 +44,10 @@ import {
 type LinhaGravada = Exclude<Awaited<ReturnType<ExtratosRepositorio["obterLinha"]>>, "ausente"> & { date: string };
 
 /** Como o lançamento da linha trata a sessão: `valor` decide a divergência na Fixo, `emPartes` libera mais uma. */
-export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean };
+export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean; nome?: string };
+
+/** Uma parte da linha dividida: o valor, a sessão e, se a pessoa deu, o nome do lançamento. */
+export type ParteDaLinha = { cents: number; sessionId: string; nome?: string };
 
 const MENSAGEM_DA_LINHA_IGNORADA = "Essa linha está ignorada. Reative-a para lançar.";
 
@@ -183,12 +188,19 @@ export class ExtratosService {
   }
 
   async conferencia(tenantId: string, year: number, month: number, pagina?: number, busca?: string): Promise<ConferenciaResposta> {
-    const [pacote, linhas, associacoes, compromissos] = await Promise.all([
+    const [pacote, linhas, associacoes, compromissos, nomes] = await Promise.all([
       this.financas.listarNoMes(tenantId, year, month),
       this.extratos.listarLinhasNoMes(tenantId, year, month),
       this.extratos.listarAssociacoes(tenantId),
       this.agenda.ocorrencias(tenantId, year, month),
+      this.extratos.listarNomes(tenantId),
     ]);
+    // Os nomes já dados, por descrição, do mais recente ao mais antigo.
+    const nomesPorChave = new Map<string, string[]>();
+    for (const item of nomes) {
+      const lista = nomesPorChave.get(item.key) ?? [];
+      if (lista.length < 8) nomesPorChave.set(item.key, [...lista, item.name]);
+    }
     const abertas = { entries: pacote.abertas };
     const base = { entries: pacote.todas };
     const lembrados = new Map(associacoes.map((item) => [item.name, item]));
@@ -198,12 +210,21 @@ export class ExtratosService {
       year,
       month,
     );
-    const lines = linhas.map(({ importedAt: _importedAt, ...linha }): LinhaConferencia => {
+    const lines = linhas.map(({ importedAt: _importedAt, parts: partes = [], ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
+      const names = nomesPorChave.get(chaveDoNome(linha.description)) ?? [];
       if (linha.entryId || linha.ignored) {
+        const parts = partes.length > 1
+          ? partes.flatMap((parte) => {
+              const vinculo = vinculoDe(parte.entryId, base.entries);
+              return vinculo ? [{ ...vinculo, cents: parte.cents }] : [];
+            })
+          : [];
         return {
           ...linha,
           link,
+          parts,
+          names,
           suggestion: null,
           suggestionSource: null,
           candidates: [],
@@ -221,6 +242,8 @@ export class ExtratosService {
       return {
         ...linha,
         link: null,
+        parts: [],
+        names,
         suggestion: proposta ? vinculoDoCruzavel(proposta.suggestion) : null,
         suggestionSource: proposta?.source ?? null,
         candidates: candidatos.map(vinculoDoCruzavel),
@@ -252,6 +275,41 @@ export class ExtratosService {
     return this.conferencia(tenantId, year, month);
   }
 
+  /** O lançamento aberto e o valor dele no mês da linha, se ele ainda tem vaga para mais uma linha nesse mês. */
+  private async livreNoMes(tenantId: string, date: string, cents: number, entryId: string, daSessaoFixa: boolean) {
+    const [year, month] = date.split("-").map(Number);
+    const entry = await this.financas.obterAberto(tenantId, entryId);
+    const planejado = entry ? valorContado(entry, date) : null;
+    const mes = `${year}-${String(month).padStart(2, "0")}`;
+    const doMes = (entry?.occurrences ?? []).filter(
+      (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
+    );
+    const usadas = entry ? await this.extratos.contarLinhasDoLancamento(tenantId, entryId, year, month) : 0;
+    const livre =
+      entry && planejado !== null
+        ? cabeNaLinha(
+            { date, cents },
+            {
+              entryId: entry.id,
+              description: entry.name,
+              groupName: entry.groupName,
+              sessionName: entry.sessionName,
+              sessionId: entry.sessionId,
+              day: Number(date.slice(8, 10)),
+              cents: planejado,
+              category: entry.category,
+              vagas: doMes.length - usadas,
+            },
+          )
+        : false;
+    if (!entry || planejado === null || !livre) {
+      throw new PedidoInvalido(
+        daSessaoFixa ? MENSAGEM_DA_SESSAO_FIXA_LANCADA : "Esse lançamento não está livre para esta linha no mês.",
+      );
+    }
+    return { entry, planejado };
+  }
+
   /**
    * Liga a linha ao lançamento e paga a ocorrência do mês. `daSessaoFixa` é a transação de uma sessão Fixo: ela
    * cruza como compromisso, então valores diferentes pedem a escolha da pessoa, e a recusa fala da sessão.
@@ -267,36 +325,7 @@ export class ExtratosService {
   ) {
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
     if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
-    const [year, month] = gravada.date.split("-").map(Number);
-    const entry = await this.financas.obterAberto(tenantId, entryId);
-    const planejado = entry ? valorContado(entry, gravada.date) : null;
-    const mes = `${year}-${String(month).padStart(2, "0")}`;
-    const doMes = (entry?.occurrences ?? []).filter(
-      (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
-    );
-    const usadas = entry ? await this.extratos.contarLinhasDoLancamento(tenantId, entryId, year, month) : 0;
-    const livre =
-      entry && planejado !== null
-        ? cabeNaLinha(
-            { date: gravada.date, cents: gravada.cents },
-            {
-              entryId: entry.id,
-              description: entry.name,
-              groupName: entry.groupName,
-              sessionName: entry.sessionName,
-              sessionId: entry.sessionId,
-              day: Number(gravada.date.slice(8, 10)),
-              cents: planejado,
-              category: entry.category,
-              vagas: doMes.length - usadas,
-            },
-          )
-        : false;
-    if (!entry || planejado === null || !livre) {
-      throw new PedidoInvalido(
-        daSessaoFixa ? MENSAGEM_DA_SESSAO_FIXA_LANCADA : "Esse lançamento não está livre para esta linha no mês.",
-      );
-    }
+    const { entry, planejado } = await this.livreNoMes(tenantId, gravada.date, gravada.cents, entryId, daSessaoFixa);
     const centavos = daSessaoFixa
       ? valorDaSessaoFixa(planejado, gravada.cents, valor)
       : valorDoMes(entry.category, planejado, gravada.cents, valor);
@@ -313,14 +342,35 @@ export class ExtratosService {
     }
   }
 
-  // Devolve a linha para "sem lançamento" e a ocorrência para pendente. O nome lembrado continua valendo.
+  /**
+   * Volta a linha para antes do lançamento, como se ela nunca tivesse sido lançada: o lançamento que nasceu dela é
+   * apagado (com o nome e a associação que ele deixou), e o que já existia volta a pendente.
+   */
   async desfazer(tenantId: string, statementId: string, line: number) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     if (!gravada.entryId) throw new Conflito("Essa linha não está cruzada.");
     const [year, month] = gravada.date.split("-").map(Number);
+    const key = chaveDoNome(gravada.description);
+    if ((gravada.parts ?? []).length > 1) {
+      const partes = await this.extratos.desfazerDivisao(tenantId, statementId, line, key);
+      for (const parte of partes) {
+        if (parte.created) await this.financas.excluir(tenantId, parte.entryId);
+        else await this.financas.reabrirPeloExtrato(tenantId, parte.entryId, gravada.date, parte.cents);
+      }
+      return this.conferencia(tenantId, year, month);
+    }
     const entryId = gravada.entryId;
-    await this.extratos.desfazerCruzamento(tenantId, statementId, line);
+    const solta = await this.extratos.desfazerCruzamento(tenantId, statementId, line, key);
+    if (typeof solta === "object" && solta.created) {
+      try {
+        await this.financas.excluir(tenantId, entryId);
+      } catch (error) {
+        await this.cruzar(tenantId, statementId, line, entryId, gravada.description, undefined, true).catch(() => undefined);
+        throw error;
+      }
+      return this.conferencia(tenantId, year, month);
+    }
     try {
       await this.financas.reabrirPeloExtrato(tenantId, entryId, gravada.date, gravada.cents);
     } catch (error) {
@@ -364,40 +414,10 @@ export class ExtratosService {
         return;
       }
     }
-    const [year, month, day] = gravada.date.split("-").map(Number);
-    const nome = (gravada.description.trim() || "Extrato").slice(0, 160);
-    const criado = await this.financas.criar(
-      tenantId,
-      {
-      id: randomUUID(),
-      sessionId,
-      type: "variável",
-      description: nome,
-      justification: "Lançamento do extrato.",
-      day,
-      cents: gravada.cents,
-      startYear: year,
-      startMonth: month,
-      installments: null,
-      name: nome,
-      date: gravada.date,
-      mode: gravada.cents < 0 ? "outflows" : "inflows",
-      status: "completed",
-      transactionType: "unusual",
-      category: "unique",
-      priority: "nopriority",
-      installmentNumber: null,
-      dueDate: null,
-      interestRate: null,
-      nextDueDate: null,
-      recurrence: null,
-      recurrenceInterval: null,
-      dueRule: REGRA_SEM_AJUSTE,
-      },
-      opcoes.emPartes === true,
-    );
+    const nome = nomeDaLinha(opcoes.nome, gravada.description);
+    const criado = await this.criarDaLinha(tenantId, gravada, sessionId, gravada.cents, nome, opcoes.emPartes === true);
     try {
-      await this.cruzar(tenantId, statementId, line, criado.id, gravada.description);
+      await this.cruzar(tenantId, statementId, line, criado.id, gravada.description, nome, true);
     } catch (error) {
       await this.financas.excluir(tenantId, criado.id);
       throw error;
@@ -409,6 +429,106 @@ export class ExtratosService {
       await this.financas.excluir(tenantId, criado.id).catch(() => undefined);
       throw error;
     }
+  }
+
+  /** O lançamento único e pago que nasce de uma linha (ou de uma parte dela), na data do extrato. */
+  private criarDaLinha(tenantId: string, gravada: LinhaGravada, sessionId: string, cents: number, nome: string, emPartes: boolean) {
+    const [year, month, day] = gravada.date.split("-").map(Number);
+    return this.financas.criar(
+      tenantId,
+      {
+        id: randomUUID(),
+        sessionId,
+        type: "variável",
+        description: nome,
+        justification: "Lançamento do extrato.",
+        day,
+        cents,
+        startYear: year,
+        startMonth: month,
+        installments: null,
+        name: nome,
+        date: gravada.date,
+        mode: cents < 0 ? "outflows" : "inflows",
+        status: "completed",
+        transactionType: "unusual",
+        category: "unique",
+        priority: "nopriority",
+        installmentNumber: null,
+        dueDate: null,
+        interestRate: null,
+        nextDueDate: null,
+        recurrence: null,
+        recurrenceInterval: null,
+        dueRule: REGRA_SEM_AJUSTE,
+      },
+      emPartes,
+    );
+  }
+
+  /**
+   * Divide a linha em vários lançamentos pagos, cada um na sua sessão e com o seu nome. A soma das partes é o valor
+   * da linha. A parte que vai para uma sessão Fixo já lançada paga a transação dela com o valor da parte, em vez de
+   * criar outra. Se uma parte falhar, o que já foi feito é desfeito e a linha fica como estava.
+   */
+  async dividir(tenantId: string, statementId: string, line: number, partes: ParteDaLinha[]) {
+    const lida = await this.extratos.obterLinha(tenantId, statementId, line);
+    if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
+    const gravada = { ...lida, date: lida.date };
+    if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
+    const erro = erroDaDivisao(gravada.cents, partes.map((parte) => parte.cents));
+    if (erro) throw new PedidoInvalido(erro);
+    const [year, month] = gravada.date.split("-").map(Number);
+    const fixas = await Promise.all(partes.map((parte) => this.financas.lancamentoDaSessaoFixa(tenantId, parte.sessionId)));
+    const pagas = fixas.flatMap((fixa) => (fixa ? [fixa.entryId] : []));
+    if (new Set(pagas).size !== pagas.length) throw new PedidoInvalido("Duas partes não podem ir para a mesma sessão fixa.");
+    const feitas: ParteGravada[] = [];
+    try {
+      for (const [indice, parte] of partes.entries()) {
+        const fixa = fixas[indice];
+        if (fixa) {
+          await this.livreNoMes(tenantId, gravada.date, parte.cents, fixa.entryId, true).catch((error: unknown) => {
+            if (!(error instanceof PedidoInvalido)) throw error;
+            throw new PedidoInvalido(
+              `A sessão fixa da parte ${indice + 1} já foi paga neste mês ou não cabe nesta linha. Escolha outra sessão para ela.`,
+            );
+          });
+          await this.financas.pagarPeloExtrato(tenantId, fixa.entryId, gravada.date, parte.cents);
+          feitas.push({ entryId: fixa.entryId, cents: parte.cents, created: false });
+          continue;
+        }
+        const nome = nomeDaLinha(parte.nome, gravada.description);
+        const criado = await this.criarDaLinha(tenantId, gravada, parte.sessionId, parte.cents, nome, false);
+        feitas.push({ entryId: criado.id, cents: parte.cents, created: true });
+        await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, parte.cents);
+      }
+      // A parte que pagou a fixa fica com o nome da transação dela: só as criadas deixam nome lembrado.
+      const nomes = this.nomesParaLembrar(gravada.description, partes.filter((_, indice) => !fixas[indice]));
+      const resultado = await this.extratos.dividirLinha(tenantId, statementId, line, feitas, nomes);
+      if (resultado === "ausente") throw new NaoEncontrado("Linha não encontrada.");
+      if (resultado === "cruzada") throw new Conflito("Essa linha já foi cruzada.");
+      if (resultado === "ignorada") throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
+    } catch (error) {
+      for (const parte of feitas) {
+        const volta = parte.created
+          ? this.financas.excluir(tenantId, parte.entryId)
+          : this.financas.reabrirPeloExtrato(tenantId, parte.entryId, gravada.date, parte.cents);
+        await volta.catch(() => undefined);
+      }
+      throw error;
+    }
+    return this.conferencia(tenantId, year, month);
+  }
+
+  /** Só vale lembrar o nome diferente da descrição: a descrição a Conferência já oferece sempre. */
+  private nomesParaLembrar(descricao: string, partes: { nome?: string }[]) {
+    const key = chaveDoNome(descricao);
+    if (!key) return [];
+    const nomes = new Set(
+      partes.map((parte) => nomeDaLinha(parte.nome, descricao)).filter((nome) => chaveDoNome(nome) !== key),
+    );
+    return [...nomes].map((name) => ({ key, name }));
   }
 
   async acumularVarias(
@@ -429,6 +549,7 @@ export class ExtratosService {
         await this.lancarLinha(tenantId, item.statementId, item.line, item.sessionId, {
           ...(item.valor ? { valor: item.valor } : {}),
           ...(item.emPartes ? { emPartes: true } : {}),
+          ...(item.nome ? { nome: item.nome } : {}),
         });
         launched += 1;
       } catch (error) {
@@ -454,13 +575,25 @@ export class ExtratosService {
     return { changed };
   }
 
-  private async cruzar(tenantId: string, statementId: string, line: number, entryId: string, description: string) {
+  /** Liga a linha ao lançamento. `criado` diz que o lançamento nasceu da linha: desfazer apaga ele. */
+  private async cruzar(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    entryId: string,
+    description: string,
+    nome?: string,
+    criado = false,
+  ) {
+    const [lembrar] = nome ? this.nomesParaLembrar(description, [{ nome }]) : [];
     const resultado = await this.extratos.confirmarCruzamento(
       tenantId,
       statementId,
       line,
       entryId,
       ehTransferenciaDePessoa(description) ? null : chaveDoNome(description) || null,
+      lembrar ?? null,
+      criado,
     );
     if (resultado === "ausente") throw new NaoEncontrado("Linha não encontrada.");
     if (resultado === "lancamento-ausente") throw new NaoEncontrado("Lançamento não encontrado.");

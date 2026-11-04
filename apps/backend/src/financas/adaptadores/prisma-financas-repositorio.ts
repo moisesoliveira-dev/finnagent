@@ -375,9 +375,9 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
     return this.alterar(tenantId, id, "reabrir-pelo-extrato", async (tx, atual) => {
       const lista = await this.materializar(tx, tenantId, atual);
-      const paga = lista
-        .filter((item) => item.status === "completed" && item.paidOn === date && item.paidCents === cents)
-        .at(-1);
+      // O valor pago pode ser o do lançamento, quando a pessoa escolheu ele no cruzamento: vale a paga nessa data.
+      const pagasNaData = lista.filter((item) => item.status === "completed" && item.paidOn === date);
+      const paga = pagasNaData.filter((item) => item.paidCents === cents).at(-1) ?? pagasNaData.at(-1);
       if (!paga) return "bloqueada" as const;
       const proxima = lista.map((item) =>
         item.number === paga.number ? { ...item, status: "pending" as const, paidCents: null, paidOn: null } : item,

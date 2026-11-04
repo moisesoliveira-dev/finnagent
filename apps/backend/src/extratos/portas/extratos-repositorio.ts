@@ -39,9 +39,19 @@ export type LinhaImportada = {
   accountName: string;
   filename: string;
   entryId: string | null;
+  /** O lançamento da linha nasceu dela (acúmulo), e não de um cruzamento com um que já existia. */
+  entryCreated: boolean;
   ignored: boolean;
+  /** As partes da linha dividida, na ordem. Vazio quando não foi dividida. */
+  parts: ParteGravada[];
   importedAt: string;
 };
+
+/** Uma parte da linha dividida. `created` é falso quando a parte pagou o lançamento que já existia na sessão fixa. */
+export type ParteGravada = { entryId: string; cents: number; created: boolean };
+
+/** Um nome dado pela pessoa a uma descrição do extrato (`key` é a descrição normalizada). */
+export type NomeLembrado = { key: string; name: string };
 
 export type ExtratosRepositorio = {
   listar(tenantId: string): Promise<{ accounts: { id: string; name: string }[]; statements: Extrato[] }>;
@@ -83,12 +93,34 @@ export type ExtratosRepositorio = {
     line: number,
     entryId: string,
     name: string | null,
+    lembrar?: NomeLembrado | null,
+    criado?: boolean,
   ): Promise<void | "ausente" | "lancamento-ausente" | "cruzada">;
+  /** Liga a linha às partes já criadas, em uma transação. A primeira parte vira o lançamento da linha. */
+  dividirLinha(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    partes: ParteGravada[],
+    lembrar: NomeLembrado[],
+  ): Promise<void | "ausente" | "cruzada" | "ignorada">;
+  /**
+   * Solta a linha dividida e devolve as partes: as criadas quem chamou apaga, as que pagaram um lançamento que já
+   * existia ele reabre. Os nomes e a associação que essas partes criadas deixaram somem junto (`key` é a descrição).
+   */
+  desfazerDivisao(tenantId: string, statementId: string, line: number, key: string): Promise<ParteGravada[]>;
+  /** Os nomes lembrados da conta, do uso mais recente ao mais antigo. */
+  listarNomes(tenantId: string): Promise<NomeLembrado[]>;
+  /**
+   * Solta a linha do lançamento. Se o lançamento nasceu da linha, o nome e a associação que ele deixou somem junto
+   * (`key` é a descrição normalizada), e quem chamou apaga o lançamento.
+   */
   desfazerCruzamento(
     tenantId: string,
     statementId: string,
     line: number,
-  ): Promise<{ entryId: string } | "ausente" | "livre">;
+    key?: string,
+  ): Promise<{ entryId: string; created: boolean } | "ausente" | "livre">;
   contarCruzadas(tenantId: string, id: string): Promise<number>;
   listarAssociacoes(
     tenantId: string,

@@ -16,7 +16,9 @@ import {
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
+import { PARTES_MAXIMAS, PARTES_MINIMAS } from "./dominio/divisao.js";
 import { AgenteIndisponivel, PedidoInvalido } from "./dominio/erros.js";
+import { PedidoInvalido as PedidoInvalidoDeFinancas } from "../financas/dominio/erros.js";
 
 const tenantId = z.uuid();
 const mapeamento = z.object({
@@ -124,6 +126,7 @@ export class ExtratosController {
               sessionId: z.uuid(),
               valor: z.enum(["extrato", "lancamento"]).optional(),
               emPartes: z.boolean().optional(),
+              nome: z.string().trim().min(1).max(160).optional(),
             }),
           )
           .min(1)
@@ -132,6 +135,31 @@ export class ExtratosController {
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha as linhas e a sessão para lançar.");
     return this.executar(() => this.extratos.acumularVarias(this.tenant(tenant), pedido.data.items));
+  }
+
+  @Post("extratos/dividir")
+  dividir(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z
+      .object({
+        statementId: z.uuid(),
+        line: z.number().int().min(1),
+        parts: z
+          .array(
+            z.object({
+              cents: z.number().int().refine((valor) => valor !== 0),
+              sessionId: z.uuid(),
+              nome: z.string().trim().min(1).max(160).optional(),
+            }),
+          )
+          .min(PARTES_MINIMAS)
+          .max(PARTES_MAXIMAS),
+      })
+      .safeParse(body);
+    if (!pedido.success) {
+      throw new BadRequestException(`Divida a linha em ${PARTES_MINIMAS} a ${PARTES_MAXIMAS} partes, cada uma com valor e sessão.`);
+    }
+    const { statementId, line, parts } = pedido.data;
+    return this.executar(() => this.extratos.dividir(this.tenant(tenant), statementId, line, parts));
   }
 
   @Post("extratos/ignorar")
@@ -155,6 +183,7 @@ export class ExtratosController {
         sessionId: z.uuid(),
         valor: z.enum(["extrato", "lancamento"]).optional(),
         emPartes: z.boolean().optional(),
+        nome: z.string().trim().min(1).max(160).optional(),
       })
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha a sessão para acumular a linha.");
@@ -162,6 +191,7 @@ export class ExtratosController {
       this.extratos.acumular(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.sessionId, {
         ...(pedido.data.valor ? { valor: pedido.data.valor } : {}),
         ...(pedido.data.emPartes ? { emPartes: true } : {}),
+        ...(pedido.data.nome ? { nome: pedido.data.nome } : {}),
       }),
     );
   }
@@ -230,7 +260,10 @@ export class ExtratosController {
       if (error instanceof BancoIndisponivel || error instanceof AgenteIndisponivel) {
         throw new ServiceUnavailableException(error.message);
       }
-      if (error instanceof PedidoInvalido) throw new BadRequestException(error.message);
+      // A Conferência lança pela slice de finanças: a recusa dela também é um pedido inválido, não um 500.
+      if (error instanceof PedidoInvalido || error instanceof PedidoInvalidoDeFinancas) {
+        throw new BadRequestException(error.message);
+      }
       if (error instanceof Conflito) throw new ConflictException(error.message);
       if (error instanceof NaoEncontrado) throw new NotFoundException(error.message);
       throw error;

@@ -21,17 +21,17 @@ model Group {
 }
 
 model Session {
-  id            String    @id
-  tenantId      String    @map("tenant_id")
-  groupId       String    @map("group_id")
+  id            String            @id
+  tenantId      String            @map("tenant_id")
+  groupId       String            @map("group_id")
   name          String
-  description   String    @default("")
-  justification String    @default("")
-  startedAt     DateTime? @map("started_at") @db.Date
-  endedAt       DateTime? @map("ended_at") @db.Date
-  cents         Int       @default(0)
-  kind          String    @default("acumulo")
-  group         Group            @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  description   String            @default("")
+  justification String            @default("")
+  startedAt     DateTime?         @map("started_at") @db.Date
+  endedAt       DateTime?         @map("ended_at") @db.Date
+  cents         Int               @default(0)
+  kind          String            @default("acumulo")
+  group         Group             @relation(fields: [groupId], references: [id], onDelete: Restrict)
   entries       Entry[]
   additions     SessionAddition[]
   aliases       StatementAlias[]
@@ -73,48 +73,49 @@ model Workflow {
 }
 
 model Entry {
-  id            String        @id
-  tenantId      String        @map("tenant_id")
-  sessionId     String        @map("session_id")
-  type          String
-  description   String        @default("")
-  justification String        @default("")
-  day           Int
-  cents         Int
-  startYear     Int           @map("start_year")
-  startMonth    Int           @map("start_month")
-  installments      Int?
-  position          Int           @default(0)
-  name              String        @default("")
-  occurredOn        DateTime      @map("occurred_on") @db.Date
-  mode              String        @default("outflows")
-  status            String        @default("pending")
-  transactionType   String        @default("unusual") @map("transaction_type")
-  category          String        @default("fixed")
-  priority          String        @default("nopriority")
-  installmentNumber Int?          @map("installment_number")
-  dueOn             DateTime?     @map("due_on") @db.Date
-  interestBps       Int?          @map("interest_bps")
-  nextDueOn         DateTime?     @map("next_due_on") @db.Date
-  suspendedCents    Int           @default(0) @map("suspended_cents")
-  commitmentId        String?       @map("commitment_id")
-  recurrence          String?
-  recurrenceInterval  Int?          @map("recurrence_interval")
+  id                 String              @id
+  tenantId           String              @map("tenant_id")
+  sessionId          String              @map("session_id")
+  type               String
+  description        String              @default("")
+  justification      String              @default("")
+  day                Int
+  cents              Int
+  startYear          Int                 @map("start_year")
+  startMonth         Int                 @map("start_month")
+  installments       Int?
+  position           Int                 @default(0)
+  name               String              @default("")
+  occurredOn         DateTime            @map("occurred_on") @db.Date
+  mode               String              @default("outflows")
+  status             String              @default("pending")
+  transactionType    String              @default("unusual") @map("transaction_type")
+  category           String              @default("fixed")
+  priority           String              @default("nopriority")
+  installmentNumber  Int?                @map("installment_number")
+  dueOn              DateTime?           @map("due_on") @db.Date
+  interestBps        Int?                @map("interest_bps")
+  nextDueOn          DateTime?           @map("next_due_on") @db.Date
+  suspendedCents     Int                 @default(0) @map("suspended_cents")
+  commitmentId       String?             @map("commitment_id")
+  recurrence         String?
+  recurrenceInterval Int?                @map("recurrence_interval")
   // Regra de vencimento: como cada data cai em dia útil. O padrão é o dia como está.
-  dueRule             String        @default("dia") @map("due_rule")
-  dueOrder            Int?          @map("due_order")
-  dueShift            String        @default("manter") @map("due_shift")
-  dueCount            String        @default("bancaria") @map("due_count")
-  coveredById       String?       @map("covered_by_id")
-  session           Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
-  coveredBy         Entry?        @relation("Cobertura", fields: [coveredById], references: [id], onDelete: SetNull)
-  covers            Entry[]       @relation("Cobertura")
-  amounts           EntryAmount[]
-  adjustments       EntryAdjustment[]
-  occurrences       EntryOccurrence[]
-  appointments      Appointment[]
-  statementLines    StatementLine[]
-  statementAliases  StatementAlias[]
+  dueRule            String              @default("dia") @map("due_rule")
+  dueOrder           Int?                @map("due_order")
+  dueShift           String              @default("manter") @map("due_shift")
+  dueCount           String              @default("bancaria") @map("due_count")
+  coveredById        String?             @map("covered_by_id")
+  session            Session             @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  coveredBy          Entry?              @relation("Cobertura", fields: [coveredById], references: [id], onDelete: SetNull)
+  covers             Entry[]             @relation("Cobertura")
+  amounts            EntryAmount[]
+  adjustments        EntryAdjustment[]
+  occurrences        EntryOccurrence[]
+  appointments       Appointment[]
+  statementLines     StatementLine[]
+  statementLineParts StatementLinePart[]
+  statementAliases   StatementAlias[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -165,30 +166,30 @@ model EntryAmount {
 }
 
 model Appointment {
-  id            String    @id
-  tenantId      String    @map("tenant_id")
+  id            String   @id
+  tenantId      String   @map("tenant_id")
   title         String
-  description   String    @default("")
-  location      String    @default("")
-  startAt       DateTime  @map("start_at")
-  endAt         DateTime  @map("end_at")
-  allDay        Boolean   @default(false) @map("all_day")
-  status        String    @default("undone")
+  description   String   @default("")
+  location      String   @default("")
+  startAt       DateTime @map("start_at")
+  endAt         DateTime @map("end_at")
+  allDay        Boolean  @default(false) @map("all_day")
+  status        String   @default("undone")
   year          Int
   month         Int
   day           Int
   hour          Int?
   minute        Int?
   calendar      String
-  category      String    @default("fixed")
-  endYear       Int?      @map("end_year")
-  endMonth      Int?      @map("end_month")
-  endDay        Int?      @map("end_day")
-  entryId       String?   @map("entry_id")
-  sessionId     String?   @map("session_id")
-  googleEventId String?   @map("google_event_id")
-  entry         Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
-  session       Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  category      String   @default("fixed")
+  endYear       Int?     @map("end_year")
+  endMonth      Int?     @map("end_month")
+  endDay        Int?     @map("end_day")
+  entryId       String?  @map("entry_id")
+  sessionId     String?  @map("session_id")
+  googleEventId String?  @map("google_event_id")
+  entry         Entry?   @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  session       Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, googleEventId])
   @@index([tenantId, year, month])
@@ -248,23 +249,58 @@ model Statement {
 }
 
 model StatementLine {
-  statementId String    @map("statement_id")
-  tenantId    String    @map("tenant_id")
-  line        Int
-  postedOn    DateTime? @map("posted_on") @db.Date
-  description String
-  cents       Int?
-  error       String    @default("")
-  entryId     String?   @map("entry_id")
+  statementId  String              @map("statement_id")
+  tenantId     String              @map("tenant_id")
+  line         Int
+  postedOn     DateTime?           @map("posted_on") @db.Date
+  description  String
+  cents        Int?
+  error        String              @default("")
+  entryId      String?             @map("entry_id")
+  // O lançamento nasceu desta linha (acúmulo). Desfazer apaga esse lançamento em vez de reabrir.
+  entryCreated Boolean             @default(false) @map("entry_created")
   // A pessoa marcou a linha como sem importância: ela sai da conferência e da contagem, mas não é apagada.
-  ignoredAt   DateTime? @map("ignored_at")
-  statement   Statement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Cascade)
-  entry       Entry?    @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  ignoredAt    DateTime?           @map("ignored_at")
+  statement    Statement           @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Cascade)
+  entry        Entry?              @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  parts        StatementLinePart[]
 
   @@id([statementId, line])
   @@index([tenantId])
   @@index([tenantId, postedOn])
   @@map("statement_lines")
+}
+
+// Uma linha do extrato dividida em vários lançamentos. A linha aponta para a primeira parte (entryId), para contar
+// como lançada; as partes guardam todos, para mostrar a divisão e desfazê-la.
+model StatementLinePart {
+  tenantId      String        @map("tenant_id")
+  statementId   String        @map("statement_id")
+  line          Int
+  entryId       String        @map("entry_id")
+  cents         Int
+  position      Int
+  // false: a parte pagou o lançamento que já existia (sessão fixa). Desfazer reabre esse, e apaga só os criados.
+  created       Boolean       @default(true)
+  statementLine StatementLine @relation(fields: [statementId, line], references: [statementId, line], onDelete: Cascade)
+  entry         Entry         @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([statementId, line, entryId])
+  @@index([tenantId])
+  @@map("statement_line_parts")
+}
+
+// Os nomes que a pessoa já deu às linhas com a mesma descrição. A Conferência oferece esses nomes da próxima vez.
+model StatementName {
+  tenantId   String   @map("tenant_id")
+  key        String
+  name       String
+  uses       Int      @default(1)
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+
+  @@id([tenantId, key, name])
+  @@index([tenantId, key])
+  @@map("statement_names")
 }
 
 model StatementAlias {
@@ -281,13 +317,13 @@ model StatementAlias {
 }
 
 model Goal {
-  id          String @id
-  tenantId    String @map("tenant_id")
+  id          String  @id
+  tenantId    String  @map("tenant_id")
   name        String
-  targetCents Int    @map("target_cents")
-  savedCents  Int    @default(0) @map("saved_cents")
-  dueYear     Int?   @map("due_year")
-  dueMonth    Int?   @map("due_month")
+  targetCents Int     @map("target_cents")
+  savedCents  Int     @default(0) @map("saved_cents")
+  dueYear     Int?    @map("due_year")
+  dueMonth    Int?    @map("due_month")
   sessionId   String? @map("session_id")
   position    Int     @default(0)
 
@@ -297,12 +333,12 @@ model Goal {
 
 // A parte da sobra de um mês que a pessoa reservou para uma meta. Só vira lançamento quando ela aprova.
 model GoalAllocation {
-  goalId        String  @map("goal_id")
-  tenantId      String  @map("tenant_id")
+  goalId        String @map("goal_id")
+  tenantId      String @map("tenant_id")
   year          Int
   month         Int
   percent       Int
-  approvedCents Int?    @map("approved_cents")
+  approvedCents Int?   @map("approved_cents")
 
   @@id([goalId, year, month])
   @@index([tenantId, year, month])
@@ -310,28 +346,28 @@ model GoalAllocation {
 }
 
 model Preference {
-  tenantId         String  @id @map("tenant_id")
-  name             String  @default("")
-  timezone         String
-  theme            String
-  personalCalendar Boolean @default(true) @map("personal_calendar")
-  workCalendar     Boolean @default(true) @map("work_calendar")
-  showEntries      Boolean @default(true) @map("show_entries")
-  categorize       String
-  pendingHours     Int     @map("pending_hours")
-  reminder         String
-  reminders        Boolean @default(true)
-  dueAlerts        Boolean @default(true) @map("due_alerts")
-  emailAlerts      Boolean @default(false) @map("email_alerts")
-  appAlerts        Boolean @default(true) @map("app_alerts")
-  history          String
-  googleClientId         String @default("") @map("google_client_id")
-  googleClientSecret     String @default("") @map("google_client_secret")
-  googleRefreshToken     String @default("") @map("google_refresh_token")
-  googleOauthState       String @default("") @map("google_oauth_state")
-  googleAccount          String @default("") @map("google_account")
-  googleCalendarPersonal String @default("") @map("google_calendar_personal")
-  googleCalendarWork     String @default("") @map("google_calendar_work")
+  tenantId               String   @id @map("tenant_id")
+  name                   String   @default("")
+  timezone               String
+  theme                  String
+  personalCalendar       Boolean  @default(true) @map("personal_calendar")
+  workCalendar           Boolean  @default(true) @map("work_calendar")
+  showEntries            Boolean  @default(true) @map("show_entries")
+  categorize             String
+  pendingHours           Int      @map("pending_hours")
+  reminder               String
+  reminders              Boolean  @default(true)
+  dueAlerts              Boolean  @default(true) @map("due_alerts")
+  emailAlerts            Boolean  @default(false) @map("email_alerts")
+  appAlerts              Boolean  @default(true) @map("app_alerts")
+  history                String
+  googleClientId         String   @default("") @map("google_client_id")
+  googleClientSecret     String   @default("") @map("google_client_secret")
+  googleRefreshToken     String   @default("") @map("google_refresh_token")
+  googleOauthState       String   @default("") @map("google_oauth_state")
+  googleAccount          String   @default("") @map("google_account")
+  googleCalendarPersonal String   @default("") @map("google_calendar_personal")
+  googleCalendarWork     String   @default("") @map("google_calendar_work")
   aiApiKey               String   @default("") @map("ai_api_key")
   aiModels               String[] @default([]) @map("ai_models")
   aiModel                String   @default("") @map("ai_model")
@@ -367,36 +403,36 @@ model ConsumedEvent {
 // Cada tenant tem vários usuários e só um master. O Prisma não descreve índice único parcial,
 // então `users_tenant_id_master_key` (UNIQUE (tenant_id) WHERE role = 'master') vive só na migration.
 model User {
-  id             String        @id
-  tenantId       String        @map("tenant_id")
-  email          String        @unique
-  name           String        @default("")
-  headline       String        @default("")
-  location       String        @default("")
-  bio            String        @default("")
-  avatarTone     String        @default("brand") @map("avatar_tone")
-  role           String        @default("membro")
-  passwordHash   String        @map("password_hash")
-  failedAttempts Int           @default(0) @map("failed_attempts")
-  lockedUntil    DateTime?     @map("locked_until")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  sessions       AuthSession[]
-  notifications  Notification[]
+  id                  String               @id
+  tenantId            String               @map("tenant_id")
+  email               String               @unique
+  name                String               @default("")
+  headline            String               @default("")
+  location            String               @default("")
+  bio                 String               @default("")
+  avatarTone          String               @default("brand") @map("avatar_tone")
+  role                String               @default("membro")
+  passwordHash        String               @map("password_hash")
+  failedAttempts      Int                  @default(0) @map("failed_attempts")
+  lockedUntil         DateTime?            @map("locked_until")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  sessions            AuthSession[]
+  notifications       Notification[]
   notificationSetting NotificationSetting?
-  pushDevices    PushDevice[]
+  pushDevices         PushDevice[]
 
   @@index([tenantId])
   @@map("users")
 }
 
 model AuthSession {
-  id         String   @id
-  tenantId   String   @map("tenant_id")
-  userId     String   @map("user_id")
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  userAgent  String   @default("") @map("user_agent")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  userAgent String   @default("") @map("user_agent")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([userId])

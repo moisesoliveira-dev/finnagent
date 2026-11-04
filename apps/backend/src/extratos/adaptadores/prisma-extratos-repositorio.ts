@@ -6,7 +6,15 @@ import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
 import { avisoDeRepetidas, descartarRepetidas } from "../dominio/repetidas.js";
-import type { ExtratosRepositorio, GravacaoExtrato, ReservaExtrato, LinhaImportada } from "../portas/extratos-repositorio.js";
+import type { Prisma } from "@prisma/client";
+import type {
+  ExtratosRepositorio,
+  GravacaoExtrato,
+  LinhaImportada,
+  NomeLembrado,
+  ParteGravada,
+  ReservaExtrato,
+} from "../portas/extratos-repositorio.js";
 
 const LIMITE_LINHAS = 100;
 
@@ -147,8 +155,13 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async contarLinhasDoLancamento(tenantId: string, entryId: string, year: number, month: number) {
     const inicio = new Date(Date.UTC(year, month - 1, 1));
     const fim = new Date(Date.UTC(year, month, 1));
+    // A parte de uma linha dividida também ocupa a vaga do lançamento que ela pagou.
     return this.banco().statementLine.count({
-      where: { tenantId, entryId, postedOn: { gte: inicio, lt: fim } },
+      where: {
+        tenantId,
+        postedOn: { gte: inicio, lt: fim },
+        OR: [{ entryId }, { parts: { some: { tenantId, entryId } } }],
+      },
     });
   }
 
@@ -171,7 +184,9 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
+        entryCreated: true,
         ignoredAt: true,
+        parts: { where: { tenantId }, orderBy: { position: "asc" }, select: { entryId: true, cents: true, created: true } },
         statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
@@ -186,7 +201,9 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         accountName: row.statement.account.name,
         filename: row.statement.filename,
         entryId: row.entryId,
+        entryCreated: row.entryCreated,
         ignored: row.ignoredAt !== null,
+        parts: row.parts,
         importedAt: row.statement.importedAt.toISOString(),
       };
       return [linha];
@@ -231,7 +248,9 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         description: true,
         cents: true,
         entryId: true,
+        entryCreated: true,
         ignoredAt: true,
+        parts: { where: { tenantId }, orderBy: { position: "asc" }, select: { entryId: true, cents: true, created: true } },
         statement: { select: { filename: true, importedAt: true, account: { select: { name: true } } } },
       },
     });
@@ -245,7 +264,9 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       accountName: row.statement.account.name,
       filename: row.statement.filename,
       entryId: row.entryId,
+        entryCreated: row.entryCreated,
       ignored: row.ignoredAt !== null,
+      parts: row.parts,
       importedAt: row.statement.importedAt.toISOString(),
     };
   }
@@ -256,6 +277,8 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     line: number,
     entryId: string,
     name: string | null,
+    lembrar: NomeLembrado | null = null,
+    criado = false,
   ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
@@ -273,9 +296,10 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       if (linha.entryId) return "cruzada" as const;
       await tx.statementLine.updateMany({
         where: { statementId, line, tenantId },
-        data: { entryId },
+        data: { entryId, entryCreated: criado },
       });
       await gravarOutbox(tx, tenantId, "cruzar-linha", `${statementId}:${line}`, { statementId, line, entryId }, `${entryId}:${Date.now()}`);
+      if (lembrar) await lembrarNome(tx, tenantId, lembrar);
       if (!name) return;
       const sessionId = lancamento.sessionId;
       await tx.statementAlias.upsert({
@@ -288,19 +312,23 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     });
   }
 
-  async desfazerCruzamento(tenantId: string, statementId: string, line: number) {
+  async desfazerCruzamento(tenantId: string, statementId: string, line: number, key?: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const linha = await tx.statementLine.findFirst({
         where: { statementId, line, tenantId },
-        select: { entryId: true },
+        select: { entryId: true, entryCreated: true },
       });
       if (!linha) return "ausente" as const;
       if (!linha.entryId) return "livre" as const;
-      await tx.statementLine.updateMany({ where: { statementId, line, tenantId }, data: { entryId: null } });
+      await tx.statementLine.updateMany({
+        where: { statementId, line, tenantId },
+        data: { entryId: null, entryCreated: false },
+      });
       const payload = { statementId, line, entryId: linha.entryId };
       await gravarOutbox(tx, tenantId, "desfazer-cruzamento", `${statementId}:${line}`, payload, `${linha.entryId}:${Date.now()}`);
-      return { entryId: linha.entryId };
+      if (linha.entryCreated && key) await esquecerLancamento(tx, tenantId, key, linha.entryId);
+      return { entryId: linha.entryId, created: linha.entryCreated };
     });
   }
 
@@ -327,6 +355,76 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         await gravarOutbox(tx, tenantId, ignorar ? "ignorar-linhas" : "reativar-linhas", statementId, payload, String(Date.now()));
       }
       return mudaram;
+    });
+  }
+
+  async dividirLinha(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    partes: ParteGravada[],
+    lembrar: NomeLembrado[],
+  ) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const linha = await tx.statementLine.findFirst({
+        where: { statementId, line, tenantId },
+        select: { entryId: true, ignoredAt: true },
+      });
+      if (!linha) return "ausente" as const;
+      if (linha.entryId) return "cruzada" as const;
+      if (linha.ignoredAt) return "ignorada" as const;
+      const [primeira] = partes;
+      if (!primeira) return "ausente" as const;
+      await tx.statementLine.updateMany({
+        where: { statementId, line, tenantId },
+        data: { entryId: primeira.entryId, entryCreated: primeira.created },
+      });
+      await tx.statementLinePart.createMany({
+        data: partes.map((parte, indice) => ({
+          tenantId,
+          statementId,
+          line,
+          entryId: parte.entryId,
+          cents: parte.cents,
+          created: parte.created,
+          position: indice + 1,
+        })),
+      });
+      for (const nome of lembrar) await lembrarNome(tx, tenantId, nome);
+      const payload = { statementId, line, parts: partes };
+      await gravarOutbox(tx, tenantId, "dividir-linha", `${statementId}:${line}`, payload, String(Date.now()));
+    });
+  }
+
+  async desfazerDivisao(tenantId: string, statementId: string, line: number, key: string) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const partes = await tx.statementLinePart.findMany({
+        where: { tenantId, statementId, line },
+        orderBy: { position: "asc" },
+        select: { entryId: true, cents: true, created: true },
+      });
+      if (!partes.length) return [];
+      await tx.statementLinePart.deleteMany({ where: { tenantId, statementId, line } });
+      await tx.statementLine.updateMany({
+        where: { statementId, line, tenantId },
+        data: { entryId: null, entryCreated: false },
+      });
+      const entryIds = partes.map((parte) => parte.entryId);
+      await gravarOutbox(tx, tenantId, "desfazer-divisao", `${statementId}:${line}`, { statementId, line, entryIds }, String(Date.now()));
+      for (const parte of partes) if (parte.created) await esquecerLancamento(tx, tenantId, key, parte.entryId);
+      return partes;
+    });
+  }
+
+  async listarNomes(tenantId: string) {
+    const db = this.banco();
+    return db.statementName.findMany({
+      where: { tenantId },
+      orderBy: [{ lastUsedAt: "desc" }, { uses: "desc" }],
+      select: { key: true, name: true },
+      take: 5000,
     });
   }
 
@@ -608,3 +706,37 @@ function isoDe(data: Date | null) {
 }
 
 type ParametroTransacao = Parameters<Parameters<PrismaService["$transaction"]>[0]>[0];
+
+/** Guarda o nome que a pessoa deu, ou conta mais um uso dele. Vai na mesma transação da mudança da linha. */
+/**
+ * Desfaz o que um lançamento nascido da linha deixou: o nome dado a ele (um uso a menos, e some no último) e a
+ * associação da descrição que aponta para ele. O lançamento em si quem chamou apaga.
+ */
+async function esquecerLancamento(tx: Prisma.TransactionClient, tenantId: string, key: string, entryId: string) {
+  const lancamento = await tx.entry.findFirst({ where: { id: entryId, tenantId }, select: { description: true } });
+  const name = lancamento?.description.trim();
+  const lembrado = name
+    ? await tx.statementName.findUnique({ where: { tenantId_key_name: { tenantId, key, name } }, select: { uses: true } })
+    : null;
+  if (name && lembrado) {
+    const where = { tenantId_key_name: { tenantId, key, name } };
+    if (lembrado.uses > 1) await tx.statementName.update({ where, data: { uses: { decrement: 1 } } });
+    else await tx.statementName.delete({ where });
+    await gravarOutbox(tx, tenantId, "esquecer-nome-extrato", `${key}:${name}`, { key, name }, `${entryId}:${Date.now()}`);
+  }
+  const { count } = await tx.statementAlias.deleteMany({ where: { tenantId, name: key, entryId } });
+  if (count) {
+    const payload = { name: key, entryId, removed: true };
+    await gravarOutbox(tx, tenantId, "associar-nome-extrato", key, payload, marcaDe(payload));
+  }
+}
+
+async function lembrarNome(tx: Prisma.TransactionClient, tenantId: string, nome: NomeLembrado) {
+  const agora = new Date();
+  await tx.statementName.upsert({
+    where: { tenantId_key_name: { tenantId, key: nome.key, name: nome.name } },
+    create: { tenantId, key: nome.key, name: nome.name, lastUsedAt: agora },
+    update: { uses: { increment: 1 }, lastUsedAt: agora },
+  });
+  await gravarOutbox(tx, tenantId, "lembrar-nome-extrato", `${nome.key}:${nome.name}`, nome, String(agora.getTime()));
+}
