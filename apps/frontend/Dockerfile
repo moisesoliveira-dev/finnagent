@@ -17,6 +17,10 @@ COPY . .
 
 WORKDIR /repo/apps/frontend
 
+# O DSN do navegador entra no bundle no build: o Railway passa a variável do serviço como argumento.
+ARG NEXT_PUBLIC_SENTRY_DSN
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+
 RUN pnpm exec next build
 
 EXPOSE 3000

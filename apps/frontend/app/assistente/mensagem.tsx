@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import {
   INFO_DOS_AGENTES,
+  TEXTO_SO_COM_ANEXO,
   type AcaoDoAssistente,
   type AgenteIa,
   type MensagemDoChat,
@@ -11,8 +12,11 @@ import {
   type PerguntaDoAssistente,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { Chip } from "../../components/ui/chip";
+import { Icone } from "../../components/ui/icone";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { curvaCheia, mola } from "../../components/ui/movimento";
+import { tamanhoDoAnexo } from "./anexos";
 import { CartaoDePlano } from "./plano";
 import { TextoFormatado } from "./texto-formatado";
 
@@ -252,6 +256,7 @@ function Parte({
     );
   }
   if (parte.tipo === "acao") return <Acao acao={parte.acao} />;
+  if (parte.tipo === "anexo") return null;
   if (parte.tipo === "agente") {
     return (
       <motion.p {...entrada} className="etiqueta flex items-center gap-2 text-ink-2">
@@ -309,9 +314,29 @@ export function Mensagem({
 }) {
   if (mensagem.role === "user") {
     const texto = mensagem.partes.map((parte) => (parte.tipo === "texto" ? parte.texto : "")).join("");
+    const anexos = mensagem.partes.flatMap((parte) => (parte.tipo === "anexo" ? [parte.anexo] : []));
+    // Só o anexo, sem texto: o sistema escreveu a frase por ela, e a tela mostra só o arquivo.
+    const mostrarTexto = texto !== "" && !(anexos.length > 0 && texto === TEXTO_SO_COM_ANEXO);
     return (
       <motion.li {...entrada} className="flex justify-end">
-        <p className="max-w-prose min-w-0 border border-line bg-surface-2 px-4 py-3 whitespace-pre-wrap break-words">{texto}</p>
+        <div className="grid max-w-prose min-w-0 justify-items-end gap-2">
+          {mostrarTexto ? (
+            <p className="min-w-0 border border-line bg-surface-2 px-4 py-3 whitespace-pre-wrap break-words">{texto}</p>
+          ) : null}
+          {anexos.length ? (
+            <ul className="flex flex-wrap justify-end gap-2" aria-label="Anexos da mensagem">
+              {anexos.map((anexo) => (
+                <li key={anexo.id}>
+                  <Chip tone="info" className="inline-flex max-w-full items-center gap-2 normal-case">
+                    <Icone name="clip" />
+                    <span className="truncate">{anexo.name}</span>
+                    <span className="text-ink-2">{tamanhoDoAnexo(anexo.size)}</span>
+                  </Chip>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </motion.li>
     );
   }

@@ -29,7 +29,7 @@ export const ROTULO_CATEGORIA: Record<CategoriaTransacao, string> = {
   additional: "Extra",
   installment: "Parcela",
   loan: "Empréstimo",
-  fixed: "Fixa",
+  fixed: "Recorrente",
   unique: "Única",
 };
 
@@ -51,8 +51,8 @@ export const ROTULO_RECORRENCIA: Record<Recorrencia, string> = {
 
 export function tomDoStatus(status: StatusTransacao) {
   if (status === "completed") return "ok" as const;
-  if (status === "pending") return "default" as const;
-  if (status === "cancelled") return "neg" as const;
+  if (status === "pending") return "pending" as const;
+  if (status === "refunded") return "info" as const;
   return "default" as const;
 }
 
@@ -64,6 +64,13 @@ export function rotuloDaSituacao(situacao: SituacaoOcorrencia) {
 export function tomDaSituacao(situacao: SituacaoOcorrencia) {
   if (situacao === "late") return "neg" as const;
   return tomDoStatus(situacao);
+}
+
+/** A fixa se repete todo mês (azul) e o adicional é entrada a mais (verde); as outras ficam neutras. */
+export function tomDaCategoria(categoria: CategoriaTransacao) {
+  if (categoria === "fixed") return "info" as const;
+  if (categoria === "additional") return "ok" as const;
+  return "default" as const;
 }
 
 export function tomDaPrioridade(priority: PrioridadeTransacao) {

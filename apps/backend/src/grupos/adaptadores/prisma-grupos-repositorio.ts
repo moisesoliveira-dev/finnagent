@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Grupo, Sessao, TipoSessao, ViradaGrupo, ViradaResposta } from "@finnagent/contracts";
 import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
+import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
 import { aceitaLancamento, categoriasDaSessao, hojeNoFuso, podeTrocarDeTipo, resumoDaSessao } from "../dominio/sessao.js";
@@ -106,10 +107,7 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       }
       const entryIds = lancamentos.map((item) => item.id);
       if (entryIds.length) {
-        await tx.appointment.updateMany({
-          where: { tenantId, entryId: { in: entryIds } },
-          data: { entryId: null },
-        });
+        await desligarCompromissos(tx, tenantId, entryIds);
         await tx.entry.deleteMany({ where: { tenantId, id: { in: entryIds } } });
         for (const entryId of entryIds) {
           await gravarOutbox(tx, tenantId, "excluir-lancamento", entryId, { id: entryId });

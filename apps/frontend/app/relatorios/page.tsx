@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type RelatorioResposta, type TipoLancamento } from "@finnagent/contracts";
+import { TIPOS_LANCAMENTO, categoriaDoTipo, type RelatorioResposta, type TipoLancamento } from "@finnagent/contracts";
+import { ROTULO_CATEGORIA } from "../financas/rotulos";
 import { doisDigitos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
@@ -32,13 +33,10 @@ const MESES = [
   "Dezembro",
 ];
 
-const TIPO: Record<TipoLancamento, string> = {
-  adicional: "Adicional",
-  parcela: "Parcela",
-  empréstimo: "Empréstimo",
-  fixo: "Fixo",
-  variável: "Variável",
-};
+// O relatório fala a mesma língua do formulário: o nome da categoria, não o tipo interno.
+const TIPO: Record<TipoLancamento, string> = Object.fromEntries(
+  TIPOS_LANCAMENTO.map((tipo) => [tipo, ROTULO_CATEGORIA[categoriaDoTipo(tipo)]]),
+) as Record<TipoLancamento, string>;
 
 async function api<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { "content-type": "application/json" } });

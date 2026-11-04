@@ -14,6 +14,7 @@ export const TABELAS_QUE_ZERAM = [
   "goalAllocation",
   "goal",
   "yearStay",
+  "aiAttachment",
   "aiMessage",
   "aiConversation",
   "notification",

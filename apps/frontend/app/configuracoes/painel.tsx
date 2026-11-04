@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   AJUSTES_DE_DIA_UTIL,
   CALENDARIO_NACIONAL,
@@ -117,6 +117,18 @@ const ARVORE: No[] = [
 /** Seções que a URL pode pedir, lidas da própria árvore. */
 const SECOES: Secao[] = ARVORE.flatMap((no) => (no.filhos ?? [no]).flatMap((item) => (item.secao ? [item.secao] : [])));
 
+// A URL não muda enquanto a tela está aberta: lida uma vez no cliente, e vazia no servidor.
+const semInscricao = () => () => {};
+
+function secaoDaUrl() {
+  const pedida = new URLSearchParams(window.location.search).get("secao");
+  return pedida && SECOES.includes(pedida as Secao) ? (pedida as Secao) : null;
+}
+
+function uriDeRetorno() {
+  return `${window.location.origin}/api/configuracoes/google/retorno`;
+}
+
 const ABERTOS = { geral: true, financas: true, integracoes: true, ia: true, sistema: true };
 
 const TODOS_ABERTOS = Object.fromEntries(ARVORE.map((no) => [no.id, true]));
@@ -217,7 +229,10 @@ function opcoesDoCalendario(lista: AgendaGoogle[], atual: string) {
 
 export function Painel() {
   const toast = useToast();
-  const [secao, setSecao] = useState<Secao>("conta");
+  // A seção pedida pela URL (`?secao=`) vale até a pessoa escolher outra na árvore.
+  const pedidaNaUrl = useSyncExternalStore(semInscricao, secaoDaUrl, () => null);
+  const [escolhida, setSecao] = useState<Secao | null>(null);
+  const secao = escolhida ?? pedidaNaUrl ?? "conta";
   const [abertos, setAbertos] = useState<Record<string, boolean>>(ABERTOS);
   const [foco, setFoco] = useState("conta");
   const [menu, setMenu] = useState(false);
@@ -228,7 +243,7 @@ export function Painel() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleAccount, setGoogleAccount] = useState("");
   const [googleCalendars, setGoogleCalendars] = useState<AgendaGoogle[]>([]);
-  const [retorno, setRetorno] = useState("");
+  const retorno = useSyncExternalStore(semInscricao, uriDeRetorno, () => "");
   const [falhou, setFalhou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erroNome, setErroNome] = useState("");
@@ -242,8 +257,10 @@ export function Painel() {
   const sujoRef = useRef(false);
   const salvoRef = useRef<Preferencias | null>(null);
   const sujo = Boolean(form && salvo && JSON.stringify(form) !== JSON.stringify(salvo));
-  sujoRef.current = sujo;
-  salvoRef.current = salvo;
+  useEffect(() => {
+    sujoRef.current = sujo;
+    salvoRef.current = salvo;
+  }, [sujo, salvo]);
   segurarTema(true);
 
   function aplicar(dados: Configuracoes) {
@@ -298,10 +315,7 @@ export function Painel() {
   }, []);
 
   useEffect(() => {
-    setRetorno(`${window.location.origin}/api/configuracoes/google/retorno`);
     const params = new URLSearchParams(window.location.search);
-    const pedida = params.get("secao");
-    if (pedida && SECOES.includes(pedida as Secao)) setSecao(pedida as Secao);
     const resultado = params.get("google");
     if (resultado === "conectado") toast.sucesso("Google Calendar conectado");
     if (resultado === "erro") toast.erro("Não foi possível conectar o Google Calendar.");
@@ -516,6 +530,8 @@ export function Painel() {
       toast.alerta("Informe o ID e o segredo do cliente Google.");
       return;
     }
+    // É uma rota de API que redireciona para o Google: precisa da navegação inteira, não do roteador.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/api/configuracoes/google/conectar");
   }
 
@@ -984,7 +1000,7 @@ export function Painel() {
             </section>
 
             {sujo ? (
-              <div role="status" className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand bg-surface p-4">
+              <div role="status" className="sticky bottom-4 mr-12 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand bg-surface p-4">
                 <p>Você tem alterações não salvas.</p>
                 <span className="flex flex-wrap gap-2">
                   <Button variant="quiet" onClick={descartar} disabled={salvando}>

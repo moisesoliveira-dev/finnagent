@@ -24,16 +24,18 @@ import {
 import { cabeNaLinha, candidatosDaLinha, cruzaveisDoMes, propostaDaLinha, valorContado, valorDaSessaoFixa, valorDoMes, vinculoDoCruzavel } from "../dominio/cruzar.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
+import { AnexosService } from "../../assistente/aplicacao/anexos.service.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
 import { chaveDoNome, ehTransferenciaDePessoa } from "../dominio/nome-extrato.js";
-import { erroDaDivisao, nomeDaLinha } from "../dominio/divisao.js";
+import { erroDaDivisao, JUSTIFICATIVA_DO_EXTRATO, nomeDaLinha } from "../dominio/divisao.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
 import {
   EXTRATOS_REPOSITORIO,
   type ExtratosRepositorio,
   type GravacaoExtrato,
+  type OndeEstaoOsLancamentos,
   type ParteGravada,
 } from "../portas/extratos-repositorio.js";
 import {
@@ -61,6 +63,8 @@ type Pedido = {
   accountId: string | null;
   accountName: string | null;
   mapping: MapeamentoExtrato | null;
+  /** O que a pessoa escreveu junto com o extrato. */
+  note?: string;
 };
 
 @Injectable()
@@ -72,6 +76,7 @@ export class ExtratosService {
     private readonly financas: FinancasService,
     private readonly agenda: AgendaService,
     private readonly ia: IaService,
+    private readonly anexos: AnexosService,
   ) {}
 
   listar(tenantId: string): Promise<ExtratosResposta> {
@@ -115,6 +120,7 @@ export class ExtratosService {
       contentHash: createHash("sha256").update(bytes).digest("hex"),
       accountId: pedido.accountId,
       accountName: pedido.accountName?.trim() || null,
+      note: pedido.note?.trim() ?? "",
       mapping: lido.format === "csv" ? lido.mapping : null,
       leitura: lido.leitura,
     };
@@ -123,6 +129,24 @@ export class ExtratosService {
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outro extrato.");
     if (resultado === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
     return resultado;
+  }
+
+  /** Importa o arquivo que a pessoa anexou no chat, com o que ela escreveu sobre ele. */
+  async criarDeAnexo(
+    tenantId: string,
+    pedido: { id: string; anexoId: string; accountName: string; observacao: string; mapping: MapeamentoExtrato | null },
+  ) {
+    const anexo = await this.anexos.obter(tenantId, pedido.anexoId);
+    if (!anexo) throw new NaoEncontrado("Anexo não encontrado. Peça para a pessoa anexar o arquivo de novo.");
+    return this.criar(tenantId, {
+      id: pedido.id,
+      filename: anexo.name,
+      content: anexo.content.toString("base64"),
+      accountId: null,
+      accountName: pedido.accountName,
+      mapping: pedido.mapping,
+      note: pedido.observacao,
+    });
   }
 
   private async receberOcr(tenantId: string, pedido: Pedido) {
@@ -135,6 +159,7 @@ export class ExtratosService {
       contentHash: createHash("sha256").update(bytes).digest("hex"),
       accountId: pedido.accountId,
       accountName: pedido.accountName?.trim() || null,
+      note: pedido.note?.trim() ?? "",
     });
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outro extrato.");
     if (resultado === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
@@ -147,7 +172,7 @@ export class ExtratosService {
     try {
       const atual = await this.extratos.carregar(tenantId, id);
       if (atual === "ausente") return;
-      const leitura = await this.leituraOcr(tenantId, atual.filename, atual.bytes.toString("base64"));
+      const leitura = await this.leituraOcr(tenantId, atual.filename, atual.bytes.toString("base64"), atual.note);
       const resultado = await this.extratos.substituir(tenantId, id, leitura, null, "importar-extrato");
       if (resultado === "duplicado") {
         await this.extratos.falhar(tenantId, id, "Já existe um extrato desta conta neste período.");
@@ -167,7 +192,7 @@ export class ExtratosService {
   async reprocessar(tenantId: string, id: string) {
     const atual = await this.extratos.carregar(tenantId, id);
     if (atual === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
-    await this.semCruzadas(tenantId, id, "reprocessar");
+    await this.desfazerCruzadas(tenantId, id);
     if (ehOcr(atual.filename)) {
       const marcado = await this.extratos.marcarProcessando(tenantId, id);
       if (marcado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
@@ -210,7 +235,7 @@ export class ExtratosService {
       year,
       month,
     );
-    const lines = linhas.map(({ importedAt: _importedAt, parts: partes = [], ...linha }): LinhaConferencia => {
+    const lines = linhas.map(({ importedAt: _importedAt, parts: partes, ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
       const names = nomesPorChave.get(chaveDoNome(linha.description)) ?? [];
       if (linha.entryId || linha.ignored) {
@@ -347,37 +372,86 @@ export class ExtratosService {
    * apagado (com o nome e a associação que ele deixou), e o que já existia volta a pendente.
    */
   async desfazer(tenantId: string, statementId: string, line: number) {
+    const { year, month } = await this.desfazerLinha(tenantId, statementId, line);
+    return this.conferencia(tenantId, year, month);
+  }
+
+  /**
+   * Desfaz o que a linha fez, como se ela nunca tivesse sido lançada. `emExclusao` são os lançamentos que quem
+   * chamou vai apagar em seguida: esses não são reabertos nem apagados aqui. `tolerante` segue adiante quando um
+   * lançamento não pode mais ser reaberto ou apagado (a linha fica solta do mesmo jeito).
+   */
+  private async desfazerLinha(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    emExclusao: ReadonlySet<string> = new Set(),
+    tolerante = false,
+  ) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     if (!gravada.entryId) throw new Conflito("Essa linha não está cruzada.");
     const [year, month] = gravada.date.split("-").map(Number);
+    const data = gravada.date;
     const key = chaveDoNome(gravada.description);
+    const tentar = async (acao: () => Promise<unknown>) => {
+      try {
+        await acao();
+      } catch (error) {
+        if (!tolerante) throw error;
+      }
+    };
     if ((gravada.parts ?? []).length > 1) {
       const partes = await this.extratos.desfazerDivisao(tenantId, statementId, line, key);
       for (const parte of partes) {
-        if (parte.created) await this.financas.excluir(tenantId, parte.entryId);
-        else await this.financas.reabrirPeloExtrato(tenantId, parte.entryId, gravada.date, parte.cents);
+        if (emExclusao.has(parte.entryId)) continue;
+        if (parte.created || (await this.extratos.lancamentoSoltoDoExtrato(tenantId, parte.entryId))) {
+          await tentar(() => this.financas.excluir(tenantId, parte.entryId));
+        } else {
+          await tentar(() => this.financas.reabrirPeloExtrato(tenantId, parte.entryId, data, parte.cents));
+        }
       }
-      return this.conferencia(tenantId, year, month);
+      return { year, month };
     }
     const entryId = gravada.entryId;
     const solta = await this.extratos.desfazerCruzamento(tenantId, statementId, line, key);
-    if (typeof solta === "object" && solta.created) {
+    if (emExclusao.has(entryId)) return { year, month };
+    // Também o lançamento que nasceu de outra linha do extrato, já desfeita: sem esta, ele não tem por que existir.
+    const apagar =
+      (typeof solta === "object" && solta.created) || (await this.extratos.lancamentoSoltoDoExtrato(tenantId, entryId));
+    if (apagar) {
       try {
         await this.financas.excluir(tenantId, entryId);
       } catch (error) {
+        if (tolerante) return { year, month };
         await this.cruzar(tenantId, statementId, line, entryId, gravada.description, undefined, true).catch(() => undefined);
         throw error;
       }
-      return this.conferencia(tenantId, year, month);
+      return { year, month };
     }
     try {
-      await this.financas.reabrirPeloExtrato(tenantId, entryId, gravada.date, gravada.cents);
+      await this.financas.reabrirPeloExtrato(tenantId, entryId, data, gravada.cents);
     } catch (error) {
+      if (tolerante) return { year, month };
       await this.cruzar(tenantId, statementId, line, entryId, gravada.description).catch(() => undefined);
       throw error;
     }
-    return this.conferencia(tenantId, year, month);
+    return { year, month };
+  }
+
+  /**
+   * Solta as linhas ligadas aos lançamentos (ou aos de uma sessão ou de um grupo) antes de quem chamou apagá-los ou
+   * encerrar a sessão. O que a linha criou some, o que ela pagou volta a pendente, e o nome e a associação dela
+   * somem. É o mesmo desfazer da Conferência, feito pelo lado do lançamento.
+   */
+  async liberarLinhas(tenantId: string, onde: OndeEstaoOsLancamentos, emExclusao: ReadonlySet<string> = new Set()) {
+    for (const { statementId, line } of await this.extratos.linhasDosLancamentos(tenantId, onde)) {
+      await this.desfazerLinha(tenantId, statementId, line, emExclusao, true);
+    }
+  }
+
+  esquecerAssociacoesDaSessao(tenantId: string, sessionId: string) {
+    return this.extratos.esquecerAssociacoesDaSessao(tenantId, sessionId);
   }
 
   async acumular(tenantId: string, statementId: string, line: number, sessionId: string, opcoes: OpcoesDoLancamento = {}) {
@@ -439,9 +513,10 @@ export class ExtratosService {
       {
         id: randomUUID(),
         sessionId,
+        accountId: gravada.accountId,
         type: "variável",
         description: nome,
-        justification: "Lançamento do extrato.",
+        justification: JUSTIFICATIVA_DO_EXTRATO,
         day,
         cents,
         startYear: year,
@@ -600,21 +675,21 @@ export class ExtratosService {
     if (resultado === "cruzada") throw new Conflito("Essa linha já foi cruzada.");
   }
 
-  // Reprocessar ou excluir apaga as linhas e o vínculo delas. Com linha cruzada, a ocorrência ficaria paga sem origem.
-  private async semCruzadas(tenantId: string, id: string, acao: "reprocessar" | "excluir") {
-    const cruzadas = await this.extratos.contarCruzadas(tenantId, id);
-    if (cruzadas === 0) return;
-    const quantas = cruzadas === 1 ? "1 linha cruzada" : `${cruzadas} linhas cruzadas`;
-    throw new Conflito(`Este extrato tem ${quantas}. Desfaça os cruzamentos na Conferência antes de ${acao}.`);
+  // Reprocessar ou excluir apaga as linhas e o vínculo delas. Antes, cada linha cruzada é desfeita: o que ela criou
+  // some e o que ela pagou volta a pendente, como se a linha nunca tivesse sido lançada.
+  private async desfazerCruzadas(tenantId: string, id: string) {
+    for (const { statementId, line } of await this.extratos.linhasCruzadasDoExtrato(tenantId, id)) {
+      await this.desfazerLinha(tenantId, statementId, line, new Set(), true);
+    }
   }
 
   async excluir(tenantId: string, id: string) {
-    await this.semCruzadas(tenantId, id, "excluir");
+    await this.desfazerCruzadas(tenantId, id);
     const resultado = await this.extratos.excluir(tenantId, id);
     if (resultado === "ausente") throw new NaoEncontrado("Extrato não encontrado.");
   }
 
-  private async leituraOcr(tenantId: string, filename: string, content: string) {
+  private async leituraOcr(tenantId: string, filename: string, content: string, observacao = "") {
     this.bytes(content);
     const mediaType = tipoDaMidia(filename);
     if (!mediaType) throw new PedidoInvalido("Envie uma imagem ou um PDF do extrato.");
@@ -624,6 +699,7 @@ export class ExtratosService {
       filename: nomeDoArquivo(filename),
       mediaType,
       content,
+      ...(observacao ? { observacao } : {}),
       ...modelo,
     });
     return leituraDasLinhas(lines);

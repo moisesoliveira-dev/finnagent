@@ -52,7 +52,7 @@ function CartaoDeAgente({
           <p className={cn("etiqueta", destaque ? "text-brand" : "text-ink")}>{nome}</p>
           <p className="text-sm text-ink-2">{resumo}</p>
         </div>
-        {propria ? <Chip tone="ok">Próprio</Chip> : <Chip>Padrão</Chip>}
+        {propria ? <Chip tone="info">Próprio</Chip> : <Chip>Padrão</Chip>}
       </header>
       <label htmlFor={`modelo-${funcao}`} className="sr-only">
         Modelo de {nome}

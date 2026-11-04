@@ -43,11 +43,16 @@ export type NovoLancamento = {
   dueRule: RegraDeVencimento;
   /** Lançamento que já conta este valor. Este deixa de entrar na sobra. */
   coveredById?: string | null;
+  /** A conta do lançamento. Ausente na edição: fica a que está. */
+  accountId?: string | null;
+  /** Transferência entre contas próprias: fora da sobra. */
+  transfer?: boolean;
 };
 
 export type FalhaDeLancamento =
   | "identificador"
   | "sessao-ausente"
+  | "conta-ausente"
   | "sessao-encerrada"
   | "tipo-valor"
   | "tipo-acumulo"

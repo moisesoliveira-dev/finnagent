@@ -14,7 +14,7 @@ import { Button } from "../../../components/ui/button";
 import { Dialogo } from "../../../components/ui/dialogo";
 import { Carregando } from "../../../components/ui/esqueleto";
 import { Chip } from "../../../components/ui/chip";
-import { campo, cn, focusRing } from "../../../components/ui/cn";
+import { caixaDeMarcar, campo, cn } from "../../../components/ui/cn";
 import { Segmentado } from "../../../components/ui/segmentado";
 import { formatarReais, Money } from "../../../components/ui/money";
 import { AnimatePresence, motion } from "motion/react";
@@ -26,7 +26,6 @@ import { DialogoDeDivisao, NomesLembrados } from "./divisao";
 
 const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
-const caixa = `size-4 accent-brand ${focusRing}`;
 
 type Situacao = "todas" | "abertas" | "cruzadas" | "propostas" | "ignoradas";
 type Movimento = "todos" | "entradas" | "saidas";
@@ -657,7 +656,7 @@ export default function Conferencia() {
               <label className="etiqueta flex min-h-10 items-center gap-2">
                 <input
                   type="checkbox"
-                  className={caixa}
+                  className={caixaDeMarcar}
                   checked={todasMarcadas}
                   onChange={(event) => {
                     const marcado = event.target.checked;
@@ -758,15 +757,18 @@ export default function Conferencia() {
                               {linha.link ? (
                                 <span className="size-4" />
                               ) : (
-                                <input
-                                  type="checkbox"
-                                  className={caixa}
-                                  aria-label={`Selecionar ${linha.description || "a linha"}`}
-                                  checked={marcada}
-                                  onChange={(event) =>
-                                    setMarcadas((atual) => ({ ...atual, [chave]: event.target.checked }))
-                                  }
-                                />
+                                // A caixa tem 16 px e o toque pega 40; a margem negativa mantém a coluna estreita.
+                                <label className="-m-3 inline-flex size-10 cursor-pointer items-center justify-center">
+                                  <input
+                                    type="checkbox"
+                                    className={caixaDeMarcar}
+                                    aria-label={`Selecionar ${linha.description || "a linha"}`}
+                                    checked={marcada}
+                                    onChange={(event) =>
+                                      setMarcadas((atual) => ({ ...atual, [chave]: event.target.checked }))
+                                    }
+                                  />
+                                </label>
                               )}
                               <span className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className="min-w-0 font-display font-bold tracking-titulo">

@@ -7,6 +7,7 @@ import type {
   MensagemDoModelo,
   ParteDaMensagem,
 } from "@finnagent/contracts";
+import type { AnexoGravado } from "../dominio/anexos.js";
 import type { PlanoValidado } from "../dominio/plano.js";
 
 export const CONVERSAS_REPOSITORIO = Symbol("CONVERSAS_REPOSITORIO");
@@ -41,7 +42,9 @@ export interface ConversasRepositorio {
   obter(tenantId: string, userId: string, id: string): Promise<ConversaGravada | null>;
   criar(tenantId: string, userId: string, id: string, title: string): Promise<ConversaResumo>;
   /** Grava ou substitui a mensagem (a do assistente cresce quando o turno retoma). */
-  gravarMensagem(tenantId: string, conversationId: string, mensagem: MensagemDoChat): Promise<void>;
+  gravarMensagem(tenantId: string, conversationId: string, mensagem: MensagemDoChat, anexos?: AnexoGravado[]): Promise<void>;
+  /** O anexo, com o conteúdo, de qualquer conversa do tenant. Quem usa (a importação de extrato) já é do tenant. */
+  obterAnexo(tenantId: string, id: string): Promise<AnexoGravado | null>;
   definirPendencia(tenantId: string, conversationId: string, pendencia: Pendencia | null): Promise<void>;
   renomear(tenantId: string, userId: string, id: string, title: string): Promise<ConversaResumo | null>;
   remover(tenantId: string, userId: string, id: string): Promise<boolean>;

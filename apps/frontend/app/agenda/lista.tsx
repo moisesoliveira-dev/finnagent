@@ -3,13 +3,13 @@ import type { Feriado, StatusCompromisso } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { Icone } from "../../components/ui/icone";
-import { cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, cn, focusRing } from "../../components/ui/cn";
 import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { rotuloDaSituacao, tomDaSituacao } from "../financas/rotulos";
 import { feriadosNoDia, SelosDoFeriado } from "./feriados";
-import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, type ItemDia } from "./itens";
+import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, tomDaCategoria, type ItemDia } from "./itens";
 
 export function ListaMes({
   year,
@@ -44,7 +44,7 @@ export function ListaMes({
             <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
               {rotuloDoDia(year, month, day)}
               {ehHoje(year, month, day) ? (
-                <Chip tone="ok">
+                <Chip tone="info">
                   Hoje
                 </Chip>
               ) : null}
@@ -167,7 +167,7 @@ function ItemDoDia({
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
-              {item.acumula ? <Chip>Acumula · {item.acumula.label}</Chip> : null}
+              {item.acumula ? <Chip tone="event">Acumula · {item.acumula.label}</Chip> : null}
               {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
               {item.status ? (
                 <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
@@ -189,7 +189,7 @@ function OkCompromisso({ feito, onChange }: { feito: boolean; onChange: () => vo
         checked={feito}
         onChange={onChange}
         aria-label={feito ? "Desmarcar cumprido" : "Marcar como cumprido"}
-        className={cn("size-4 accent-brand", focusRing)}
+        className={caixaDeMarcar}
       />
       <span className={cn("font-semibold", feito ? "text-brand" : "text-ink-2")}>OK!</span>
     </label>
@@ -269,8 +269,8 @@ function Linha({
         {item.description ? <p className="text-sm text-ink-2">{item.description}</p> : null}
         {item.location ? <p className="text-sm text-ink-2">{item.location}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <Chip>{item.kind === "compromisso" ? item.calendar : "Lançamento"}</Chip>
-          {item.category ? <Chip>{rotuloDaCategoria(item.category)}</Chip> : null}
+          <Chip tone={item.kind === "compromisso" ? "event" : "default"}>{item.kind === "compromisso" ? item.calendar : "Lançamento"}</Chip>
+          {item.category ? <Chip tone={tomDaCategoria(item.category)}>{rotuloDaCategoria(item.category)}</Chip> : null}
           {item.status ? (
             <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
           ) : null}
@@ -280,7 +280,7 @@ function Linha({
               {item.link.groupName} › {item.link.sessionName}
             </Chip>
           ) : null}
-          {item.acumula ? <Chip>Acumula · {item.acumula.label}</Chip> : null}
+          {item.acumula ? <Chip tone="event">Acumula · {item.acumula.label}</Chip> : null}
           {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
         </div>
       </div>

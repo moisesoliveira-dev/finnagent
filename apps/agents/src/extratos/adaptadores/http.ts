@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { LIMITE_EXTRATO_BYTES, LIMITE_ID_MODELO, idDeModelo } from "@finnagent/contracts";
+import { LIMITE_EXTRATO_BYTES, LIMITE_ID_MODELO, LIMITE_OBSERVACAO_DO_EXTRATO, idDeModelo } from "@finnagent/contracts";
 import { z } from "zod";
 import { erroDaUrl } from "../../assistente/dominio/url.js";
 import { log } from "../../log.js";
@@ -15,6 +15,7 @@ const pedido = z.object({
   filename: z.string().trim().min(1).max(180),
   mediaType: z.string().trim().min(1).max(80),
   content: z.string().min(1).max(LIMITE_DO_CONTEUDO),
+  observacao: z.string().trim().max(LIMITE_OBSERVACAO_DO_EXTRATO).optional(),
   apiKey: z.string().trim().min(1).max(400).optional(),
   model: z
     .string()

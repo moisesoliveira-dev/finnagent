@@ -90,7 +90,8 @@ export default function Grupos() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
-  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  // Os grupos começam fechados: as sessões aparecem quando a pessoa abre o grupo, ou na busca.
+  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [groupDraft, setGroupDraft] = useState<RascunhoGrupo | null>(null);
   const [sessionDraft, setSessionDraft] = useState<RascunhoSessao | null>(null);
   const [sugestao, setSugestao] = useState<Sugestao | null>(null);
@@ -172,7 +173,7 @@ export default function Grupos() {
   }
 
   function toggle(id: string) {
-    setClosed((current) => ({ ...current, [id]: !current[id] }));
+    setAbertos((current) => ({ ...current, [id]: !current[id] }));
   }
 
   async function saveGroup(event: React.FormEvent) {
@@ -241,6 +242,8 @@ export default function Grupos() {
         return [...next, session].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       });
       setSessionDraft(null);
+      // A sessão salva aparece: o grupo dela abre.
+      setAbertos((current) => ({ ...current, [session.groupId]: true }));
       setFalhou(false);
       toast.sucesso(
         sessionDraft.id ? (sessionDraft.escolherGrupo ? "Sessão movida." : "Sessão salva.") : "Sessão criada.",
@@ -366,7 +369,7 @@ export default function Grupos() {
             key={group.id}
             group={group}
             sessions={sessoesVisiveis}
-            closed={termo ? false : (closed[group.id] ?? false)}
+            closed={termo ? false : !abertos[group.id]}
             onToggle={() => toggle(group.id)}
             onEdit={() => openGroup(group)}
             onAdd={() => openSession(group.id)}
@@ -597,9 +600,9 @@ export default function Grupos() {
         </h2>
         <p className="max-w-prose">
           {exclusao?.tipo === "sessao"
-            ? `A sessão "${exclusao.sessao.name}" será excluída e o fim fica na data de hoje. Essa ação não pode ser desfeita.`
+            ? `A sessão "${exclusao.sessao.name}" será excluída e o fim fica na data de hoje. As linhas do extrato ligadas a ela voltam para a Conferência. Essa ação não pode ser desfeita.`
             : exclusao && exclusao.sessoes > 0
-              ? `O grupo "${exclusao.grupo.name}" e as sessões dele serão removidos. Essa ação não pode ser desfeita.`
+              ? `O grupo "${exclusao.grupo.name}" e as sessões dele serão removidos. As linhas do extrato ligadas a eles voltam para a Conferência. Essa ação não pode ser desfeita.`
               : `O grupo "${exclusao?.grupo.name ?? ""}" será removido. Essa ação não pode ser desfeita.`}
         </p>
         </div>
@@ -733,7 +736,7 @@ function GroupCard({
                   <div className="grid min-w-0 gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="font-medium">{session.name}</span>
-                      <Chip>{rotuloDoTipo(session.kind)}</Chip>
+                      <Chip tone={session.kind === "valor" ? "info" : "event"}>{rotuloDoTipo(session.kind)}</Chip>
                     </div>
                     <p
                       className={cn(

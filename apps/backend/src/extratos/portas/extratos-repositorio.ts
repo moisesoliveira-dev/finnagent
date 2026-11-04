@@ -1,4 +1,4 @@
-import type { Extrato, FormatoExtrato, LinhaExtrato, MapeamentoExtrato } from "@finnagent/contracts";
+import type { Extrato, ExtratosResposta, FormatoExtrato, LinhaExtrato, MapeamentoExtrato } from "@finnagent/contracts";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
 
 export const EXTRATOS_REPOSITORIO = Symbol("EXTRATOS_REPOSITORIO");
@@ -11,6 +11,7 @@ export type GravacaoExtrato = {
   contentHash: string;
   accountId: string | null;
   accountName: string | null;
+  note: string;
   mapping: MapeamentoExtrato | null;
   leitura: LeituraExtrato;
 };
@@ -22,11 +23,13 @@ export type ReservaExtrato = {
   contentHash: string;
   accountId: string | null;
   accountName: string | null;
+  note: string;
 };
 
 export type ConteudoExtrato = {
   filename: string;
   bytes: Buffer;
+  note: string;
   mapping: MapeamentoExtrato | null;
 };
 
@@ -36,6 +39,7 @@ export type LinhaImportada = {
   date: string;
   description: string;
   cents: number;
+  accountId: string;
   accountName: string;
   filename: string;
   entryId: string | null;
@@ -50,11 +54,15 @@ export type LinhaImportada = {
 /** Uma parte da linha dividida. `created` é falso quando a parte pagou o lançamento que já existia na sessão fixa. */
 export type ParteGravada = { entryId: string; cents: number; created: boolean };
 
+export type LinhaDoExtrato = { statementId: string; line: number };
+
+export type OndeEstaoOsLancamentos = { entryIds?: string[]; sessionId?: string; groupId?: string };
+
 /** Um nome dado pela pessoa a uma descrição do extrato (`key` é a descrição normalizada). */
 export type NomeLembrado = { key: string; name: string };
 
 export type ExtratosRepositorio = {
-  listar(tenantId: string): Promise<{ accounts: { id: string; name: string }[]; statements: Extrato[] }>;
+  listar(tenantId: string): Promise<ExtratosResposta>;
   criar(tenantId: string, pedido: GravacaoExtrato): Promise<Extrato | "duplicado" | "identificador" | "conta-ausente">;
   linhas(
     tenantId: string,
@@ -121,7 +129,14 @@ export type ExtratosRepositorio = {
     line: number,
     key?: string,
   ): Promise<{ entryId: string; created: boolean } | "ausente" | "livre">;
-  contarCruzadas(tenantId: string, id: string): Promise<number>;
+  /** As linhas cruzadas de um extrato, na ordem. */
+  linhasCruzadasDoExtrato(tenantId: string, id: string): Promise<LinhaDoExtrato[]>;
+  /** As linhas ligadas (inteiras ou em parte) aos lançamentos pedidos, ou aos de uma sessão ou de um grupo. */
+  linhasDosLancamentos(tenantId: string, onde: OndeEstaoOsLancamentos): Promise<LinhaDoExtrato[]>;
+  /** Esquece as associações de descrição que apontam para a sessão. */
+  esquecerAssociacoesDaSessao(tenantId: string, sessionId: string): Promise<void>;
+  /** O lançamento nasceu do extrato e nenhuma linha nem parte aponta mais para ele. */
+  lancamentoSoltoDoExtrato(tenantId: string, entryId: string): Promise<boolean>;
   listarAssociacoes(
     tenantId: string,
   ): Promise<Array<{ name: string; sessionId: string; entryId: string | null }>>;

@@ -109,7 +109,7 @@ export function PainelDeIa({ secao }: { secao: string }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 24 }}
             transition={mola}
-            className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand bg-surface p-4"
+            className="sticky bottom-4 mr-12 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand bg-surface p-4"
           >
             <p>O assistente tem alterações não salvas.</p>
             <span className="flex flex-wrap gap-2">

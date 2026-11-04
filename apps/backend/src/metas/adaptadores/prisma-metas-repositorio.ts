@@ -83,7 +83,15 @@ export class PrismaMetasRepositorio implements MetasRepositorio {
   }
 
   async reabrir(tenantId: string, goalId: string, year: number, month: number) {
-    await this.banco().goalAllocation.updateMany({ where: { tenantId, goalId, year, month }, data: { approvedCents: null } });
+    await this.banco().$transaction(async (tx) => {
+      const { count } = await tx.goalAllocation.updateMany({
+        where: { tenantId, goalId, year, month },
+        data: { approvedCents: null },
+      });
+      if (count === 0) return;
+      const payload = { goalId, year, month };
+      await gravarOutbox(tx, tenantId, "reabrir-sobra-da-meta", `${goalId}:${year}-${month}`, payload, String(Date.now()));
+    });
   }
 
   async reordenar(tenantId: string, ids: string[]) {

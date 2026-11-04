@@ -3,10 +3,8 @@ import {
   Body,
   ConflictException,
   Controller,
-  Delete,
   Get,
   Headers,
-  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -44,13 +42,16 @@ const formularioLancamento = z.object({
   sessionId: z.uuid(),
   name: texto,
   description: z.string().trim().max(160),
-  justification: texto,
+  // Opcional: por que o valor existe. A pessoa escreve quando quer; o sistema não inventa texto.
+  justification: z.string().trim().max(160).default(""),
   date: dataIso,
   mode: z.enum(MODOS_TRANSACAO),
   status: z.enum(STATUS_TRANSACAO),
-  transactionType: z.enum(TIPOS_TRANSACAO),
+  // Derivado: fixa, parcela e empréstimo são compromisso; o resto é incomum até ser ligado à agenda.
+  transactionType: z.enum(TIPOS_TRANSACAO).default("unusual"),
   category: z.enum(CATEGORIAS_TRANSACAO),
-  priority: z.enum(PRIORIDADES_TRANSACAO),
+  // Guardada por compatibilidade; a tela não pede mais.
+  priority: z.enum(PRIORIDADES_TRANSACAO).default("nopriority"),
   cents: centavos,
   installments: opcional(z.number().int().min(1).max(360)),
   installmentNumber: opcional(z.number().int().min(1).max(360)),
@@ -61,6 +62,9 @@ const formularioLancamento = z.object({
   recurrenceInterval: opcional(z.number().int().min(1).max(3660)),
   // Ausente: na edição, a cobertura gravada permanece. Vazio conta na sobra.
   coveredById: z.uuid().nullable().optional(),
+  // Ausente na edição: a conta gravada permanece.
+  accountId: z.uuid().nullable().optional(),
+  transfer: z.boolean().optional(),
   // Sem regra, vale o padrão da categoria nas configurações.
   dueRule: z
     .object({
@@ -135,12 +139,6 @@ export class FinancasController {
     return this.executar(() => this.financas.registrar(this.tenant(tenant), pedido));
   }
 
-  @Delete("lancamentos/:id")
-  @HttpCode(204)
-  excluir(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
-    return this.executar(() => this.financas.excluir(this.tenant(tenant), this.id(id)));
-  }
-
   @Patch("lancamentos/:id")
   atualizar(
     @Headers("x-tenant-id") tenant: string | undefined,
@@ -198,19 +196,6 @@ export class FinancasController {
     return this.executar(() =>
       this.financas.atualizarOcorrencia(this.tenant(tenant), this.id(id), number, parsed.data),
     );
-  }
-
-  @Delete("lancamentos/:id/ocorrencias/:numero")
-  excluirOcorrencia(
-    @Headers("x-tenant-id") tenant: string | undefined,
-    @Param("id") id: string,
-    @Param("numero") numero: string,
-  ) {
-    const number = Number(numero);
-    if (!Number.isInteger(number) || number < 1 || number > 3660) {
-      throw new BadRequestException("Não foi possível apagar este mês.");
-    }
-    return this.executar(() => this.financas.excluirOcorrencia(this.tenant(tenant), this.id(id), number));
   }
 
   @Post("lancamentos/:id/compromisso")
@@ -297,7 +282,6 @@ export class FinancasController {
       if (campo === "sessionId") throw new BadRequestException("Escolha uma sessão.");
       if (campo === "name") throw new BadRequestException("Dê um nome à transação.");
       if (campo === "description") throw new BadRequestException("A descrição pode ter até 160 caracteres.");
-      if (campo === "justification") throw new BadRequestException("Informe a justificativa.");
       if (campo === "date") throw new BadRequestException("Informe uma data válida.");
       if (campo === "cents") throw new BadRequestException("Informe o valor.");
       if (campo === "dueRule") throw new BadRequestException("Confira a regra do vencimento.");

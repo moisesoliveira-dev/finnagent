@@ -41,6 +41,7 @@ import { AssistenteIndisponivel, SemModelo } from "../dominio/erros.js";
 import { fatosDoPlano, type CruzamentoMedido } from "../dominio/fatos-do-plano.js";
 import { preparoDoCruzamento, valorContado } from "../../extratos/dominio/cruzar.js";
 import { validarPlano, type PlanoValidado } from "../dominio/plano.js";
+import { lerAnexos, mensagemComAnexos } from "../dominio/anexos.js";
 import { interpretarMensagem, interpretarTitulo } from "../dominio/pedido.js";
 import { CONTEXTO_DO_ASSISTENTE, type Contexto, type ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
 import {
@@ -327,6 +328,9 @@ export class AssistenteService {
     }
 
     const texto = pedido.texto ?? "";
+    const lidos = lerAnexos(pedido.anexos ?? []);
+    if (typeof lidos === "string") throw new PedidoInvalido(lidos);
+    const anexos = lidos.map((anexo) => ({ ...anexo, id: randomUUID() }));
     if (!conversa) {
       const resumo = await this.conversas.criar(quem.tenantId, quem.userId, randomUUID(), tituloDe(texto));
       emitir({ tipo: "conversa", conversa: resumo });
@@ -338,18 +342,18 @@ export class AssistenteService {
     const usuario: MensagemDoChat = {
       id: randomUUID(),
       role: "user",
-      partes: [{ tipo: "texto", texto }],
+      partes: [{ tipo: "texto", texto }, ...anexos.map(({ content: _conteudo, ...anexo }) => ({ tipo: "anexo" as const, anexo }))],
       agente: null,
       createdAt: agora,
     };
-    await this.conversas.gravarMensagem(quem.tenantId, conversa.resumo.id, usuario);
+    await this.conversas.gravarMensagem(quem.tenantId, conversa.resumo.id, usuario, anexos);
     const turno = new Turno(
       conversa.resumo.id,
       usuario.id,
       randomUUID(),
       new Date(Date.now() + 1).toISOString(),
       historicoParaOModelo(conversa.mensagens),
-      [{ role: "user", content: texto }],
+      [{ role: "user", content: mensagemComAnexos(texto, anexos) }],
       [],
       null,
       null,

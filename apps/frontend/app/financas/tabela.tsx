@@ -15,7 +15,7 @@ import { ItemAnimado, ListaAnimada, Seta, Troca, useCurva } from "../../componen
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { Vazio } from "../../components/ui/vazio";
-import { ROTULO_CATEGORIA, ROTULO_PRIORIDADE, rotuloDaSituacao, tomDaPrioridade, tomDaSituacao } from "./rotulos";
+import { ROTULO_CATEGORIA, rotuloDaSituacao, tomDaCategoria, tomDaSituacao } from "./rotulos";
 
 const field = campo;
 
@@ -347,9 +347,9 @@ export function TabelaLancamentos({
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-wrap gap-2">
-                      <Chip>{ROTULO_CATEGORIA[linha.category]}</Chip>
+                      <Chip tone={tomDaCategoria(linha.category)}>{ROTULO_CATEGORIA[linha.category]}</Chip>
+                      {linha.transfer ? <Chip tone="info">Transferência</Chip> : null}
                       <Chip tone={tomDaSituacao(linha.situation)}>{rotuloDaSituacao(linha.situation)}</Chip>
-                      <Chip tone={tomDaPrioridade(linha.priority)}>{ROTULO_PRIORIDADE[linha.priority]}</Chip>
                     </div>
                     {linha.description || linha.installment ? (
                       <p className="min-w-0 max-w-prose text-sm wrap-break-word">
@@ -421,11 +421,11 @@ function Descricao({ linha }: { linha: LinhaBase }) {
 }
 
 function Excluir({ linha, onExcluir }: { linha: LinhaBase; onExcluir: (linha: LinhaBase) => Promise<void> }) {
-  if (linha.remove === null && !linha.synced) return null;
+  if (linha.remove === null) return null;
   return (
     <ControleExclusao
       compact
-      removivel={linha.remove !== null}
+      sincronizado={linha.synced}
       rotulo={linha.remove === "occurrence" ? "Excluir este mês" : "Excluir lançamento"}
       onExcluir={() => onExcluir(linha)}
     />

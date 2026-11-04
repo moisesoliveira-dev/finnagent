@@ -3,7 +3,6 @@ import {
   Body,
   ConflictException,
   Controller,
-  Delete,
   Get,
   Headers,
   HttpCode,
@@ -105,17 +104,6 @@ export class GruposController {
     );
   }
 
-  @Delete("grupos/:id")
-  @HttpCode(204)
-  removerGrupo(
-    @Headers("x-tenant-id") tenant: string | undefined,
-    @Param("id") id: string,
-  ) {
-    return this.executar(() =>
-      this.grupos.removerGrupo(this.tenant(tenant), this.id(id)),
-    );
-  }
-
   @Post("sessoes")
   criarSessao(
     @Headers("x-tenant-id") tenant: string | undefined,
@@ -151,17 +139,6 @@ export class GruposController {
         description: pedido.description,
         justification: pedido.justification,
       }, pedido.kind),
-    );
-  }
-
-  @Delete("sessoes/:id")
-  @HttpCode(204)
-  removerSessao(
-    @Headers("x-tenant-id") tenant: string | undefined,
-    @Param("id") id: string,
-  ) {
-    return this.executar(() =>
-      this.grupos.removerSessao(this.tenant(tenant), this.id(id)),
     );
   }
 

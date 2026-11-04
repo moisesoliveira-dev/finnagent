@@ -252,7 +252,7 @@ function dataDe(valor: string) {
   }
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto);
   if (iso) return dataValida(iso[1], iso[2], iso[3]);
-  const br = /^(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})$/.exec(texto);
+  const br = /^(\d{2})[/.-](\d{2})[/.-](\d{4})$/.exec(texto);
   if (br) return dataValida(br[3], br[2], br[1]);
   return null;
 }

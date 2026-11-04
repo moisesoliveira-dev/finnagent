@@ -121,7 +121,8 @@ describe("exclusão pela linha", () => {
     const grade = gradeDoLancamento(notebook);
     expect(removerDaLinha(notebook, grade.slice(0, 1), grade[0]!)).toBe("entry");
     expect(removerDaLinha(notebook, grade, grade[1]!)).toBe("occurrence");
-    expect(removerDaLinha({ ...notebook, synced: true }, grade, grade[1]!)).toBeNull();
+    // Sincronizado com o extrato também apaga: quem apaga solta antes as linhas dele.
+    expect(removerDaLinha({ ...notebook, synced: true }, grade, grade[1]!)).toBe("occurrence");
     const paga = comPrimeiraPaga(notebook).occurrences ?? [];
     expect(removerDaLinha(notebook, paga, paga[0]!)).toBeNull();
   });

@@ -13,7 +13,7 @@ import { Dialogo } from "../../components/ui/dialogo";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { Money } from "../../components/ui/money";
 import { useToast } from "../../components/ui/toast";
-import { campo, cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
@@ -289,7 +289,7 @@ function Formulario({
                     <label key={item.id} className="flex min-h-10 items-center gap-2 text-sm">
                       <input
                         type="checkbox"
-                        className={`size-4 accent-brand ${focusRing}`}
+                        className={caixaDeMarcar}
                         checked={marcados.includes(item.id)}
                         onChange={(event) =>
                           setMarcados((atual) =>
@@ -340,7 +340,7 @@ function Formulario({
       <div className="dialog-corpo grid gap-4">{corpo}</div>
       <div className="dialog-acoes">
         <div className="mr-auto">
-          <ControleExclusao removivel={entry.actions.remove} ocupado={ocupado} onExcluir={apagarLancamento} />
+          <ControleExclusao sincronizado={entry.synced} ocupado={ocupado} onExcluir={apagarLancamento} />
         </div>
         <Button type="button" variant="quiet" onClick={onClose}>
           Fechar
@@ -464,13 +464,14 @@ function atualizarValor(
 }
 
 export function ControleExclusao({
-  removivel,
+  sincronizado = false,
   rotulo = "Excluir lançamento",
   compact = false,
   ocupado = false,
   onExcluir,
 }: {
-  removivel: boolean;
+  /** O lançamento veio do extrato: apagar solta a linha, que volta para a Conferência. */
+  sincronizado?: boolean;
   rotulo?: string;
   compact?: boolean;
   ocupado?: boolean;
@@ -490,23 +491,6 @@ export function ControleExclusao({
     } finally {
       setLocal(false);
     }
-  }
-
-  if (!removivel) {
-    if (compact) {
-      return (
-        <Button
-          type="button"
-          variant="quiet"
-          className="size-10 px-0"
-          disabled
-          aria-label="Sincronizado com o extrato. Não pode ser apagado."
-        >
-          <Lixeira />
-        </Button>
-      );
-    }
-    return <p className="text-sm text-ink-2">Sincronizado com o extrato. Não pode ser apagado.</p>;
   }
 
   if (confirma && compact) {
@@ -546,7 +530,9 @@ export function ControleExclusao({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <p className="text-sm">Apagar este lançamento?</p>
+      <p className="text-sm">
+        {sincronizado ? "Apagar este lançamento? A linha do extrato volta para a Conferência." : "Apagar este lançamento?"}
+      </p>
       <Button type="button" variant="danger" disabled={busy} onClick={() => void confirmar()}>
         Apagar
       </Button>

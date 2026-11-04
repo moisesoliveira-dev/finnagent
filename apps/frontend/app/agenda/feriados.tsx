@@ -25,7 +25,7 @@ export function descricaoDoFeriado(feriado: Feriado) {
 /** Selo do feriado no título do dia, ao lado do "Hoje". */
 export function SelosDoFeriado({ feriados }: { feriados: Feriado[] }) {
   return feriados.map((item) => (
-    <Chip key={`${item.data}-${item.nome}`} title={ROTULO_DO_TIPO_DE_FERIADO[item.tipo]}>
+    <Chip key={`${item.data}-${item.nome}`} tone="event" title={ROTULO_DO_TIPO_DE_FERIADO[item.tipo]}>
       {item.nome} · {TIPO_CURTO[item.tipo]}
     </Chip>
   ));

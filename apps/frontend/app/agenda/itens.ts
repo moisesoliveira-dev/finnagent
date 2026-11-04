@@ -24,9 +24,17 @@ export type ItemDia = {
 };
 
 export function rotuloDaCategoria(categoria: CategoriaCompromisso) {
-  if (categoria === "periodical") return "Periódico";
-  if (categoria === "time") return "Com validade";
-  return "Fixo";
+  if (categoria === "periodical") return "Todo mês";
+  if (categoria === "time") return "Todo mês até uma data";
+  if (categoria === "weekly") return "Toda semana";
+  if (categoria === "yearly") return "Todo ano";
+  return "Uma vez";
+}
+
+export function tomDaCategoria(categoria: CategoriaCompromisso) {
+  if (categoria === "periodical") return "event" as const;
+  if (categoria === "time") return "default" as const;
+  return "info" as const;
 }
 
 export function rotuloDoStatus(status: StatusCompromisso) {

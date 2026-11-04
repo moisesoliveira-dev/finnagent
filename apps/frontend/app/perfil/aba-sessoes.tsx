@@ -85,7 +85,7 @@ export function AbaDeSessoes({ somenteLeitura }: { somenteLeitura: boolean }) {
               title={sessao.device}
               meta={
                 <>
-                  {sessao.current ? <Chip tone="ok">Este aparelho</Chip> : null}
+                  {sessao.current ? <Chip tone="info">Este aparelho</Chip> : null}
                   <span>Entrou em {dataCurta(sessao.createdAt)}</span>
                 </>
               }

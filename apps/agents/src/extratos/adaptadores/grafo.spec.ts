@@ -31,4 +31,13 @@ describe("leitura do extrato pela IA", () => {
     const linhas = await grafoCom({ linhas: [{ date: "2026-10-01", description: "Mercado", cents: -1000 }], cortada: false }).organizar(pedido);
     expect(linhas).toEqual([{ line: 1, date: "2026-10-01", description: "Mercado", cents: -1000, error: "" }]);
   });
+  it("o que a pessoa escreveu sobre o extrato chega ao leitor e ao organizador", async () => {
+    const vistas: Array<string | undefined> = [];
+    const grafo = criarGrafo(
+      { ler: async (arquivo) => (vistas.push(arquivo.observacao), "texto do extrato") },
+      { organizarTexto: async (_texto, observacao) => (vistas.push(observacao), { linhas: [], cortada: false }) },
+    );
+    await grafo.organizar({ ...pedido, observacao: "conta da empresa" });
+    expect(vistas).toEqual(["conta da empresa", "conta da empresa"]);
+  });
 });

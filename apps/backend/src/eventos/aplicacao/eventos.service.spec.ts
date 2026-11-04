@@ -102,7 +102,7 @@ describe("histórico paginado", () => {
       new Date("2026-10-28T12:00:00.000Z"),
     );
     expect(pagina.retention).toBe("90d");
-    expect((memoria.pedidos[0]?.[3] as Date).toISOString()).toBe("2026-07-30T12:00:00.000Z");
+    expect((memoria.pedidos[0]?.[3] as Date | undefined)?.toISOString()).toBe("2026-07-30T12:00:00.000Z");
     expect(pagina.history).toEqual([expect.objectContaining({ eventId: "c", durationMs: 2000, result: "sucesso" })]);
   });
 

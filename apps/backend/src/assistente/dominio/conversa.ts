@@ -4,6 +4,7 @@ import type {
   ParteDaMensagem,
   RetencaoDoChat,
 } from "@finnagent/contracts";
+import { anexosDasPartes, linhaDoAnexo } from "./anexos.js";
 
 /** Mensagens anteriores que o modelo recebe. Mais que isso pesa no custo e pouco ajuda. */
 export const LIMITE_DO_HISTORICO = 20;
@@ -34,7 +35,10 @@ export function historicoParaOModelo(mensagens: MensagemDoChat[]): MensagemDoMod
   if (inicio < 0) return [];
   return recentes.slice(inicio).flatMap((mensagem): MensagemDoModelo[] => {
     const texto = textoDas(mensagem.partes);
-    if (mensagem.role === "user") return texto ? [{ role: "user", content: texto }] : [];
+    if (mensagem.role === "user") {
+      const conteudo = [texto, ...anexosDasPartes(mensagem.partes).map(linhaDoAnexo)].filter(Boolean).join("\n");
+      return conteudo ? [{ role: "user", content: conteudo }] : [];
+    }
     const extras: string[] = [];
     const acoes = mensagem.partes.flatMap((parte) => (parte.tipo === "acao" && parte.acao.estado === "feita" ? [parte.acao.rotulo] : []));
     if (acoes.length) extras.push(`(Ações feitas: ${acoes.join("; ")}.)`);

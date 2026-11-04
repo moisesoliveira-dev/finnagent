@@ -52,7 +52,10 @@ export function Vazio({
               : "O usuário master da conta precisa conectar um provedor de IA."}
           </p>
           {podeConfigurar ? (
-            <Link href="/configuracoes?secao=ia-provedores" className="font-medium text-brand underline-offset-4 hover:underline">
+            <Link
+              href="/configuracoes?secao=ia-provedores"
+              className={cn("inline-flex min-h-10 items-center justify-self-start font-medium text-brand underline-offset-4 hover:underline", focusRing)}
+            >
               Configurar a inteligência artificial
             </Link>
           ) : null}

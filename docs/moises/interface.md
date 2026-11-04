@@ -60,3 +60,22 @@ Arquivos:
 - `apps/frontend/app/grupos/page.tsx`
 - `apps/frontend/app/metas/page.tsx`
 - `apps/frontend/app/relatorios/page.tsx`
+
+## Revisão geral: tags, toque, lint, camadas e observabilidade
+
+O que foi feito:
+
+- Tags: o `Chip` ganhou os tons `info` (azul), `pending` (âmbar) e `event` (índigo), e o `ok` passou a ser verde e o `neg` ganhou fundo. Cada uso foi recolorido pelo significado (pago e cruzado em verde, atraso e erro em vermelho, aguardando em âmbar, fixo, hoje e master em azul, agenda e acúmulo em índigo). Regra atualizada em `interface.md`.
+- Grupos: a página abre com todos os grupos fechados; a busca continua abrindo os que têm resultado, e salvar uma sessão abre o grupo dela.
+- Toque de 40 px no ícone de dica, no número do dia da agenda, nas caixas de marcar (`caixaDeMarcar` em `cn.ts`) e no link do assistente. As barras fixas de baixo deixam 48 px livres para o ícone da calculadora. No app mobile, "Em 1 dias" virou "Amanhã".
+- Lint do frontend zerado (4 erros e 5 avisos): refs só mudam em efeito, a seção e a URI de retorno das configurações vêm da URL sem estado, a virada do ano abre o `Dialogo` por estado.
+- Backend: o cliente HTTP do Google saiu de `agenda/` para `google/` (configurações importava o adaptador de outra slice). Duas operações que gravavam sem outbox passaram a gravar (`definir-pendencia-da-conversa`, `reabrir-sobra-da-meta`), registradas no catálogo. Avisos do oxlint zerados.
+- Testes de propriedade com fast-check (divisão da linha, valor da fixa, chave do nome, ocorrência paga).
+- Observabilidade, que só tinha o Sentry do agents: Sentry e OpenTelemetry ligam no backend, no frontend e no agents quando as variáveis existem. Só o backend manda métricas, porque métrica periódica mantém o serviço acordado no Railway. `hospedagem.md` e o Compose (`ARG` do DSN do navegador) ajustados.
+- Extratos: lançamento do extrato que fica sem linha ao desfazer é apagado, com a migração que limpa as sobras (registrado em `extratos.md`).
+
+Motivo: a pedido, revisar o sistema inteiro e corrigir inconsistências de layout, arquitetura e regras.
+
+Verificação: `tsc` limpo em frontend, backend, agents, mobile e contracts; lint limpo no frontend e no backend; testes de backend (410), agents (56), chat e mobile passando; Docker reconstruído com os cinco serviços de pé; em 375 px, nenhuma tela rola na horizontal e sobraram só as caixas de marcar da Conferência (o toque delas é o do `label` de 40 px). Não verificado: envio real ao Sentry e ao Grafana (sem DSN nem endpoint locais) e o modo escuro das tags.
+
+Arquivos: `apps/frontend/components/ui/chip.tsx`, `cn.ts`, `rotulo.tsx`; telas de `agenda`, `financas`, `grupos`, `metas`, `configuracoes`, `perfil`, `assistente`, `extratos`; `apps/backend/src/google/`, `instrumentar.ts`, `app.module.ts`; `apps/frontend/instrumentation*.ts`; `apps/agents/src/instrumentar.ts`; `compose.yaml`; `.claude/rules/interface.md` e `hospedagem.md`.

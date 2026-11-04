@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ViradaResposta } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Dialogo } from "../../components/ui/dialogo";
-import { focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar } from "../../components/ui/cn";
 import { useToast } from "../../components/ui/toast";
 import { api } from "./api";
-
-const caixa = `size-4 accent-brand ${focusRing}`;
 
 type Pendente = Extract<ViradaResposta, { pendente: true }>;
 
 export function ViradaDoAno() {
   const toast = useToast();
-  const dialog = useRef<HTMLDialogElement>(null);
   const [virada, setVirada] = useState<Pendente | null>(null);
   const [grupos, setGrupos] = useState<string[]>([]);
   const [sessoes, setSessoes] = useState<string[]>([]);
@@ -36,11 +33,6 @@ export function ViradaDoAno() {
       ativo = false;
     };
   }, [toast]);
-
-  useEffect(() => {
-    if (!virada || dialog.current?.open) return;
-    dialog.current?.showModal();
-  }, [virada]);
 
   function alternarGrupo(id: string, marcado: boolean) {
     setGrupos((atual) => (marcado ? [...atual, id] : atual.filter((item) => item !== id)));
@@ -65,85 +57,84 @@ export function ViradaDoAno() {
         body: JSON.stringify({ year: virada.year, groupIds, sessionIds }),
       });
       toast.sucesso("Grupos e sessões atualizados para o ano novo.");
-      dialog.current?.close();
+      setVirada(null);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível guardar a escolha.");
       setSalvando(false);
     }
   }
 
-  if (!virada) return null;
-
+  // Aberto por estado: o Dialogo segura o conteúdo até o fim da saída.
   return (
-    <Dialogo
-      ref={dialog}
-      aria-labelledby="titulo-virada"
-      onClose={() => setVirada(null)}
-    >
-      <h2 id="titulo-virada" className="mb-4 font-display text-lg">
-        O que continua em {virada.year}?
-      </h2>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void confirmar();
-        }}
-      >
-        <div className="dialog-corpo grid gap-4">
-          <p>
-            Escolha os grupos e as sessões que permanecem. O que ficar de fora encerra em 31/12/
-            {virada.year - 1}.
-          </p>
-          {virada.groups.length === 0 ? (
-            <p className="text-sm text-ink-2">Não há grupo aberto para continuar.</p>
-          ) : (
-            virada.groups.map((group) => {
-              const grupoMarcado = grupos.includes(group.id);
-              return (
-                <fieldset key={group.id} className="grid gap-2">
-                  <label className="flex min-h-10 items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      className={caixa}
-                      checked={grupoMarcado}
-                      onChange={(event) => alternarGrupo(group.id, event.target.checked)}
-                    />
-                    {group.name}
-                  </label>
-                  <div className="grid gap-1 pl-6">
-                    {group.sessions.map((session) => (
-                      <label key={session.id} className="flex min-h-10 items-center gap-2 text-sm">
+    <Dialogo aberto={virada !== null} aria-labelledby="titulo-virada" onClose={() => setVirada(null)}>
+      {virada ? (
+        <>
+          <h2 id="titulo-virada" className="mb-4 font-display text-lg">
+            Revisar o ano {virada.year}
+          </h2>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmar();
+            }}
+          >
+            <div className="dialog-corpo grid gap-4">
+              <p>
+                Tudo continua como está. Se algum grupo ou sessão acabou com o ano, desmarque: ele encerra em 31/12/
+                {virada.year - 1}.
+              </p>
+              {virada.groups.length === 0 ? (
+                <p className="text-sm text-ink-2">Não há grupo aberto para continuar.</p>
+              ) : (
+                virada.groups.map((group) => {
+                  const grupoMarcado = grupos.includes(group.id);
+                  return (
+                    <fieldset key={group.id} className="grid gap-2">
+                      <label className="flex min-h-10 items-center gap-2 text-sm font-medium">
                         <input
                           type="checkbox"
-                          className={caixa}
-                          checked={grupoMarcado && sessoes.includes(session.id)}
-                          disabled={!grupoMarcado}
-                          onChange={(event) =>
-                            setSessoes((atual) =>
-                              event.target.checked
-                                ? [...atual, session.id]
-                                : atual.filter((item) => item !== session.id),
-                            )
-                          }
+                          className={caixaDeMarcar}
+                          checked={grupoMarcado}
+                          onChange={(event) => alternarGrupo(group.id, event.target.checked)}
                         />
-                        {session.name}
+                        {group.name}
                       </label>
-                    ))}
-                  </div>
-                </fieldset>
-              );
-            })
-          )}
-        </div>
-        <div className="dialog-acoes">
-          <Button type="button" variant="quiet" onClick={() => dialog.current?.close()} disabled={salvando}>
-            Agora não
-          </Button>
-          <Button type="submit" variant="primary" disabled={salvando}>
-            Confirmar
-          </Button>
-        </div>
-      </form>
+                      <div className="grid gap-1 pl-6">
+                        {group.sessions.map((session) => (
+                          <label key={session.id} className="flex min-h-10 items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className={caixaDeMarcar}
+                              checked={grupoMarcado && sessoes.includes(session.id)}
+                              disabled={!grupoMarcado}
+                              onChange={(event) =>
+                                setSessoes((atual) =>
+                                  event.target.checked
+                                    ? [...atual, session.id]
+                                    : atual.filter((item) => item !== session.id),
+                                )
+                              }
+                            />
+                            {session.name}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  );
+                })
+              )}
+            </div>
+            <div className="dialog-acoes">
+              <Button type="button" variant="quiet" onClick={() => setVirada(null)} disabled={salvando}>
+                Depois
+              </Button>
+              <Button type="submit" variant="primary" disabled={salvando}>
+                Manter o que está marcado
+              </Button>
+            </div>
+          </form>
+        </>
+      ) : null}
     </Dialogo>
   );
 }
