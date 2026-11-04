@@ -251,3 +251,34 @@ Arquivos:
 - `apps/backend/src/assistente/adaptadores/executor-http.spec.ts`
 - `apps/backend/src/assistente/dominio/plano.ts`
 - `apps/backend/src/assistente/dominio/plano.limite.spec.ts`
+
+## Anexos no chat e observação no extrato
+
+- O chat aceita anexo: o clipe abre o seletor (ou arrasta o arquivo para a caixa). Vale CSV, OFX, TXT, TSV, JSON, MD, PDF e imagem (PNG, JPG, WEBP), até 5 arquivos por mensagem, 5 MB cada e 6 MB no total. O arquivo aparece como etiqueta acima da caixa, dá para tirar antes de enviar, e o anexo sozinho basta: o sistema escreve "Anexei o arquivo.".
+- O arquivo fica no servidor (tabela `ai_attachments`, ligada à conversa e apagada com ela, pela retenção ou ao zerar a conta). A mensagem guarda só o nome, o tipo, o tamanho e o id. Cada anexo grava o evento `anexar-arquivo-ao-chat` no outbox, na mesma transação da mensagem, sem o conteúdo.
+- O modelo lê o texto dos arquivos de texto (até 12 mil caracteres, o resto é cortado) e recebe, para todo anexo, a linha "Anexo: nome (tipo, tamanho, anexoId: ...)". Nas conversas seguintes ele ainda sabe os ids, mas não relê o conteúdo. Imagem e PDF não são lidos na conversa: só viram extrato.
+- Ferramenta nova `importar_extrato` (agente de Extratos, dentro de plano aprovado, como toda escrita): importa o anexo na conta que a pessoa disse, com o mesmo caminho da tela (`POST /extratos/de-anexo`, que reaproveita a criação de extrato). Em CSV, o modelo diz as colunas depois de olhar as primeiras linhas. O prompt manda perguntar a conta quando ela não foi dita e conferir com `consultar_extratos` depois.
+- Informação a mais junto com o extrato: o extrato ganhou o campo `note` ("Observação"). Na tela de Importações há o campo opcional ao importar, e a lista mostra a observação no cartão do extrato. Pelo chat, o modelo passa o que a pessoa escreveu em `observacao`. Em imagem e PDF a observação vai ao leitor e ao organizador da IA como contexto (sem mudar o formato da resposta), inclusive ao reprocessar; em CSV e OFX ela só fica guardada e visível. A exportação e a importação do pacote de dados levam a observação.
+- O front só mostra o anexo enviado; o app mobile não tem o clipe.
+
+Motivo: poder mandar o extrato e o que se sabe sobre ele na mesma conversa, em vez de importar numa tela e explicar em outra.
+
+Verificação: `tsc` limpo em backend, agents, frontend e mobile; lint limpo; 426 testes do backend, 57 do agents e 3 do chat passando, com os casos novos (guardar o anexo e mostrar na mensagem, o modelo ler texto e id, imagem e PDF sem conteúdo, só anexo, arquivo recusado sem criar conversa, id lembrado na conversa seguinte, importar do anexo, observação até o leitor). A migração `20261104190000_anexos_do_chat_e_observacao_do_extrato` foi aplicada no Postgres local. No Docker local, com o modelo cadastrado: um CSV anexado com "importe este extrato" gerou o plano com `importar_extrato`, e ao aprovar o extrato entrou na conta com 1 linha; com "é a conta da empresa e as tarifas devem ser ignoradas" na mensagem, a observação ficou guardada no extrato e aparece pela API. Anexo `.exe` volta 400 com a mensagem. No navegador, em 1280 e 375 px, o clipe tem 40 px, a etiqueta do arquivo aparece, Enviar habilita só com o anexo e a página não rola na horizontal. Os dados de teste foram apagados. Não verificado: importar imagem ou PDF por anexo (a leitura por IA depende do modelo de leitura configurado) e o envio de vários arquivos grandes de uma vez pelo proxy do Railway.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261104190000_anexos_do_chat_e_observacao_do_extrato/migration.sql`
+- `packages/contracts/src/index.ts`
+- `packages/chat/src/index.ts` e `index.spec.ts`
+- `apps/backend/src/assistente/dominio/anexos.ts` (novo), `conversa.ts` e `pedido.ts`
+- `apps/backend/src/assistente/aplicacao/anexos.service.ts` (novo), `assistente.service.ts` e `assistente.service.spec.ts`
+- `apps/backend/src/assistente/adaptadores/prisma-conversas-repositorio.ts` e `rotas-das-ferramentas.ts`
+- `apps/backend/src/assistente/portas/conversas-repositorio.ts` e `assistente.module.ts`
+- `apps/backend/src/extratos/` (serviço, controlador, porta, adaptador e o spec do serviço)
+- `apps/backend/src/dados/dominio/pacote.ts` e `zerar.ts`
+- `apps/agents/src/extratos/` (http, grafo, openai, leitor e o spec do grafo)
+- `apps/agents/src/assistente/dominio/prompts.ts` e `adaptadores/grafo-do-assistente.spec.ts`
+- `apps/frontend/app/assistente/` (anexos.ts novo, compositor, chat e mensagem)
+- `apps/frontend/app/extratos/page.tsx`
+- `apps/frontend/components/ui/icone.tsx`

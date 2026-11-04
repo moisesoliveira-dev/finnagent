@@ -224,17 +224,21 @@ O que foi feito:
 - A recusa vinda das finanças (como "Esta sessão fixa já foi lançada.") passou a voltar como 400 com a mensagem, e não como 500.
 - Desfazer deixa a linha como se nunca tivesse sido lançada: o lançamento que nasceu dela (acúmulo ou parte da divisão) é apagado, junto com o nome lembrado que ele deixou (um uso a menos) e a associação da descrição que apontava para ele. O lançamento que já existia (cruzamento ou fixa paga por uma parte) volta a pendente. Antes, desfazer um acúmulo deixava o lançamento pendente na sessão.
 - A linha e cada parte guardam se o lançamento nasceu delas (`entry_created` e `created`). A migração marca as linhas já lançadas por acúmulo.
+- O lançamento que nasceu do extrato (justificativa "Lançamento do extrato.") e fica sem nenhuma linha ao desfazer também é apagado, mesmo quando a linha desfeita só o pagou. Assim a sessão Fixo deixa de aparecer como "Fixo já lançado".
+- A migração `20261104170000_apaga_lancamentos_soltos_do_extrato` apaga o que os desfazer antigos deixaram: lançamento do extrato pendente, sem linha, sem parte e sem ocorrência paga. Grava `excluir-lancamento` no outbox para cada um. No banco local foram dois.
 - Reabrir pelo extrato acha a ocorrência paga na data mesmo quando o valor pago foi o do lançamento, escolhido no cruzamento.
 - A parte de uma linha dividida passou a ocupar a vaga do mês do lançamento que ela pagou.
 
 Motivo: a divisão de um valor que junta a fixa e outra entrada falhava, e desfazer precisa voltar tudo ao que era antes.
 
-Verificação: `tsc` limpo em backend e frontend, lint limpo na Conferência, 398 testes do backend passando, com os casos novos (parte na fixa, fixa já paga, falha depois de pagar a fixa, desfazer misto, desfazer acúmulo e desfazer cruzamento). No Docker local, em 1280 px: R$ 4.500,00 dividido em R$ 3.000,00 numa fixa pendente e R$ 1.500,00 em outra sessão grava "Dividida em 2"; desfazer volta a fixa a pendente e apaga a outra parte; acumular e desfazer apaga o lançamento criado; no banco não sobrou lançamento, parte nem associação. A migração `20261104150000_lancamento_criado_pela_linha` foi aplicada no Postgres local.
+Verificação: `tsc` limpo em backend e frontend, lint limpo na Conferência, 399 testes do backend passando, com os casos novos (parte na fixa, fixa já paga, falha depois de pagar a fixa, desfazer misto, desfazer acúmulo e desfazer cruzamento). No Docker local, em 1280 px: R$ 4.500,00 dividido em R$ 3.000,00 numa fixa pendente e R$ 1.500,00 em outra sessão grava "Dividida em 2"; desfazer volta a fixa a pendente e apaga a outra parte; acumular e desfazer apaga o lançamento criado; no banco não sobrou lançamento, parte nem associação. A migração `20261104150000_lancamento_criado_pela_linha` foi aplicada no Postgres local.
 
 Arquivos:
 
 - `apps/backend/prisma/schema.prisma`
 - `apps/backend/prisma/migrations/20261104150000_lancamento_criado_pela_linha/migration.sql`
+- `apps/backend/prisma/migrations/20261104170000_apaga_lancamentos_soltos_do_extrato/migration.sql`
+- `apps/backend/src/extratos/dominio/divisao.ts`
 - `apps/backend/src/extratos/portas/extratos-repositorio.ts`
 - `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
 - `apps/backend/src/extratos/aplicacao/extratos.service.ts`
@@ -245,3 +249,70 @@ Arquivos:
 - `packages/contracts/src/index.ts`
 - `apps/frontend/app/extratos/conferencia/divisao.tsx`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Apagar leva em conta o estado do resto
+
+- Apagar um lançamento, uma sessão, um grupo ou um extrato passou a desfazer antes o que as linhas do extrato fizeram, em vez de recusar ou de deixar sobra. É o mesmo desfazer da Conferência, feito pelo outro lado: o lançamento que nasceu da linha some, o que a linha pagou volta a pendente, e o nome lembrado e a associação da descrição são esquecidos. A linha volta para a Conferência.
+- Excluir a sessão solta as linhas ligadas aos lançamentos dela, esquece as associações de descrição que apontavam para ela e só então a encerra. Excluir o grupo faz o mesmo para todas as sessões dele.
+- Excluir ou reprocessar um extrato com linhas cruzadas deixou de ser recusado ("Desfaça os cruzamentos na Conferência antes"): cada linha é desfeita antes de o extrato sair.
+- Apagar um lançamento sincronizado com o extrato deixou de ser recusado. A tela avisa "A linha do extrato volta para a Conferência" na confirmação. Apagar uma ocorrência de uma série continua recusando o que já foi pago; só quando é a última e o lançamento inteiro sai as linhas são soltas.
+- A linha dividida volta inteira quando uma das partes é apagada: as partes criadas somem e a fixa que uma parte pagou volta a pendente.
+- O compromisso da agenda ligado ao lançamento apagado volta a pendente, porque estava concluído por causa do pagamento.
+- Sessão ou grupo que guarda uma meta não é apagado: a resposta manda excluir a meta em Metas, porque a meta ficaria sem onde guardar o valor.
+- O que cruza fatias (finanças, grupos, extratos e metas) mora em `apps/backend/src/exclusoes`, com as mesmas rotas de antes (`DELETE /lancamentos/:id`, `/lancamentos/:id/ocorrencias/:numero`, `/sessoes/:id` e `/grupos/:id`). Os controladores de finanças e de grupos perderam essas rotas.
+
+Motivo: apagar uma coisa que o extrato tinha lançado deixava a linha cruzada com algo que não existia mais, ou o pagamento sem origem. O estado do resto do sistema precisa voltar ao que era.
+
+Verificação: `tsc` limpo em backend e frontend, lint limpo, 419 testes do backend passando, com os casos novos de liberar linhas e do orquestrador. No Docker local, com um extrato de duas linhas acumuladas em sessões novas: excluir a sessão devolveu a linha à Conferência e apagou o lançamento criado; excluir o grupo devolveu a outra; excluir um lançamento sincronizado (antes 409) devolveu a linha; excluir o extrato com linha cruzada (antes 409) apagou o lançamento criado. No banco não sobrou lançamento, nome lembrado nem grupo de teste. Não verificado: apagar uma parte de linha dividida pela tela, e o compromisso da agenda voltando a pendente (coberto só pelo código).
+
+Arquivos:
+
+- `apps/backend/src/exclusoes/` (novo: serviço, controlador, módulo e teste)
+- `apps/backend/src/persistencia/desligar-compromissos.ts` (novo)
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/financas/dominio/vista.ts`
+- `apps/backend/src/financas/dominio/vista.spec.ts`
+- `apps/backend/src/financas/financas.controller.ts`
+- `apps/backend/src/grupos/grupos.controller.ts`
+- `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+- `apps/backend/src/metas/aplicacao/metas.service.ts`
+- `apps/backend/src/app.module.ts`
+- `apps/frontend/app/financas/acoes.tsx`, `page.tsx` e `tabela.tsx`
+- `apps/frontend/app/grupos/page.tsx`
+
+## Revisão do modelo: transações, compromissos e contas
+
+- **Bug corrigido:** a descrição da ferramenta `criar_compromisso` dizia ao assistente o contrário do que o backend faz (`fixed` = uma vez, `periodical` = todo mês, `time` = todo mês até uma data). O assistente criava a categoria errada.
+- **Um vocabulário só:** o relatório "por tipo" passou a usar o nome da categoria do formulário (Única, Extra, Recorrente, Parcela, Empréstimo) em vez de adicional/fixo/variável. A categoria "Fixa" do lançamento virou "Recorrente" na tela, para não colidir com a sessão "Fixo". Os compromissos chamam-se "Uma vez", "Todo mês", "Todo mês até uma data", "Toda semana" e "Todo ano".
+- **Formulário menor:** o campo "Tipo: Compromisso/Incomum" saiu da tela (é derivado: fixa, parcela e empréstimo são compromisso; ligar à agenda também marca). "Prioridade" saiu da tela e da Base (era gravada e não produzia efeito; o backend aceita sem ela). "Justificativa" ficou opcional de verdade: o backend não exige mais, e o assistente deixa vazio em vez de gravar "Registrado pelo assistente.". A regra de dia útil ficou em "Mais opções", fechada; o padrão da conta vale sem abrir.
+- **A fixa atravessa o ano:** a recorrente gera ocorrências do ano de início até o ano seguinte ao atual (`horizonteDaFixa`), e a grade gravada ganha na leitura as ocorrências novas (`estenderGrade`) sem mexer no que já está gravado. O diálogo de virada virou uma revisão: "Tudo continua como está", com "Manter o que está marcado" e "Depois".
+- **Agenda:** compromisso "Toda semana" (todos os dias do mês com o mesmo dia da semana, a partir do início) e "Todo ano" (a mesma data; 29 de fevereiro cai no 28). Nenhum dos dois tem data de fim.
+- **Contas e saldo:** a conta (que o extrato já criava pelo nome) ganhou tipo (conta ou cartão de crédito) e saldo inicial. O lançamento pode apontar para a conta de onde sai ou em que entra, e pode ser marcado como transferência entre contas próprias: muda o saldo das contas e não entra na sobra (como "já incluso em outro"). A Base mostra a etiqueta "Transferência". Finanças ganhou o bloco Contas, com "Saldo hoje" e "Fim do mês" (no cartão, "Lançado na fatura" e "Fatura prevista"), e o diálogo de criar e editar conta; o cálculo é `resumoDaConta` em contracts. O lançamento que nasce de uma linha do extrato já nasce na conta do extrato, e a migração `20261104211000_conta_dos_lancamentos_do_extrato` liga os antigos. A exportação e importação do pacote levam a conta e a transferência. O assistente conhece `accountId` e `transfer` na criação de lançamento, e o prompt explica.
+- Slice nova `apps/backend/src/contas` (listar, criar, atualizar; eventos `criar-conta` e `atualizar-conta`) e rotas `/api/contas` no BFF.
+
+Motivo: o lançamento e o compromisso são o centro; os campos que não produziam efeito confundiam, a fixa parava em dezembro, a agenda não repetia por semana nem por ano, e uma pessoa comum precisa ver o saldo da conta e a fatura do cartão, não só a sobra.
+
+Verificação: `tsc` limpo em backend, frontend, agents e mobile; lint limpo; 434 testes no backend (novos: transferência fora da sobra, fixa em janeiro, semanal, anual, saldo da conta, serviço de contas) e 57 no agents. As migrações `20261104210000_contas_com_saldo_e_transferencia` e `20261104211000_conta_dos_lancamentos_do_extrato` foram aplicadas no Postgres local e o diff contra o schema está vazio. Pela API local: conta criada e nome repetido recusado; lançamento sem justificativa, tipo e prioridade aceito; transferência guardada e fora da sobra; recorrente criada em 2026 aparece em março de 2027; compromisso semanal aparece 5 vezes no mês. No navegador, em 1280 e 375 px, o bloco Contas aparece sem rolagem horizontal. Não verificado: a tela de agenda criando semanal e anual pelo formulário (só pela API), e o assistente usando conta e transferência com o modelo real.
+
+Não feito, de propósito: a limpeza interna dos campos redundantes do lançamento (`dueDate`, `nextDueDate`, `adjustments`, as quatro datas) e a unificação dos dois vínculos do compromisso com o dinheiro (`entryId` e `sessionId`): mudam o banco sem mudar nada para quem usa e ficam para outra branch.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma` e as duas migrações novas
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/contas/` (novo) e `app.module.ts`
+- `apps/backend/src/financas/` (controlador, serviço, porta, adaptador, `vista.ts`, `pedido.ts`, specs)
+- `apps/backend/src/agenda/aplicacao/ocorrencias.ts` e spec, `adaptadores/prisma-agenda-repositorio.ts`
+- `apps/backend/src/extratos/` (serviço, porta, adaptador)
+- `apps/backend/src/dados/` (pacote e adaptador)
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts` e spec
+- `apps/agents/src/assistente/dominio/prompts.ts` e `consultor.ts`
+- `apps/frontend/app/financas/` (`contas.tsx` novo, `page.tsx`, `tabela.tsx`, `rotulos.ts`, `virada.tsx`)
+- `apps/frontend/app/agenda/itens.ts` e `page.tsx`
+- `apps/frontend/app/relatorios/page.tsx`
+- `apps/frontend/app/api/contas/` (novo)
