@@ -4,6 +4,7 @@ import {
   FERRAMENTA_PLANO,
   FERRAMENTAS_POR_NOME,
   FERRAMENTAS_QUE_CRIAM,
+  LINHAS_MAXIMAS_DO_PLANO,
   PASSOS_MAXIMOS_DO_PLANO,
 } from "@finnagent/contracts";
 
@@ -33,12 +34,29 @@ const REFERENCIA = /^@passo:(\d+)$/;
  */
 /** O plano passou do limite de passos. Diz ao consultor o que fazer, em vez de devolver o erro do esquema. */
 export function mensagemDoPlanoGrande(passos: number) {
-  return `Plano inválido: ${passos} passos, e o máximo é ${PASSOS_MAXIMOS_DO_PLANO}. Junte as linhas de extrato de categoria única num passo só, acumular_linhas (até 500 linhas por passo), em vez de um passo por linha. Se ainda passar de ${PASSOS_MAXIMOS_DO_PLANO}, proponha só os ${PASSOS_MAXIMOS_DO_PLANO} primeiros e avise que o resto vem em outro plano.`;
+  return `Plano inválido: ${passos} passos, e o máximo é ${PASSOS_MAXIMOS_DO_PLANO}. Junte as linhas de extrato de categoria única num passo só, acumular_linhas, em vez de um passo por linha. Se ainda passar de ${PASSOS_MAXIMOS_DO_PLANO}, proponha só os ${PASSOS_MAXIMOS_DO_PLANO} primeiros e avise que o resto vem em outro plano.`;
+}
+
+/** O plano leva linhas de extrato demais. A resposta do modelo seria cortada e a execução, longa demais. */
+export function mensagemDeLinhasDemais(linhas: number) {
+  return `Plano inválido: ${linhas} linhas de extrato, e o máximo num plano é ${LINHAS_MAXIMAS_DO_PLANO}. Proponha só as ${LINHAS_MAXIMAS_DO_PLANO} primeiras e diga à pessoa quantas ficam para o próximo plano.`;
+}
+
+function linhasDoPlano(passos: unknown[]) {
+  return passos.reduce<number>((soma, passo) => {
+    if (!passo || typeof passo !== "object") return soma;
+    const { ferramenta, args } = passo as { ferramenta?: unknown; args?: unknown };
+    if (ferramenta !== "acumular_linhas" || !args || typeof args !== "object") return soma;
+    const itens = (args as { items?: unknown }).items;
+    return soma + (Array.isArray(itens) ? itens.length : 0);
+  }, 0);
 }
 
 export function validarPlano(entrada: unknown, gerarId: () => string): PlanoValidado | string {
   const dados = typeof entrada === "object" && entrada !== null && "passos" in entrada ? entrada.passos : undefined;
   if (Array.isArray(dados) && dados.length > PASSOS_MAXIMOS_DO_PLANO) return mensagemDoPlanoGrande(dados.length);
+  const linhas = Array.isArray(dados) ? linhasDoPlano(dados) : 0;
+  if (linhas > LINHAS_MAXIMAS_DO_PLANO) return mensagemDeLinhasDemais(linhas);
   const lido = ESQUEMA_PLANO.safeParse(entrada);
   if (!lido.success) return `Plano inválido: ${problemasDe(lido.error.issues)}.`;
   const passos: PassoValidado[] = [];

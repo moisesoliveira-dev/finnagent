@@ -18,6 +18,8 @@ class Roteiro extends BaseChatModel {
   ferramentas: string[][] = [];
   /** A escolha de ferramenta de cada bindTools: undefined quando o modelo fica livre. */
   escolhas: Array<string | undefined> = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  brutas: any[][] = [];
 
   constructor(private readonly respostas: AIMessage[]) {
     super({});
@@ -29,7 +31,8 @@ class Roteiro extends BaseChatModel {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   bindTools(tools: any[], opcoes?: { tool_choice?: string }): any {
-    this.ferramentas.push(tools.map((item: { name: string }) => item.name));
+    this.ferramentas.push(tools.map((item: { name?: string; function?: { name: string } }) => item.name ?? item.function?.name ?? ""));
+    this.brutas.push(tools);
     this.escolhas.push(opcoes?.tool_choice);
     return this;
   }
@@ -259,5 +262,55 @@ describe("grafo do assistente", () => {
   it("sem o modelo do consultor, não usa o de outra função", async () => {
     const { fabrica } = fabricaCom({ financas: new Roteiro([]) });
     await expect(rodar(fabrica, pedido({ modelos: { financas: modelo("financas") } }))).rejects.toThrow();
+  });
+});
+
+describe("cada provedor", () => {
+  const com = (kind: ModeloResolvido["kind"]): Partial<PedidoDePasso> => ({
+    modelos: { coordenador: { kind, apiKey: "k", baseUrl: "", model: "consultor" }, financas: modelo("financas") },
+  });
+
+  it("no Gemini, manda as ferramentas convertidas e devolve como objeto os argumentos do plano que vieram em texto", async () => {
+    const plano = {
+      objetivo: "Criar o grupo",
+      entendimento: "Um grupo novo.",
+      suposicoes: [],
+      passos: [{ ferramenta: "criar_grupo", descricao: "Criar Casa", args: '{"name":"Casa"}' }],
+    };
+    const consultor = new Roteiro([chamada("propor_plano", plano)]);
+    const { fabrica } = fabricaCom({ consultor });
+    const { final } = await rodar(fabrica, pedido(com("google")));
+    expect(consultor.brutas[0]?.[0]).toMatchObject({ type: "function", function: { name: expect.any(String) } });
+    expect(JSON.stringify(consultor.brutas[0])).not.toContain("propertyNames");
+    expect(final).toMatchObject({ tipo: "chamadas", chamadas: [{ nome: "propor_plano", args: { passos: [{ args: { name: "Casa" } }] } }] });
+  });
+
+  it("nos outros provedores, as ferramentas vão como estão", async () => {
+    const consultor = new Roteiro([new AIMessage("Oi!")]);
+    const { fabrica } = fabricaCom({ consultor });
+    await rodar(fabrica, pedido());
+    expect(consultor.brutas[0]?.[0]).toHaveProperty("schema");
+  });
+
+  it("na Anthropic, marca o cache na instrução, que leva junto as ferramentas", async () => {
+    const consultor = new Roteiro([new AIMessage("Oi!")]);
+    const { fabrica } = fabricaCom({ consultor });
+    await rodar(fabrica, pedido(com("anthropic")));
+    const instrucao = consultor.vistos[0]?.[0];
+    expect(instrucao).toBeInstanceOf(SystemMessage);
+    expect(instrucao?.content).toMatchObject([{ type: "text", cache_control: { type: "ephemeral" } }]);
+  });
+
+  it("no Ollama, avisa quando o modelo leu bem menos do que foi enviado", async () => {
+    const cortada = new AIMessage({ content: "resposta sem sentido", usage_metadata: { input_tokens: 2048, output_tokens: 4, total_tokens: 2052 } });
+    const { fabrica } = fabricaCom({ consultor: new Roteiro([cortada]) });
+    await expect(rodar(fabrica, pedido(com("ollama")))).rejects.toThrow(/Ollama cortou o pedido.*OLLAMA_CONTEXT_LENGTH/);
+  });
+
+  it("no Ollama com contexto suficiente, segue normal", async () => {
+    const inteira = new AIMessage({ content: "Oi!", usage_metadata: { input_tokens: 40_000, output_tokens: 2, total_tokens: 40_002 } });
+    const { fabrica } = fabricaCom({ consultor: new Roteiro([inteira]) });
+    const { final } = await rodar(fabrica, pedido(com("ollama")));
+    expect(final).toMatchObject({ tipo: "resposta", texto: "Oi!" });
   });
 });

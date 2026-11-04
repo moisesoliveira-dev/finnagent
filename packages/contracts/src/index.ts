@@ -2963,6 +2963,12 @@ export const FERRAMENTA_PLANO = "propor_plano";
 /** O plano aceita até este número de passos. Várias linhas de extrato únicas vão num passo só, acumular_linhas. */
 export const PASSOS_MAXIMOS_DO_PLANO = 20;
 
+/**
+ * Linhas de extrato num plano, somando os passos acumular_linhas. Acima disso a resposta do modelo cresce até
+ * ser cortada (a Anthropic para em 16 mil tokens) e a execução passa de minutos. O resto vai no plano seguinte.
+ */
+export const LINHAS_MAXIMAS_DO_PLANO = 100;
+
 /** O fim do resultado que o backend devolve ao plano recusado. O agents o reconhece para exigir um plano novo. */
 export const RECUSA_DE_PLANO = "Nada foi mostrado à pessoa. Corrija e proponha de novo.";
 
