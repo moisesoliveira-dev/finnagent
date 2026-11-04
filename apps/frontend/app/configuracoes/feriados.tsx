@@ -292,7 +292,7 @@ function LinhaDoFeriado({ feriado }: { feriado: Feriado }) {
       {/* No celular o selo desce para baixo do nome em vez de empurrar a linha para fora da tela. */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <span className="min-w-0 font-medium">{feriado.nome}</span>
-        <Chip tone={feriado.tipo === "local" ? "ok" : "default"}>{ROTULO_DO_TIPO_DE_FERIADO[feriado.tipo]}</Chip>
+        <Chip tone={feriado.tipo === "local" ? "info" : "default"}>{ROTULO_DO_TIPO_DE_FERIADO[feriado.tipo]}</Chip>
       </div>
     </li>
   );

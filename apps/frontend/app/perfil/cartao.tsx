@@ -43,7 +43,7 @@ export function CartaoDoPerfil({
           </motion.span>
           {alterado ? (
             <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <Chip tone="ai">Não salvo</Chip>
+              <Chip tone="pending">Não salvo</Chip>
             </motion.span>
           ) : null}
         </div>
@@ -56,7 +56,7 @@ export function CartaoDoPerfil({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Chip tone={role === "master" ? "ok" : "default"}>{role === "master" ? "Master" : "Membro"}</Chip>
+          <Chip tone={role === "master" ? "info" : "default"}>{role === "master" ? "Master" : "Membro"}</Chip>
           {createdAt ? <Chip>Desde {desde(createdAt)}</Chip> : null}
         </div>
 

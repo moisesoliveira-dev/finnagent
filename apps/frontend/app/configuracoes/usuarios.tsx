@@ -162,7 +162,7 @@ export function Usuarios({ visivel }: { visivel: boolean }) {
                   <span className="truncate font-medium">{usuario.name}</span>
                   <span className="truncate text-sm text-ink-2">{usuario.email}</span>
                 </div>
-                <Chip tone={usuario.role === "master" ? "ok" : "default"}>
+                <Chip tone={usuario.role === "master" ? "info" : "default"}>
                   {usuario.role === "master" ? "Master" : "Membro"}
                 </Chip>
                 {usuario.role === "membro" ? (

@@ -293,7 +293,7 @@ function VisaoDosEventos({
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <CampoDeBusca valor={filtro.q} rotulo="Buscar eventos" dica="Tipo, agregado ou id" onBuscar={onBuscar} />
         <BotaoAtualizar buscando={leitura.buscando} onAtualizar={onAtualizar} />
-        {filtro.dia ? <Chip tone="ok">Dia {diaCurto(filtro.dia)}</Chip> : null}
+        {filtro.dia ? <Chip tone="info">Dia {diaCurto(filtro.dia)}</Chip> : null}
         {filtrando ? (
           <Button variant="quiet" onClick={() => onFiltrar({ categoria: null, status: null, dia: null, q: null })}>
             Limpar filtros

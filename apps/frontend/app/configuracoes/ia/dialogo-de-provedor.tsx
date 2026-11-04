@@ -12,7 +12,7 @@ import {
   type ResultadoDoTeste,
 } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
-import { campo, cn, focusRing } from "../../../components/ui/cn";
+import { caixaDeMarcar, campo, cn, focusRing } from "../../../components/ui/cn";
 import { useCurva } from "../../../components/ui/movimento";
 import { useToast } from "../../../components/ui/toast";
 import { salvarProvedor, testarProvedor } from "./api";
@@ -287,7 +287,7 @@ export function FormularioDeProvedor({
                           <label className="flex min-h-10 cursor-pointer items-center gap-3 px-2 hover:bg-surface-2">
                             <input
                               type="checkbox"
-                              className={cn("size-4 accent-brand", focusRing)}
+                              className={caixaDeMarcar}
                               checked={modelos.includes(nome)}
                               onChange={() => alternarModelo(nome)}
                             />

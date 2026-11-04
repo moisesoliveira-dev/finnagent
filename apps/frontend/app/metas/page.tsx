@@ -10,7 +10,7 @@ import { Carregando } from "../../components/ui/esqueleto";
 import { Dialogo } from "../../components/ui/dialogo";
 import { ItemAnimado, ListaAnimada, useCurva } from "../../components/ui/movimento";
 import { Chip } from "../../components/ui/chip";
-import { campo, cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { Vazio } from "../../components/ui/vazio";
 import { formatarReais, Money } from "../../components/ui/money";
@@ -142,8 +142,22 @@ export default function MetasPage() {
   }
 
   useEffect(() => {
-    void carregar();
-  }, []);
+    let ativo = true;
+    api<MetasResposta>("/api/metas")
+      .then((resposta) => {
+        if (!ativo) return;
+        setDados(resposta);
+        setFalhou(false);
+      })
+      .catch((error: Error) => {
+        if (!ativo) return;
+        setFalhou(true);
+        toast.erro(error.message);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [toast]);
 
   function abrir() {
     setNome("");
@@ -397,7 +411,7 @@ export default function MetasPage() {
                   });
                   return pendentes.length ? (
                     <div className="flex flex-wrap items-center gap-3">
-                      <Chip tone="ai">Aguardando sua aprovação</Chip>
+                      <Chip tone="pending">Aguardando sua aprovação</Chip>
                       <span className="text-sm text-ink-2">
                         {pendentes.length === 1 ? "1 meta" : `${pendentes.length} metas`} com parte da sobra de{" "}
                         {MESES[dados.month - 1]?.toLowerCase()}.
@@ -548,7 +562,7 @@ export default function MetasPage() {
           <label className="flex min-h-10 items-center gap-2 text-sm">
             <input
               type="checkbox"
-              className={`size-4 accent-brand ${focusRing}`}
+              className={caixaDeMarcar}
               checked={comPrazo}
               onChange={(event) => setComPrazo(event.target.checked)}
             />

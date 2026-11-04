@@ -97,16 +97,22 @@ export function GradeMes({
                 type="button"
                 aria-pressed={day === selected}
                 aria-label={[rotuloDoDia(year, month, day), ...feriadosDoDia.map((item) => item.nome), `${doDia.length} itens`].join(", ")}
-                className={cn(
-                  "grid size-6 place-items-center self-start rounded-sm text-sm font-semibold",
-                  focusRing,
-                  day === today && "bg-brand text-brand-ink!",
-                  // No celular não cabe o nome: o número sublinhado marca o feriado.
-                  feriadosDoDia.length > 0 && "underline decoration-2 underline-offset-2 tab:no-underline",
-                )}
+                // O número tem 24 px e o toque pega 40: a margem negativa deixa o resto do dia no mesmo lugar, e o
+                // que vem depois (feriado, compromisso) fica por cima da sobra do alvo.
+                className="group -mr-4 -mb-4 grid size-10 place-items-start self-start outline-none"
                 onClick={() => onSelect(day)}
               >
-                {day}
+                <span
+                  className={cn(
+                    "grid size-6 place-items-center rounded-sm text-sm font-semibold",
+                    "group-focus-visible:ring-3 group-focus-visible:ring-brand/40",
+                    day === today && "bg-brand text-brand-ink!",
+                    // No celular não cabe o nome: o número sublinhado marca o feriado.
+                    feriadosDoDia.length > 0 && "underline decoration-2 underline-offset-2 tab:no-underline",
+                  )}
+                >
+                  {day}
+                </span>
               </button>
               <span className="hidden min-w-0 flex-col gap-1 tab:flex">
                 {feriadosDoDia.map((item) => (

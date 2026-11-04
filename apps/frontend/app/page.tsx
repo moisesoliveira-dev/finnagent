@@ -405,7 +405,7 @@ export default function Dashboard() {
                           </Button>
                           <span className="etiqueta text-ink-2">{diaDaSemana(year, month, dia)}</span>
                           {year === atual.year && month === atual.month && dia === atual.day ? (
-                            <Chip tone="ok">Hoje</Chip>
+                            <Chip tone="info">Hoje</Chip>
                           ) : null}
                           <span className="ml-auto tab:hidden">
                             <Money cents={totalDoDia(painel.items, dia)} />

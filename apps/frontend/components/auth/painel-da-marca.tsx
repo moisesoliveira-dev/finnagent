@@ -209,7 +209,7 @@ export function PainelDaMarca() {
               <ListaAnimada className="grid">
                 <Linha>
                   <span className="min-w-0 flex-1 font-medium">Aluguel</span>
-                  <Chip>Fixa</Chip>
+                  <Chip tone="info">Fixa</Chip>
                   <Money cents={-180000} />
                 </Linha>
                 <Linha>
@@ -219,7 +219,7 @@ export function PainelDaMarca() {
                 </Linha>
                 <Linha evento>
                   <span className="min-w-0 flex-1 font-medium">Dentista, 15h</span>
-                  <Chip>Compromisso</Chip>
+                  <Chip tone="event">Compromisso</Chip>
                 </Linha>
               </ListaAnimada>
               <div className="border-t border-line p-4">

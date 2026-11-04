@@ -34,15 +34,16 @@ export function Dica({ texto }: { texto: string }) {
 
   useEffect(() => {
     const botao = ancora.current;
+    const caixa = painel.current;
     const dialog = botao?.closest("dialog");
-    const fechar = () => painel.current?.hidePopover();
+    const fechar = () => caixa?.hidePopover();
     window.addEventListener("scroll", fechar, true);
     dialog?.addEventListener("close", fechar);
     return () => {
       window.removeEventListener("scroll", fechar, true);
       dialog?.removeEventListener("close", fechar);
       if (espera.current) window.clearTimeout(espera.current);
-      painel.current?.hidePopover();
+      caixa?.hidePopover();
     };
   }, []);
 
@@ -78,7 +79,8 @@ export function Dica({ texto }: { texto: string }) {
       <button
         type="button"
         ref={ancora}
-        className={`inline-flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 ${focusRing}`}
+        // O ícone tem 16 px, mas o toque pega 40: a margem negativa deixa a linha do rótulo com a mesma altura.
+        className={`-my-3 -mr-6 inline-flex size-10 shrink-0 items-center justify-start border-0 bg-transparent p-0 ${focusRing}`}
         aria-label="O que é este campo"
         aria-describedby={id}
         onPointerDown={(event) => {

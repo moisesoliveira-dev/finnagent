@@ -141,7 +141,7 @@ export function Inicio() {
                     </span>
                     <div className="texto" style={{ flex: 1 }}>
                       <span>{item.title}</span>
-                      <span className="etiqueta">{item.day === hoje.dia ? "Hoje" : `Em ${item.day - hoje.dia} dias`}</span>
+                      <span className="etiqueta">{item.day === hoje.dia ? "Hoje" : item.day - hoje.dia === 1 ? "Amanhã" : `Em ${item.day - hoje.dia} dias`}</span>
                     </div>
                     <Dinheiro cents={item.cents ?? 0} />
                   </motion.div>
