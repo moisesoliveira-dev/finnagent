@@ -12,8 +12,6 @@
     "@finnagent/chat": "workspace:*",
     "@finnagent/contracts": "workspace:*",
     "@next/env": "16.3.8",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.222.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/sdk-node": "^0.222.0",
     "@sentry/nextjs": "^11.4.0",
     "class-variance-authority": "^0.7.1",
