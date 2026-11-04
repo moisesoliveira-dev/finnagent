@@ -212,3 +212,42 @@ Verificação: `tsc` do frontend limpo. Não verificado na tela nem em produçã
 Arquivos:
 
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Correções da auditoria: Gemini, planos grandes, Ollama e leitura de extrato
+
+O que foi feito:
+
+- Gemini: as ferramentas vão com o esquema convertido para o que a API dele aceita. Saem `propertyNames`, `exclusiveMinimum` (vira `minimum` no inteiro), `format: "uuid"` e `pattern` (viram dica no texto), `const` (vira `enum`) e o nulo vira `nullable`. Os argumentos de cada passo do plano, que são um objeto livre, vão como texto com JSON e voltam como objeto quando o Gemini chama a ferramenta.
+- Anthropic: o teto da resposta subiu de 4096 para 16 mil tokens (8192 nos Claude 3.5, 4096 nos Claude 3), e a instrução do consultor leva a marca de cache, que barateia as ferramentas e a instrução repetidas a cada volta.
+- Plano: no máximo 100 linhas de extrato por plano, somando os `acumular_linhas` (`LINHAS_MAXIMAS_DO_PLANO`). O prompt manda propor as 100 primeiras e dizer quantas ficam para o próximo; o backend recusa acima disso com essa instrução.
+- Execução do plano: o `acumular_linhas` roda em pedidos de 8 linhas, somados num resultado só, para não passar dos 60 s do executor. Bloco que falha marca só as linhas dele.
+- Ollama: quando o modelo lê bem menos tokens do que foram enviados, o turno para com a mensagem de aumentar o contexto (`OLLAMA_CONTEXT_LENGTH` ou `num_ctx`), em vez de responder sem as instruções.
+- Leitura de extrato: se o JSON do modelo vier cortado, as linhas inteiras são guardadas e uma linha de erro marca onde a leitura parou; sem nenhuma linha inteira, a importação diz para dividir o arquivo. O limite do arquivo no agents passou a ser o mesmo do backend (5 MB, `LIMITE_EXTRATO_BYTES`), com a mensagem certa, e as rotas do extrato aceitam query string.
+
+Motivo: a auditoria do agente apontou que o Gemini podia recusar todo pedido, que plano grande na Anthropic chegava cortado, que o Ollama cortava o prompt sem avisar e que extrato longo perdia todas as linhas.
+
+Verificação: `tsc` limpo em backend, frontend, mobile, agents e chat; agents com 56 testes, backend com 382 e chat com 2 passam. Novos testes: o esquema de todas as 53 ferramentas para o Gemini sem nenhuma chave fora do que ele lê, a volta dos argumentos do plano, o cache da Anthropic, o aviso do Ollama, o teto por modelo, o limite de linhas do plano, o lote em blocos com um bloco falhando e a leitura de JSON cortado. Não verificado: chamada real ao Gemini, à Anthropic e ao Ollama (não há chave nem servidor aqui). Continua como está, por desenho: o turno em andamento fica na memória do `backend`, que roda com uma réplica só.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/agents/src/assistente/adaptadores/esquema-do-gemini.ts`
+- `apps/agents/src/assistente/adaptadores/esquema-do-gemini.spec.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.ts`
+- `apps/agents/src/assistente/adaptadores/grafo-do-assistente.spec.ts`
+- `apps/agents/src/assistente/adaptadores/modelos.ts`
+- `apps/agents/src/assistente/dominio/contexto.ts`
+- `apps/agents/src/assistente/dominio/contexto.spec.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/agents/src/extratos/adaptadores/grafo.ts`
+- `apps/agents/src/extratos/adaptadores/grafo.spec.ts`
+- `apps/agents/src/extratos/adaptadores/http.ts`
+- `apps/agents/src/extratos/adaptadores/openai.ts`
+- `apps/agents/src/extratos/dominio/linhas.ts`
+- `apps/agents/src/extratos/dominio/resposta.ts`
+- `apps/agents/src/extratos/dominio/resposta.spec.ts`
+- `apps/agents/src/extratos/portas/leitor.ts`
+- `apps/backend/src/assistente/adaptadores/executor-http.ts`
+- `apps/backend/src/assistente/adaptadores/executor-http.spec.ts`
+- `apps/backend/src/assistente/dominio/plano.ts`
+- `apps/backend/src/assistente/dominio/plano.limite.spec.ts`
