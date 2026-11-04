@@ -3,6 +3,7 @@ import { initChatModel } from "langchain";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { idDeModelo } from "@finnagent/contracts";
 import { ModeloIndisponivel, PedidoInvalido } from "../dominio/erros.js";
+import { linhasDaResposta } from "../dominio/resposta.js";
 import type { ArquivoDeExtrato, LeitorDeExtrato, ModeloDeExtrato } from "../portas/leitor.js";
 
 const contexto = new AsyncLocalStorage<{ apiKey: string; model: string; baseUrl: string }>();
@@ -45,7 +46,7 @@ export class OpenAiExtrato implements LeitorDeExtrato, ModeloDeExtrato {
     const resposta = await this.invocar((modelo) =>
       modelo.invoke([new SystemMessage(INSTRUCAO), new HumanMessage(texto)]),
     );
-    return jsonDe(textoDe(resposta.content));
+    return linhasDaResposta(textoDe(resposta.content));
   }
 
   private async invocar<T>(chamar: (modelo: Awaited<ReturnType<typeof initChatModel>>) => Promise<T>) {
@@ -94,17 +95,4 @@ function textoDe(conteudo: unknown) {
       return "";
     })
     .join("");
-}
-
-function jsonDe(texto: string) {
-  const limpo = texto.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-  const inicio = limpo.indexOf("{");
-  const fim = limpo.lastIndexOf("}");
-  if (inicio < 0 || fim < inicio) return [];
-  try {
-    const corpo = JSON.parse(limpo.slice(inicio, fim + 1)) as { linhas?: unknown };
-    return corpo.linhas ?? [];
-  } catch {
-    return [];
-  }
 }

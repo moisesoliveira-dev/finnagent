@@ -1,16 +1,20 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { LIMITE_ID_MODELO, idDeModelo } from "@finnagent/contracts";
+import { LIMITE_EXTRATO_BYTES, LIMITE_ID_MODELO, idDeModelo } from "@finnagent/contracts";
 import { z } from "zod";
 import { erroDaUrl } from "../../assistente/dominio/url.js";
 import { log } from "../../log.js";
 import { OrganizarExtrato } from "../aplicacao/organizar-extrato.js";
 import { ModeloIndisponivel, PedidoInvalido } from "../dominio/erros.js";
 
+// O arquivo em base64 ocupa 4/3 do tamanho. O corpo do pedido leva ainda o nome, o modelo e a chave.
+const LIMITE_DO_CONTEUDO = Math.ceil(LIMITE_EXTRATO_BYTES / 3) * 4 + 4;
+const MENSAGEM_DO_TAMANHO = `O arquivo passa de ${LIMITE_EXTRATO_BYTES / (1024 * 1024)} MB.`;
+
 const pedido = z.object({
   tenantId: z.uuid(),
   filename: z.string().trim().min(1).max(180),
   mediaType: z.string().trim().min(1).max(80),
-  content: z.string().min(1).max(8_000_000),
+  content: z.string().min(1).max(LIMITE_DO_CONTEUDO),
   apiKey: z.string().trim().min(1).max(400).optional(),
   model: z
     .string()
@@ -21,25 +25,31 @@ const pedido = z.object({
   baseUrl: z.string().trim().max(300).optional(),
 });
 
-const LIMITE = 8_000_000;
+const LIMITE = LIMITE_DO_CONTEUDO + 64 * 1024;
 
 export function tratarExtrato(servico: OrganizarExtrato) {
   return async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.method === "GET" && req.url === "/health") {
+    const caminho = (req.url ?? "").split("?")[0];
+    if (req.method === "GET" && caminho === "/health") {
       enviar(res, 200, { ok: true });
       return;
     }
-    if (req.method !== "POST" || req.url !== "/extratos/organizar") {
+    if (req.method !== "POST" || caminho !== "/extratos/organizar") {
       enviar(res, 404, { message: "Não encontrado." });
       return;
     }
     try {
       const corpo = pedido.safeParse(JSON.parse(await lerCorpo(req)));
       if (!corpo.success) {
-        const campo = corpo.error.issues[0]?.path[0];
-        enviar(res, 400, {
-          message: campo === "model" ? "Cadastre um modelo de IA nas configurações." : "Envie uma imagem ou um PDF do extrato.",
-        });
+        const problema = corpo.error.issues[0];
+        const campo = problema?.path[0];
+        const message =
+          campo === "model"
+            ? "Cadastre um modelo de IA nas configurações."
+            : campo === "content" && problema?.code === "too_big"
+              ? MENSAGEM_DO_TAMANHO
+              : "Envie uma imagem ou um PDF do extrato.";
+        enviar(res, 400, { message });
         return;
       }
       const erroDeUrl = corpo.data.baseUrl ? erroDaUrl(corpo.data.baseUrl) : null;
@@ -60,7 +70,7 @@ export function tratarExtrato(servico: OrganizarExtrato) {
         return;
       }
       if (error instanceof Error && error.message === "grande") {
-        enviar(res, 400, { message: "O arquivo passa de 5 MB." });
+        enviar(res, 400, { message: MENSAGEM_DO_TAMANHO });
         return;
       }
       log.error({ err: error instanceof Error ? error.message : "falha" }, "falha ao organizar o extrato");
