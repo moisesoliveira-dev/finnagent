@@ -106,6 +106,11 @@ model Entry {
   dueShift           String              @default("manter") @map("due_shift")
   dueCount           String              @default("bancaria") @map("due_count")
   coveredById        String?             @map("covered_by_id")
+  // De que conta o dinheiro sai ou em que conta entra. Opcional: sem conta, só a sobra conta.
+  accountId          String?             @map("account_id")
+  // Transferência entre contas da própria pessoa: muda o saldo das contas, não a sobra do mês.
+  transfer           Boolean             @default(false)
+  account            Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
   session            Session             @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   coveredBy          Entry?              @relation("Cobertura", fields: [coveredById], references: [id], onDelete: SetNull)
   covers             Entry[]             @relation("Cobertura")
@@ -120,6 +125,7 @@ model Entry {
   @@unique([tenantId, id])
   @@index([tenantId])
   @@index([coveredById])
+  @@index([accountId])
   @@map("entries")
 }
 
@@ -210,10 +216,15 @@ model Calendar {
 }
 
 model Account {
-  id         String      @id
-  tenantId   String      @map("tenant_id")
-  name       String
-  statements Statement[]
+  id           String      @id
+  tenantId     String      @map("tenant_id")
+  name         String
+  // conta: banco, carteira. cartao: cartão de crédito, cujas compras viram a fatura.
+  kind         String      @default("conta")
+  // O saldo no dia em que a pessoa começou a controlar a conta aqui.
+  openingCents Int         @default(0) @map("opening_cents")
+  statements   Statement[]
+  entries      Entry[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -229,6 +240,8 @@ model Statement {
   format            String
   status            String
   message           String          @default("")
+  // O que a pessoa escreveu junto com o extrato. Ajuda a ler imagem e PDF e fica visível para quem conferir.
+  note              String          @default("")
   startDate         DateTime?       @map("start_date") @db.Date
   endDate           DateTime?       @map("end_date") @db.Date
   lineCount         Int             @map("line_count")
@@ -472,17 +485,34 @@ model AiSettings {
 }
 
 model AiConversation {
-  id        String      @id
-  tenantId  String      @map("tenant_id")
-  userId    String      @map("user_id")
-  title     String
-  pending   Json?
-  createdAt DateTime    @default(now()) @map("created_at")
-  updatedAt DateTime    @default(now()) @map("updated_at")
-  messages  AiMessage[]
+  id          String         @id
+  tenantId    String         @map("tenant_id")
+  userId      String         @map("user_id")
+  title       String
+  pending     Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @default(now()) @map("updated_at")
+  messages    AiMessage[]
+  attachments AiAttachment[]
 
   @@index([tenantId, userId, updatedAt])
   @@map("ai_conversations")
+}
+
+// Arquivo que a pessoa anexou numa mensagem do chat. Some junto com a conversa.
+model AiAttachment {
+  id             String         @id
+  tenantId       String         @map("tenant_id")
+  conversationId String         @map("conversation_id")
+  name           String
+  mediaType      String         @map("media_type")
+  size           Int
+  content        Bytes
+  createdAt      DateTime       @default(now()) @map("created_at")
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@map("ai_attachments")
 }
 
 model AiMessage {

@@ -17,6 +17,7 @@ import {
   parcelaAtual,
   proximoVencimento,
   statusAgregado,
+  estenderGrade,
   mesclarGrade,
   transicaoDaOcorrencia,
   type CategoriaTransacao,
@@ -31,6 +32,7 @@ import {
   type TipoTransacao,
 } from "@finnagent/contracts";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
+import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { categoriaPermitida, protegeValorBase } from "../../grupos/dominio/sessao.js";
@@ -189,6 +191,9 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       if (recusa) return recusa;
       const cobertura = await recusaDaCobertura(tx, tenantId, pedido.id, pedido.coveredById ?? null);
       if (cobertura) return cobertura;
+      if (pedido.accountId && !(await tx.account.findFirst({ where: { id: pedido.accountId, tenantId }, select: { id: true } }))) {
+        return "conta-ausente" as const;
+      }
       const ultimo = await tx.entry.aggregate({
         where: { tenantId },
         _max: { position: true },
@@ -258,6 +263,9 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         pedido.coveredById === undefined ? atual.coveredById : pedido.coveredById,
       );
       if (cobertura) return cobertura;
+      if (pedido.accountId && !(await tx.account.findFirst({ where: { id: pedido.accountId, tenantId }, select: { id: true } }))) {
+        return "conta-ausente" as const;
+      }
       const meses = mesesDoPedido(pedido);
       await tx.entry.updateMany({
         where: { id: pedido.id, tenantId },
@@ -273,6 +281,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
           installments: pedido.installments,
           ...atributos(pedido),
           ...(pedido.coveredById !== undefined ? { coveredById: pedido.coveredById } : {}),
+          ...(pedido.accountId !== undefined ? { accountId: pedido.accountId } : {}),
+          ...(pedido.transfer !== undefined ? { transfer: pedido.transfer } : {}),
           ...(pedido.category === "fixed" && !regenerar ? {} : { suspendedCents: 0 }),
           ...(grade ? resumoGravado(pedido, grade) : {}),
         },
@@ -752,7 +762,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       });
       if (!atual) return "ausente" as const;
       if (atual._count.statementLines > 0) return "sincronizado" as const;
-      await tx.appointment.updateMany({ where: { tenantId, entryId: id }, data: { entryId: null } });
+      await desligarCompromissos(tx, tenantId, [id]);
       await tx.entry.deleteMany({ where: { id, tenantId } });
       await gravarOutbox(tx, tenantId, "excluir-lancamento", id, { id });
     });
@@ -763,14 +773,14 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     return db.$transaction(async (tx) => {
       const atual = await this.buscar(tx, tenantId, id);
       if (!atual) return "ausente" as const;
-      if ((atual.statementLines?.length ?? 0) > 0) return "sincronizado" as const;
       const lista = efetivasDaLinha(atual);
       const alvo = lista.find((item) => item.number === number);
       if (!alvo) return "ausente" as const;
       const remocao = removerDaLinha(lancamentoDe(atual), lista, alvo);
       if (remocao === null) return "bloqueada" as const;
       if (remocao === "entry") {
-        await tx.appointment.updateMany({ where: { tenantId, entryId: id }, data: { entryId: null } });
+        if ((atual.statementLines?.length ?? 0) > 0) return "sincronizado" as const;
+        await desligarCompromissos(tx, tenantId, [id]);
         await tx.entry.deleteMany({ where: { id, tenantId } });
         await gravarOutbox(tx, tenantId, "excluir-lancamento", id, { id });
         return "entry" as const;
@@ -859,6 +869,8 @@ type Linha = {
   suspendedCents: number;
   commitmentId: string | null;
   coveredById: string | null;
+  accountId: string | null;
+  transfer: boolean;
   recurrence: string | null;
   recurrenceInterval: number | null;
   dueRule: string;
@@ -923,6 +935,8 @@ function gravacao(pedido: Parameters<typeof atributos>[0]) {
     suspendedCents: 0,
     commitmentId: null,
     coveredById: pedido.coveredById ?? null,
+    accountId: pedido.accountId ?? null,
+    transfer: pedido.transfer ?? false,
   };
 }
 
@@ -953,6 +967,8 @@ function igual(atual: Linha, pedido: NovoLancamento) {
     atual.recurrence === pedido.recurrence &&
     atual.recurrenceInterval === pedido.recurrenceInterval &&
     (pedido.coveredById === undefined || atual.coveredById === (pedido.coveredById ?? null)) &&
+    (pedido.accountId === undefined || atual.accountId === (pedido.accountId ?? null)) &&
+    (pedido.transfer === undefined || atual.transfer === pedido.transfer) &&
     mesmaRegra(regraDaLinha(atual), pedido.dueRule) &&
     atual.amounts.length === meses.length;
   if (!campos) return false;
@@ -1017,6 +1033,8 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
     suspendedCents: row.suspendedCents,
     commitmentId: row.commitmentId,
     coveredById: row.coveredById,
+    accountId: row.accountId,
+    transfer: row.transfer,
     recurrence: row.recurrence as Recorrencia | null,
     recurrenceInterval: row.recurrenceInterval,
     dueRule: regraDaLinha(row),
@@ -1026,8 +1044,9 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
       month: ajuste.month,
       effect: ajuste.effect as EfeitoTransacao,
     })),
+    // A fixa gravada num ano ganha, na leitura, as ocorrências do ano seguinte; o que já está gravado não muda.
     occurrences: (row.occurrences ?? []).length
-      ? (row.occurrences ?? []).map(ocorrenciaDe)
+      ? estenderGrade((row.occurrences ?? []).map(ocorrenciaDe), gradeDoLancamento(contratoDaLinha(row)))
       : opcoes?.semGrade
         ? []
         : gradeDoLancamento(contratoDaLinha(row)),

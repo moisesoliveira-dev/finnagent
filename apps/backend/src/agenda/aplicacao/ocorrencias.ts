@@ -19,9 +19,9 @@ export function mensagemDaCategoria(
     }
     return null;
   }
-  if (pedido.category === "fixed") {
+  if (pedido.category === "fixed" || pedido.category === "weekly" || pedido.category === "yearly") {
     if (pedido.endYear != null || pedido.endMonth != null || pedido.endDay != null) {
-      return "O fixo não tem validade.";
+      return "Só o 'todo mês até uma data' tem data de fim.";
     }
     return null;
   }
@@ -64,6 +64,20 @@ export function ocorrenciasNoMes(definicao: Compromisso, year: number, month: nu
     return [noDia(definicao, year, month, definicao.day)];
   }
   if (numero(year, month, ultimo) < numero(definicao.year, definicao.month, definicao.day)) return [];
+  if (definicao.category === "weekly") {
+    // Todos os dias do mês no mesmo dia da semana do início, a partir dele.
+    const semana = new Date(Date.UTC(definicao.year, definicao.month - 1, definicao.day)).getUTCDay();
+    const dias: number[] = [];
+    for (let dia = 1; dia <= ultimo; dia += 1) {
+      if (numero(year, month, dia) < numero(definicao.year, definicao.month, definicao.day)) continue;
+      if (new Date(Date.UTC(year, month - 1, dia)).getUTCDay() === semana) dias.push(dia);
+    }
+    return dias.map((dia) => noDia(definicao, year, month, dia));
+  }
+  if (definicao.category === "yearly") {
+    if (month !== definicao.month) return [];
+    return [noDia(definicao, year, month, Math.min(definicao.day, ultimo))];
+  }
   const day = year === definicao.year && month === definicao.month ? definicao.day : Math.min(definicao.day, ultimo);
   const data = numero(year, month, day);
   if (data < numero(definicao.year, definicao.month, definicao.day)) return [];

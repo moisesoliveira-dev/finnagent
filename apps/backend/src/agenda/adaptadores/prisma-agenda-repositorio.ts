@@ -42,7 +42,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
         OR: [
           { category: "fixed", year, month },
           {
-            category: "periodical",
+            category: { in: ["periodical", "weekly", "yearly"] },
             OR: [{ year: { lt: year } }, { year, month: { lte: month } }],
           },
           {

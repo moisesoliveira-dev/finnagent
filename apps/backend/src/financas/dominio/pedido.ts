@@ -41,6 +41,8 @@ export type PedidoLancamento = {
   dueRule: RegraDeVencimento | null;
   /** Ausente: na edição, a cobertura gravada permanece. */
   coveredById?: string | null;
+  accountId?: string | null;
+  transfer?: boolean;
 };
 
 export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {

@@ -62,7 +62,7 @@ describe("executor das ferramentas", () => {
       sessionId: sessao,
       name: "Mercado",
       description: "",
-      justification: "Registrado pelo assistente.",
+      justification: "",
       status: "pending",
       transactionType: "unusual",
       priority: "nopriority",

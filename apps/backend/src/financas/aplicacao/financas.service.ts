@@ -39,6 +39,9 @@ import {
   type ValorFixo,
 } from "../portas/financas-repositorio.js";
 
+/** O lançamento ainda tem linha do extrato apontando para ele. Quem apaga solta as linhas antes. */
+export const MENSAGEM_DE_LANCAMENTO_SINCRONIZADO = "Esse lançamento foi sincronizado com o extrato e não pode ser apagado.";
+
 @Injectable()
 export class FinancasService {
   constructor(
@@ -241,13 +244,12 @@ export class FinancasService {
 
   private falha(codigo: string): never {
     if (codigo === "ausente") throw new NaoEncontrado("Lançamento não encontrado.");
+    if (codigo === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
     if (codigo === "compromisso-ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     if (codigo === "categoria") throw new Conflito("Essa ação não vale para esta categoria.");
     if (codigo === "encerrada") throw new Conflito("Essa transação já foi encerrada.");
     if (codigo === "concluida") throw new Conflito("As parcelas já foram concluídas.");
-    if (codigo === "sincronizado") {
-      throw new Conflito("Esse lançamento foi sincronizado com o extrato e não pode ser apagado.");
-    }
+    if (codigo === "sincronizado") throw new Conflito(MENSAGEM_DE_LANCAMENTO_SINCRONIZADO);
     if (codigo === "bloqueada") throw new Conflito("Essa ocorrência não pode receber essa alteração.");
     if (codigo === "ocorrencia") {
       throw new Conflito("O que já foi pago, cancelado ou estornado permanece. Ajuste o que ainda está pendente.");

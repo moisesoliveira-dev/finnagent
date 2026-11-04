@@ -36,6 +36,27 @@ describe("ocorrências do compromisso", () => {
     expect(ocorrenciasNoMes(definicao(), 2026, 11)).toEqual([]);
   });
 
+  it("o semanal cai em todos os dias do mês com o mesmo dia da semana, a partir do início", () => {
+    // 7/10/2026 é quarta-feira.
+    const serie = definicao({ category: "weekly" });
+    expect(ocorrenciasNoMes(serie, 2026, 10).map((item) => item.day)).toEqual([7, 14, 21, 28]);
+    expect(ocorrenciasNoMes(serie, 2026, 11).map((item) => item.day)).toEqual([4, 11, 18, 25]);
+    expect(ocorrenciasNoMes(serie, 2026, 9)).toEqual([]);
+  });
+
+  it("o anual volta na mesma data todo ano, e o 29 de fevereiro cai no 28", () => {
+    const serie = definicao({ category: "yearly" });
+    expect(ocorrenciasNoMes(serie, 2027, 10).map((item) => item.day)).toEqual([7]);
+    expect(ocorrenciasNoMes(serie, 2027, 11)).toEqual([]);
+    const bissexto = definicao({ category: "yearly", year: 2028, month: 2, day: 29, startAt: "2028-02-29T03:00:00.000Z", endAt: "2028-03-01T02:59:00.000Z" });
+    expect(ocorrenciasNoMes(bissexto, 2029, 2).map((item) => item.day)).toEqual([28]);
+  });
+
+  it("semanal e anual não têm data de fim", () => {
+    expect(mensagemDaCategoria({ category: "weekly", year: 2026, month: 10, day: 7, endYear: 2027, endMonth: 1, endDay: 1 })).toContain("data de fim");
+    expect(mensagemDaCategoria({ category: "yearly", year: 2026, month: 10, day: 7, endYear: null, endMonth: null, endDay: null })).toBeNull();
+  });
+
   it("repete o periódico no mesmo dia, também no ano seguinte", () => {
     const serie = definicao({ category: "periodical" });
     expect(ocorrenciasNoMes(serie, 2026, 9)).toEqual([]);

@@ -38,6 +38,7 @@ export const INTERFERENCIAS = [
   "- Sessão de valor guarda uma única viva. Sessão de acúmulo guarda única, extra, parcela, empréstimo e fixa. Fixa, parcela ou empréstimo numa sessão de valor é recusado. Sessão ligada a uma meta, e qualquer sessão do grupo Metas, não aceita fixa, parcela nem empréstimo: o valor separado entra como única.",
   "- Extra é sempre entrada. Parcela é sempre saída. Fixa e empréstimo podem ser entrada ou saída.",
   "- Separar valor para uma meta cria uma saída única na sessão da meta e reduz a sobra daquele mês. Aprovar a divisão da sobra é na tela de Metas, não no plano.",
+  "- Transferência entre contas da pessoa (transfer) muda o saldo das contas e não entra na sobra. A fixa segue para o ano seguinte sem a pessoa fazer nada.",
   "- Compromisso da agenda não tem valor. Ligar ou mover o compromisso não muda o lançamento. Mudar o lançamento não move o compromisso.",
   "- A data que entra na sobra já está ajustada por fim de semana e feriado. O vencimento pode cair no mês seguinte e sair da sobra deste mês.",
 ].join("\n");

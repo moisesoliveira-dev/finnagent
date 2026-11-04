@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   CALENDARIO_NACIONAL,
   CATEGORIAS_TRANSACAO,
   MODOS_TRANSACAO,
   PADROES_DE_VENCIMENTO_INICIAIS,
-  PRIORIDADES_TRANSACAO,
   RECORRENCIAS,
   REGRA_SEM_AJUSTE,
   STATUS_TRANSACAO,
-  TIPOS_TRANSACAO,
   aceitaRegraDeVencimento,
   criarCalendario,
   regraPadrao,
   type CalendarioDeDiasUteis,
   type CategoriaTransacao,
   type Configuracoes,
+  type Conta,
+  type ContasResposta,
   type FeriadoLocal,
   type FinancasVista,
   type GruposResposta,
@@ -41,7 +41,7 @@ import { Icone } from "../../components/ui/icone";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { campo, cn } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
 import { AcoesTransacao, ControleExclusao } from "./acoes";
 import { OcorrenciasDoLancamento } from "./ocorrencias";
 import { TabelaLancamentos } from "./tabela";
@@ -49,12 +49,12 @@ import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
+import { Contas } from "./contas";
 import { RegraDoVencimento } from "./regra-do-vencimento";
 import { centavosParaReais, doisDigitos, reaisParaCentavos } from "./reais";
 import {
   ROTULO_CATEGORIA,
   ROTULO_MODO,
-  ROTULO_PRIORIDADE,
   ROTULO_RECORRENCIA,
   ROTULO_STATUS,
   ROTULO_TIPO,
@@ -85,12 +85,19 @@ type Rascunho = {
   recurrenceInterval: string;
   commitmentId: string;
   coveredById: string;
+  accountId: string;
+  transfer: boolean;
   dueRule: RegraDeVencimento;
   /** false: a regra segue o padrão das configurações enquanto a pessoa não mexer. */
   dueRuleManual: boolean;
 };
 
 const field = cn(campo, "w-full");
+
+function hojeIso() {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${doisDigitos(agora.getMonth() + 1)}-${doisDigitos(agora.getDate())}`;
+}
 
 export default function Financas() {
   const toast = useToast();
@@ -104,10 +111,33 @@ export default function Financas() {
   const [draft, setDraft] = useState<Rascunho | null>(null);
   const [foco, setFoco] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessaoOpcao[]>([]);
+  const [contas, setContas] = useState<Conta[]>([]);
   const [saving, setSaving] = useState(false);
   const [vencimentos, setVencimentos] = useState<PadroesDeVencimento>(PADROES_DE_VENCIMENTO_INICIAIS);
   const [calendario, setCalendario] = useState<CalendarioDeDiasUteis>(CALENDARIO_NACIONAL);
   const [atualizando, setAtualizando] = useState(false);
+
+  // As contas vêm à parte: mudam pouco e a lista do formulário e os saldos usam a mesma.
+  const carregarContas = useCallback(async () => {
+    try {
+      const resposta = await api<ContasResposta>("/api/contas");
+      setContas(resposta.accounts);
+    } catch {
+      // Sem contas a tela segue: o lançamento pode ficar sem conta.
+    }
+  }, []);
+
+  useEffect(() => {
+    let ativo = true;
+    api<ContasResposta>("/api/contas")
+      .then((resposta) => {
+        if (ativo) setContas(resposta.accounts);
+      })
+      .catch(() => undefined);
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   function carregar() {
     return api<FinancasVista>("/api/financas")
@@ -162,9 +192,6 @@ export default function Financas() {
         transactionType: regra.transactionType ?? draft.transactionType,
       }
     : null;
-  const comPrioridade = Boolean(
-    regra && vista && (regra.priority === "sempre" || (regra.priority === "saida" && vista.mode === "outflows")),
-  );
   const editando = Boolean(draft && data?.entries.some((entry) => entry.id === draft.id));
   const entrada = editando ? (data?.entries.find((entry) => entry.id === draft?.id) ?? null) : null;
   const serieResolvida = Boolean(editando && entrada?.termsLocked);
@@ -278,6 +305,8 @@ export default function Financas() {
         recurrenceInterval: "1",
         commitmentId: "",
         coveredById: "",
+        accountId: "",
+        transfer: false,
         dueRule: REGRA_SEM_AJUSTE,
         dueRuleManual: false,
       });
@@ -320,6 +349,8 @@ export default function Financas() {
           recurrence: draft.recurrence,
           recurrenceInterval: numeroDoCampo(draft.recurrenceInterval),
           coveredById: draft.coveredById || null,
+          accountId: draft.accountId || null,
+          transfer: draft.transfer,
           // Sem escolha da pessoa, vai null e o backend aplica o padrão atual das configurações.
           dueRule:
             aceitaRegraDeVencimento(draft.category) && (draft.dueRuleManual || editando) ? regraDoVencimento : null,
@@ -395,6 +426,9 @@ export default function Financas() {
           {!ready && !falhou ? (
             <Carregando texto="Carregando finanças." titulo linhas={5} />
           ) : null}
+          {ready && data ? (
+            <Contas contas={contas} entries={data.entries} hoje={hojeIso()} onMudou={carregarContas} />
+          ) : null}
           {ready && workflow && data ? (
             <Troca id={`${visao}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">
               {visao === "geral" ? (
@@ -464,6 +498,25 @@ export default function Financas() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="dialog-par">
+              <CampoSelect
+                id="lancamento-conta"
+                label="Conta"
+                dica="De que conta o dinheiro sai ou em que conta entra. Sem conta, o lançamento só entra na sobra."
+                value={draft?.accountId ?? ""}
+                options={[{ value: "", label: "Sem conta" }, ...contas.map((conta) => ({ value: conta.id, label: conta.name }))]}
+                onChange={(accountId) => setDraft((current) => (current ? { ...current, accountId } : current))}
+              />
+              <label className="flex min-h-10 items-center gap-2 self-end text-sm">
+                <input
+                  type="checkbox"
+                  className={caixaDeMarcar}
+                  checked={draft?.transfer ?? false}
+                  onChange={(event) => setDraft((current) => (current ? { ...current, transfer: event.target.checked } : current))}
+                />
+                Transferência entre minhas contas (não entra na sobra)
+              </label>
             </div>
             <div className="grid gap-1">
               <Rotulo htmlFor="lancamento-nome" dica="Como este lançamento aparece na lista.">
@@ -605,22 +658,6 @@ export default function Financas() {
                     }
                   />
                 ) : null}
-                {vista && regra?.transactionType === null ? (
-                  <CampoSelect
-                    id="lancamento-tipo"
-                    label="Tipo"
-                    dica="Compromisso combinado ou um lançamento incomum."
-                    value={vista.transactionType}
-                    options={TIPOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_TIPO[item] }))}
-                    onChange={(transactionType) =>
-                      setDraft((current) =>
-                        current
-                          ? { ...current, transactionType: transactionType as TipoTransacao }
-                          : current,
-                      )
-                    }
-                  />
-                ) : null}
               </div>
             )}
             <div className="dialog-par">
@@ -638,23 +675,6 @@ export default function Financas() {
                 }
               />
               )}
-              {draft && comPrioridade ? (
-                <CampoSelect
-                  id="lancamento-prioridade"
-                  label="Prioridade"
-                  dica="Baixa, normal ou alta. Só aparece quando a categoria permite."
-                  value={draft.priority === "nopriority" ? "normal" : draft.priority}
-                  options={PRIORIDADES_TRANSACAO.filter((item) => item !== "nopriority").map((item) => ({
-                    value: item,
-                    label: ROTULO_PRIORIDADE[item],
-                  }))}
-                  onChange={(priority) =>
-                    setDraft((current) =>
-                      current ? { ...current, priority: priority as PrioridadeTransacao } : current,
-                    )
-                  }
-                />
-              ) : null}
             </div>
             {draft && regra?.installments ? (
               <div className="dialog-par">
@@ -792,6 +812,9 @@ export default function Financas() {
               </div>
             ) : null}
             {draft && vista && aceitaRegraDeVencimento(draft.category) ? (
+              // O padrão da conta vale sem a pessoa abrir isto. Quem precisa de outro dia útil abre.
+              <details className="grid gap-4" open={editando || draft.dueRuleManual}>
+                <summary className={cn("cursor-pointer text-sm text-ink-2", focusRing)}>Mais opções: vencimento em dia útil</summary>
               <RegraDoVencimento
                 category={draft.category}
                 recurrence={draft.category === "fixed" ? draft.recurrence : null}
@@ -806,6 +829,7 @@ export default function Financas() {
                   setDraft((current) => (current ? { ...current, dueRule, dueRuleManual } : current))
                 }
               />
+              </details>
             ) : null}
             {entrada ? (
               <OcorrenciasDoLancamento
@@ -845,7 +869,7 @@ export default function Financas() {
             <div className="dialog-acoes">
               {entrada ? (
                 <div className="mr-auto">
-                  <ControleExclusao removivel={entrada.actions.remove} onExcluir={() => excluir(entrada)} />
+                  <ControleExclusao sincronizado={entrada.synced} onExcluir={() => excluir(entrada)} />
                 </div>
               ) : null}
               <Button
@@ -935,6 +959,8 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),
     commitmentId: entry.commitmentId ?? "",
     coveredById: entry.coveredById ?? "",
+    accountId: entry.accountId ?? "",
+    transfer: entry.transfer ?? false,
     dueRule: entry.dueRule ?? REGRA_SEM_AJUSTE,
     dueRuleManual: true,
   };

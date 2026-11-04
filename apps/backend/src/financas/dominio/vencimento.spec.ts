@@ -142,8 +142,8 @@ describe("ocorrências com regra", () => {
       recurrenceInterval: 1,
       dueRule: regra({ tipo: "dia_util", ordem: 5, contagem: "clt" }),
     });
-    // Dezembro: o 5º dia útil da CLT é o sábado, dia 5; o crédito vem na sexta, dia 4.
-    expect(grade.map((item) => item.dueDate)).toEqual(["2026-10-06", "2026-11-06", "2026-12-04"]);
+    // Dezembro: o 5º dia útil da CLT é o sábado, dia 5; o crédito vem na sexta, dia 4. A fixa segue em janeiro.
+    expect(grade.slice(0, 4).map((item) => item.dueDate)).toEqual(["2026-10-06", "2026-11-06", "2026-12-04", "2027-01-07"]);
   });
 
   it("fixa semanal só ajusta o dia que cai em fim de semana", () => {

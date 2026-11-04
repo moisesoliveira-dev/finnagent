@@ -25,7 +25,7 @@ import { Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { Dica, Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { campo, cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Troca } from "../../components/ui/movimento";
 import { feriadosNoDia, SelosDoFeriado } from "./feriados";
@@ -56,7 +56,9 @@ type Rascunho = {
 const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
   fixed: "Acontece só neste dia.",
   periodical: "Repete neste dia, todo mês.",
-  time: "Repete neste dia, todo mês, até a validade.",
+  time: "Repete neste dia, todo mês, até a data de fim.",
+  weekly: "Repete toda semana, neste dia da semana.",
+  yearly: "Repete todo ano, nesta data.",
 };
 
 const field = cn(campo, "w-full");
@@ -99,21 +101,19 @@ export default function Agenda() {
   const [confirmaExcluir, setConfirmaExcluir] = useState(false);
   const [coarse, setCoarse] = useState(false);
   const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
   const dia = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   function carregar(alvoAno = year, alvoMes = month) {
-    return fetch(`/api/agenda?year=${alvoAno}&month=${alvoMes}`).then(async (response) => {
-      const body = (await response.json().catch(() => ({}))) as { message?: string };
-      if (!response.ok) throw new Error(body.message || "O backend não respondeu.");
-      return body as AgendaResposta;
-    });
+    return buscarAgenda(alvoAno, alvoMes);
   }
 
   useEffect(() => {
     let active = true;
-    carregar(year, month)
+    buscarAgenda(year, month)
       .then((resposta) => {
         if (!active) return;
         setData(resposta);
@@ -407,6 +407,8 @@ export default function Agenda() {
   // Sem ID e segredo do cliente Google, a conexão só começa em Configurações.
   function conectarGoogle() {
     if (google?.pronto) {
+      // É uma rota de API que redireciona para o Google: precisa da navegação inteira, não do roteador.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign("/api/configuracoes/google/conectar");
       return;
     }
@@ -653,7 +655,7 @@ export default function Agenda() {
             <h2 id="titulo-dia" className="flex flex-wrap items-center gap-2 font-display text-lg">
               {rotuloDoDia(anoVisivel, mesVisivel, selecaoGrade)}
               {ehHoje(anoVisivel, mesVisivel, selecaoGrade) ? (
-                <Chip tone="ok">
+                <Chip tone="info">
                   Hoje
                 </Chip>
               ) : null}
@@ -811,7 +813,7 @@ export default function Agenda() {
           <label className="flex min-h-10 items-center gap-2 text-sm">
             <input
               type="checkbox"
-              className={`size-4 accent-brand ${focusRing}`}
+              className={caixaDeMarcar}
               checked={draft?.allDay ?? false}
               onChange={(event) =>
                 setDraft((atual) => (atual ? { ...atual, allDay: event.target.checked } : atual))
@@ -991,6 +993,14 @@ function Camada({
       {children}
     </button>
   );
+}
+
+function buscarAgenda(year: number, month: number) {
+  return fetch(`/api/agenda?year=${year}&month=${month}`).then(async (response) => {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    if (!response.ok) throw new Error(body.message || "O backend não respondeu.");
+    return body as AgendaResposta;
+  });
 }
 
 function dataIso(year: number, month: number, day: number) {

@@ -104,7 +104,7 @@ export function lancamentoVista(entry: Lancamento, hoje: string): LancamentoVist
     contractCents: centavosDoContrato(entry),
     suspendedTotal: centavosComSinal(Math.abs(entry.cents) * suspensos, entry.mode),
     actions: {
-      remove: !entry.synced,
+      remove: true,
       series: entry.category === "installment" || entry.category === "loan" ? entry.category : null,
       fixedMonth: entry.category === "fixed",
     },
@@ -190,6 +190,7 @@ export function montarBase(base: FinancasResposta, hoje: string, filtro: FiltroB
             : null,
         remove: removerDaLinha(entry, lista, item),
         synced: entry.synced,
+        transfer: entry.transfer ?? false,
       });
     }
   }
@@ -280,7 +281,6 @@ export function montarGeral(base: FinancasResposta, year: number): GeralResposta
 }
 
 export function removerDaLinha(entry: Lancamento, lista: Ocorrencia[], item: Ocorrencia) {
-  if (entry.synced) return null;
   if (lista.length <= 1) return "entry" as const;
   return item.status === "pending" ? ("occurrence" as const) : null;
 }

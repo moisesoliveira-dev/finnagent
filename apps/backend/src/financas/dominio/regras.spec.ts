@@ -46,9 +46,13 @@ describe("regras de finanças", () => {
     expect(valores[7]).toBe(-240_730);
   });
 
-  it("limita o fixo ao ano de início e deixa parcela e empréstimo atravessar", () => {
+  it("transferência entre contas próprias não entra na sobra", () => {
+    expect(centavosNoMes({ ...salario, transfer: true }, WORKFLOW_INICIAL, 2026, 11)).toBeUndefined();
+  });
+
+  it("fixo, parcela e empréstimo atravessam o ano", () => {
     expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2026, 11)).toBe(620_000);
-    expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2027, 0)).toBeUndefined();
+    expect(centavosNoMes(salario, WORKFLOW_INICIAL, 2027, 0)).toBe(620_000);
     expect(centavosNoMes({ ...notebook, installments: 12 }, WORKFLOW_INICIAL, 2027, 0)).toBe(notebook.cents);
     expect(centavosNoMes(freelance, WORKFLOW_INICIAL, 2026, 4)).toBe(250_000);
     expect(centavosNoMes(freelance, WORKFLOW_INICIAL, 2026, 2)).toBeUndefined();
