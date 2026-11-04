@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { ClienteGoogle, FalhaGoogle } from "../../agenda/adaptadores/cliente-google.js";
+import { ClienteGoogle, FalhaGoogle } from "../../google/cliente-google.js";
 import { FalhaOAuth, type CredenciaisGoogle, type GoogleOAuth, type TrocaCodigo } from "../portas/google-oauth.js";
 
 @Injectable()

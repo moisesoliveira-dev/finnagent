@@ -1,4 +1,5 @@
-import { eventosDe, refreshDe } from "./cliente-google.js";
+import { refreshDe } from "../../google/cliente-google.js";
+import { eventosDe } from "./cliente-google.js";
 
 describe("cliente do Google", () => {
   it("lê o refresh token e os eventos", () => {

@@ -114,7 +114,7 @@ function itensDoLote(corpo: unknown) {
 
 function linhaDe(item: unknown) {
   const linha = (item ?? {}) as { statementId?: unknown; line?: unknown };
-  return { statementId: String(linha.statementId ?? ""), line: Number(linha.line ?? 0) };
+  return { statementId: typeof linha.statementId === "string" ? linha.statementId : "", line: Number(linha.line ?? 0) };
 }
 
 function falha(conteudo: string, detalhe = conteudo): ResultadoDaExecucao {

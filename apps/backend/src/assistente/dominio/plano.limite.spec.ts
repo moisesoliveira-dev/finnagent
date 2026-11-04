@@ -15,9 +15,10 @@ describe("plano grande demais", () => {
     const resposta = validarPlano(plano(PASSOS_MAXIMOS_DO_PLANO + 5), () => "id");
     expect(typeof resposta).toBe("string");
     expect(resposta).toBe(mensagemDoPlanoGrande(PASSOS_MAXIMOS_DO_PLANO + 5));
-    expect(String(resposta)).toContain("acumular_linhas");
-    expect(String(resposta)).toContain(`máximo é ${PASSOS_MAXIMOS_DO_PLANO}`);
-    expect(String(resposta)).not.toContain("Too big");
+    const texto = resposta as string;
+    expect(texto).toContain("acumular_linhas");
+    expect(texto).toContain(`máximo é ${PASSOS_MAXIMOS_DO_PLANO}`);
+    expect(texto).not.toContain("Too big");
   });
 
   it("no limite não recusa pelo tamanho", () => {
@@ -39,7 +40,7 @@ describe("plano grande demais", () => {
       passos: lotes.map((quantas, i) => ({ ferramenta: "acumular_linhas", descricao: "Lançar", args: { items: linhas(quantas, i * 1000 + 1) } })),
     });
     expect(validarPlano(comLinhas(60, 60), () => "id")).toBe(mensagemDeLinhasDemais(120));
-    expect(String(validarPlano(comLinhas(60, 40), () => "id"))).not.toContain("linhas de extrato");
+    expect(JSON.stringify(validarPlano(comLinhas(60, 40), () => "id"))).not.toContain("linhas de extrato");
     expect(LINHAS_MAXIMAS_DO_PLANO).toBe(100);
   });
 });

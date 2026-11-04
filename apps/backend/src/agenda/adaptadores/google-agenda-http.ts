@@ -6,7 +6,8 @@ import {
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
 import type { GoogleAgenda } from "../portas/google-agenda.js";
-import { ClienteGoogle, FalhaGoogle } from "./cliente-google.js";
+import { FalhaGoogle } from "../../google/cliente-google.js";
+import { ClienteDaAgendaGoogle } from "./cliente-google.js";
 
 @Injectable()
 export class GoogleAgendaHttp implements GoogleAgenda {
@@ -24,7 +25,7 @@ export class GoogleAgendaHttp implements GoogleAgenda {
       throw new PedidoInvalido("Escolha os calendários do Google para sincronizar.");
     }
     try {
-      const cliente = new ClienteGoogle();
+      const cliente = new ClienteDaAgendaGoogle();
       const accessToken = await cliente.accessToken({
         clientId: segredos.clientId,
         clientSecret: segredos.clientSecret,
