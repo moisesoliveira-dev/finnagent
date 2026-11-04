@@ -35,6 +35,8 @@ export function BuscaSessao({
   const [rascunho, setRascunho] = useState<string | null>(null);
   const [aberto, setAberto] = useState(false);
   const [indice, setIndice] = useState(0);
+  // Onde a lista mora: o modal em volta do campo, se houver, ou o body. Descoberto ao focar o campo.
+  const [destino, setDestino] = useState<HTMLElement | null>(null);
   const caixa = useRef<HTMLDivElement>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const lista = useRef<HTMLUListElement>(null);
@@ -72,14 +74,19 @@ export function BuscaSessao({
       const ul = lista.current;
       if (!campoDaBusca || !ul) return;
       const medida = campoDaBusca.getBoundingClientRect();
+      // Dentro de um modal, a lista mora no próprio <dialog>, que fica acima de tudo. Se o modal ainda está
+      // animando (transform), "fixed" passa a contar a partir dele, e a posição desconta o canto do modal.
+      const modal = campoDaBusca.closest("dialog");
+      const animando = modal && getComputedStyle(modal).transform !== "none";
+      const canto = animando ? modal.getBoundingClientRect() : { left: 0, top: 0 };
       const abaixo = window.innerHeight - medida.bottom - FOLGA;
       const acima = medida.top - FOLGA;
       const paraBaixo = abaixo >= ALTURA_MINIMA || abaixo >= acima;
-      ul.style.left = `${medida.left}px`;
+      ul.style.left = `${medida.left - canto.left}px`;
       ul.style.width = `${medida.width}px`;
       ul.style.maxHeight = `${Math.max(Math.min(ALTURA_MAXIMA, paraBaixo ? abaixo : acima), 96)}px`;
-      ul.style.top = paraBaixo ? `${medida.bottom + 4}px` : "auto";
-      ul.style.bottom = paraBaixo ? "auto" : `${window.innerHeight - medida.top + 4}px`;
+      ul.style.top = paraBaixo ? `${medida.bottom + 4 - canto.top}px` : "auto";
+      ul.style.bottom = paraBaixo ? "auto" : `${window.innerHeight - medida.top + 4 + canto.top}px`;
     }
     posicionar();
     window.addEventListener("resize", posicionar);
@@ -114,6 +121,7 @@ export function BuscaSessao({
         placeholder="Pesquisar a sessão"
         value={texto}
         onFocus={(event) => {
+          setDestino(event.target.closest("dialog") ?? document.body);
           setAberto(true);
           setIndice(0);
           setRascunho(escolhida?.rotulo ?? "");
@@ -140,10 +148,14 @@ export function BuscaSessao({
             event.preventDefault();
             escolher(encontradas[indice].id);
           }
-          if (event.key === "Escape") fechar();
+          if (event.key === "Escape" && aberto) {
+            // Fecha só a lista: sem isso, o Escape fecharia também o modal em volta.
+            event.preventDefault();
+            fechar();
+          }
         }}
       />
-      {aberto
+      {aberto && destino
         ? createPortal(
             <ul
               ref={lista}
@@ -174,7 +186,7 @@ export function BuscaSessao({
                 <li className="px-3 py-2 text-sm text-ink-2">Nenhuma sessão encontrada.</li>
               )}
             </ul>,
-            document.body,
+            destino,
           )
         : null}
     </div>

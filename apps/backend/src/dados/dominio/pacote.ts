@@ -124,7 +124,18 @@ const linhaDeExtrato = z.object({
   cents: inteiro.nullable(),
   error: texto,
   entryId: idOuNulo,
+  entryCreated: z.boolean().default(false),
+  ignoredAt: dataOuNulo.default(null),
 });
+const parteDeLinha = z.object({
+  statementId: id,
+  line: inteiro,
+  entryId: id,
+  cents: inteiro,
+  position: inteiro,
+  created: z.boolean().default(true),
+});
+const nomeDeExtrato = z.object({ key: texto, name: texto, uses: inteiro, lastUsedAt: data });
 const apelido = z.object({ name: texto, sessionId: id, entryId: idOuNulo });
 const meta = z.object({
   id,
@@ -173,6 +184,8 @@ const dados = z.object({
   statements: lista(extrato),
   statementLines: lista(linhaDeExtrato),
   statementAliases: lista(apelido),
+  statementLineParts: lista(parteDeLinha),
+  statementNames: lista(nomeDeExtrato),
   goals: lista(meta),
   holidays: lista(feriadoLocal),
   preferences: preferencias.nullable().default(null),

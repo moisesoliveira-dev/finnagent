@@ -177,3 +177,71 @@ Arquivos:
 - `apps/frontend/app/api/extratos/ignorar/route.ts`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
 - `apps/mobile/src/paginas/extratos/Conferencia.tsx`
+
+## Dividir linha, nomes lembrados e calculadora
+
+O que foi feito:
+
+- Dividir: na Conferência, cada linha sem lançamento tem "Dividir". O modal aceita de 2 a 10 partes, cada uma com valor, sessão e nome. O valor aceita uma conta (`120,50 / 2`), tem "+ restante" e o valor guardado na calculadora, e o modal mostra a soma e quanto falta. O backend confere que as partes somam a linha, no mesmo sentido, cria um lançamento único e pago por parte e liga a linha a todas (`statement_line_parts`; a linha aponta para a primeira). Se uma parte falha, as criadas são apagadas. Desfazer a linha dividida apaga os lançamentos das partes.
+- Nomes: a linha tem um campo de nome. O nome diferente da descrição do extrato fica guardado (`statement_names`, por descrição normalizada, com o número de usos e o último uso). Da próxima vez, a linha com a mesma descrição já vem com o último nome e mostra os outros, mais a descrição original, para escolher ou digitar outro. Vale para acumular, para o lote e para as partes da divisão.
+- Calculadora: ícone fixo no canto de baixo da tela, em todas as telas, que abre a janela flutuante e some enquanto ela está aberta nesse canto. Modo básico (números, as quatro operações, %, ±, apagar) e avançado (parênteses, x², potência, raiz, 1/x, ÷2, ÷3, memória e histórico). Fixada, continua aberta ao trocar de tela; o botão de canto muda a posição e o de minimizar deixa só o visor. "Guardar para usar" passa o resultado aos campos de valor da divisão, e o modal de dividir tem a calculadora embutida, porque a janela flutuante fica por baixo do modal. A conta é avaliada sem `eval`, e nada fica no navegador nem no servidor.
+- O campo de sessão abre a lista dentro do modal quando está num modal.
+- O backup dos dados passou a levar as partes, os nomes e o `ignoredAt` das linhas ignoradas, que antes se perdia numa restauração. Zerar os dados apaga as tabelas novas.
+
+Motivo: um valor do extrato às vezes junta mais de um gasto, a mesma descrição merece nomes diferentes conforme o caso, e as contas da divisão pediam uma calculadora à mão.
+
+Verificação: `tsc` limpo em backend, frontend e mobile; lint limpo nos arquivos novos; backend com os testes de extratos passando, incluindo a divisão (soma, sentido, falha no meio e desfazer) e os nomes; o avaliador da calculadora conferido em 21 contas. Na tela, no Docker local, em 1280 px claro e 375 px escuro: a conta `200 + 10%` dá 220, a calculadora fixa, minimiza e não cria rolagem horizontal, a divisão de R$ 1.500,00 em 500 + 1.000 grava "Dividida em 2", desfazer volta a linha, e o nome dado passa a ser oferecido. A migração `20261104120000_partes_e_nomes_do_extrato` foi aplicada no Postgres local. Não verificado: o mobile, que não tem a divisão, os nomes nem a calculadora.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261104120000_partes_e_nomes_do_extrato/migration.sql`
+- `apps/backend/src/extratos/dominio/divisao.ts`
+- `apps/backend/src/extratos/dominio/divisao.spec.ts`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/dados/dominio/pacote.ts`
+- `apps/backend/src/dados/dominio/zerar.ts`
+- `apps/backend/src/dados/adaptadores/prisma-dados-repositorio.ts`
+- `packages/contracts/src/index.ts`
+- `apps/frontend/app/api/extratos/dividir/route.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`
+- `apps/frontend/app/extratos/conferencia/divisao.tsx`
+- `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
+- `apps/frontend/components/calculadora/expressao.ts`
+- `apps/frontend/components/calculadora/calculadora.tsx`
+- `apps/frontend/components/ui/app-shell.tsx`
+- `apps/frontend/components/ui/icone.tsx`
+
+## Divisão com sessão fixa e desfazer completo
+
+O que foi feito:
+
+- Dividir com uma parte numa sessão Fixo que já tem a transação dava erro 500. Agora essa parte paga a transação da fixa com o valor da parte, em vez de criar outra, e mantém o nome dela. O modal avisa isso na parte e oferece "Usar R$ X" com o valor da fixa. Se a fixa já foi paga no mês, a divisão é recusada com uma mensagem, sem criar nada; duas partes na mesma fixa também são recusadas.
+- A recusa vinda das finanças (como "Esta sessão fixa já foi lançada.") passou a voltar como 400 com a mensagem, e não como 500.
+- Desfazer deixa a linha como se nunca tivesse sido lançada: o lançamento que nasceu dela (acúmulo ou parte da divisão) é apagado, junto com o nome lembrado que ele deixou (um uso a menos) e a associação da descrição que apontava para ele. O lançamento que já existia (cruzamento ou fixa paga por uma parte) volta a pendente. Antes, desfazer um acúmulo deixava o lançamento pendente na sessão.
+- A linha e cada parte guardam se o lançamento nasceu delas (`entry_created` e `created`). A migração marca as linhas já lançadas por acúmulo.
+- Reabrir pelo extrato acha a ocorrência paga na data mesmo quando o valor pago foi o do lançamento, escolhido no cruzamento.
+- A parte de uma linha dividida passou a ocupar a vaga do mês do lançamento que ela pagou.
+
+Motivo: a divisão de um valor que junta a fixa e outra entrada falhava, e desfazer precisa voltar tudo ao que era antes.
+
+Verificação: `tsc` limpo em backend e frontend, lint limpo na Conferência, 398 testes do backend passando, com os casos novos (parte na fixa, fixa já paga, falha depois de pagar a fixa, desfazer misto, desfazer acúmulo e desfazer cruzamento). No Docker local, em 1280 px: R$ 4.500,00 dividido em R$ 3.000,00 numa fixa pendente e R$ 1.500,00 em outra sessão grava "Dividida em 2"; desfazer volta a fixa a pendente e apaga a outra parte; acumular e desfazer apaga o lançamento criado; no banco não sobrou lançamento, parte nem associação. A migração `20261104150000_lancamento_criado_pela_linha` foi aplicada no Postgres local.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma`
+- `apps/backend/prisma/migrations/20261104150000_lancamento_criado_pela_linha/migration.sql`
+- `apps/backend/src/extratos/portas/extratos-repositorio.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`
+- `apps/backend/src/dados/dominio/pacote.ts`
+- `packages/contracts/src/index.ts`
+- `apps/frontend/app/extratos/conferencia/divisao.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx`

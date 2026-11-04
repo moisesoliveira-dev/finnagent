@@ -1,6 +1,8 @@
 /** O que sai para a conta recomeçar. A ordem respeita as chaves que impedem apagar o pai antes do filho. */
 export const TABELAS_QUE_ZERAM = [
   "statementAlias",
+  "statementName",
+  "statementLinePart",
   "statementLine",
   "statement",
   "account",

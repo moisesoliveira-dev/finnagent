@@ -1127,6 +1127,10 @@ export type LinhaConferencia = {
   /** A pessoa marcou a linha como sem importância: não conta como pendente e não é lançada. */
   ignored: boolean;
   link: VinculoCruzado | null;
+  /** A linha dividida: um vínculo por parte, com o valor da parte. Vazio quando a linha não foi dividida. */
+  parts: VinculoCruzado[];
+  /** Os nomes que a pessoa já deu a linhas com esta descrição, do mais recente ao mais antigo. */
+  names: string[];
   suggestion: VinculoCruzado | null;
   suggestionSource: OrigemDaProposta | null;
   candidates: VinculoCruzado[];
@@ -1771,8 +1775,8 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
-  ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato"]),
-  ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas"]),
+  ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato"]),
+  ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas", "dividir-linha", "desfazer-divisao"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
   ...grupo("agente", "Conversa", [
     "criar-conversa",

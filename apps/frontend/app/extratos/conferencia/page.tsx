@@ -22,6 +22,7 @@ import { Cascata, curvaSaida, ItemAnimado, ListaAnimada, Passo, Troca, useCurva 
 import { PageHeader } from "../../../components/ui/page-header";
 import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
+import { DialogoDeDivisao, NomesLembrados } from "./divisao";
 
 const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
@@ -108,6 +109,10 @@ export default function Conferencia() {
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
   // A linha que espera a decisão da pessoa: a sessão Fixo escolhida já tem transação.
   const [decisaoFixa, setDecisaoFixa] = useState<LinhaConferencia | null>(null);
+  // O nome que a pessoa deu à linha. Sem escolha, vale o último nome lembrado para essa descrição.
+  const [nomes, setNomes] = useState<Record<string, string>>({});
+  // A linha aberta no modal de dividir.
+  const [divisao, setDivisao] = useState<LinhaConferencia | null>(null);
   // Sobe depois de cada lançamento: uma sessão Fixo vira "já lançada" assim que recebe a primeira parte.
   const [versaoDasSessoes, setVersaoDasSessoes] = useState(0);
   const [busca, setBusca] = useState("");
@@ -262,10 +267,40 @@ export default function Conferencia() {
         method: "POST",
         body: JSON.stringify({ statementId: linha.statementId, line: linha.line }),
       });
-      toast.sucesso("Cruzamento desfeito. A ocorrência voltou a pendente.");
+      toast.sucesso("Desfeito. A linha voltou a ficar sem lançamento.");
+      // O lançamento criado pela linha sumiu e a fixa pode ter voltado a pendente: a lista de sessões muda.
+      setVersaoDasSessoes((versao) => versao + 1);
       setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível desfazer o cruzamento.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
+  function nomeDa(linha: LinhaConferencia) {
+    return nomes[chaveDa(linha)] ?? linha.names[0] ?? "";
+  }
+
+  /** O nome que vai para o lançamento: o escolhido, se for diferente da descrição do extrato. */
+  function nomeParaEnviar(linha: LinhaConferencia) {
+    const nome = nomeDa(linha).trim();
+    return nome && nome !== linha.description.trim() ? { nome } : {};
+  }
+
+  async function dividir(linha: LinhaConferencia, partes: { cents: number; sessionId: string; nome?: string }[]) {
+    setOcupado("dividir");
+    try {
+      const resposta = await api<ConferenciaResposta>("/api/extratos/dividir", {
+        method: "POST",
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, parts: partes }),
+      });
+      toast.sucesso(`Linha dividida em ${partes.length} lançamentos.`);
+      setDivisao(null);
+      setVersaoDasSessoes((versao) => versao + 1);
+      setDados(resposta);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível dividir a linha.");
     } finally {
       setOcupado("");
     }
@@ -287,7 +322,7 @@ export default function Conferencia() {
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/acumular", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...decisao }),
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...decisao, ...nomeParaEnviar(linha) }),
       });
       toast.sucesso(
         fixaDa(linha) && !decisao?.emPartes
@@ -319,7 +354,7 @@ export default function Conferencia() {
     toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
   }
 
-  type ItemDoLote = { statementId: string; line: number; sessionId: string };
+  type ItemDoLote = { statementId: string; line: number; sessionId: string; nome?: string };
 
   function itensDoLote(origem: LinhaConferencia[]) {
     const itens: ItemDoLote[] = [];
@@ -331,7 +366,7 @@ export default function Conferencia() {
         aguardando += 1;
         continue;
       }
-      itens.push({ statementId: linha.statementId, line: linha.line, sessionId });
+      itens.push({ statementId: linha.statementId, line: linha.line, sessionId, ...nomeParaEnviar(linha) });
     }
     if (aguardando > 0) {
       toast.alerta(
@@ -753,7 +788,9 @@ export default function Conferencia() {
                               </span>
                               {linha.link ? (
                                 <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
-                                  {textoDoVinculo(linha.link)}
+                                  {linha.parts.length
+                                    ? `Dividida em ${linha.parts.length}: ${linha.parts.map((parte) => `${parte.description} (${parte.sessionName}) ${formatarReais(parte.cents)}`).join(" · ")}`
+                                    : textoDoVinculo(linha.link)}
                                 </span>
                               ) : linha.ignored ? (
                                 <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
@@ -801,6 +838,31 @@ export default function Conferencia() {
                                   {ocupado === chave ? "Lançando" : "Acumular"}
                                 </Button>
                               )}
+                              {!linha.link && !linha.ignored ? (
+                                <div className="col-span-2 col-start-2 grid min-w-0 gap-2">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <input
+                                      className={cn(field, "min-w-0 flex-1")}
+                                      aria-label={`Nome do lançamento de ${linha.description || "a linha"}`}
+                                      placeholder={`Nome: ${linha.description || "como no extrato"}`}
+                                      maxLength={160}
+                                      value={nomeDa(linha)}
+                                      onChange={(event) => setNomes((atual) => ({ ...atual, [chave]: event.target.value }))}
+                                    />
+                                    <Button variant="quiet" disabled={ocupado !== ""} onClick={() => setDivisao(linha)}>
+                                      Dividir
+                                    </Button>
+                                  </div>
+                                  {linha.names.length ? (
+                                    <NomesLembrados
+                                      descricao={linha.description}
+                                      nomes={linha.names}
+                                      valor={nomeDa(linha)}
+                                      onEscolher={(nome) => setNomes((atual) => ({ ...atual, [chave]: nome }))}
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : null}
                               {!linha.link && linha.candidates.length ? (
                                 <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
                                   <select
@@ -884,6 +946,14 @@ export default function Conferencia() {
         </motion.div>
       ) : null}
       </Troca>
+      <DialogoDeDivisao
+        linha={divisao}
+        sessoes={sessoes}
+        sessaoInicial={divisao ? sessaoDa(divisao) : ""}
+        ocupado={ocupado === "dividir"}
+        onDividir={(partes) => divisao && void dividir(divisao, partes)}
+        onFechar={() => setDivisao(null)}
+      />
       <DialogoDaFixa
         linha={decisaoFixa}
         fixa={decisaoFixa ? fixaDa(decisaoFixa) : null}
