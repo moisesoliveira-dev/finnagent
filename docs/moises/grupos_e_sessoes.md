@@ -231,3 +231,26 @@ Arquivos:
 - `apps/backend/src/financas/aplicacao/financas.service.ts`
 - `apps/frontend/app/grupos/page.tsx`
 - `apps/frontend/app/financas/page.tsx`
+
+## Fixo é uma transação por mês
+
+O que foi feito: a sessão Fixo passou a guardar uma transação única por mês, e não uma para sempre. Acúmulo continua recebendo várias no mês. O mês seguinte começa livre nos dois tipos.
+
+- **Contrato:** `Sessao.available` saiu; entrou `occupiedMonths`, a lista dos meses ("AAAA-MM") em que a Fixo já tem a transação, com o valor dela e o total com as partes. `mesOcupado` e `sessaoAceitaNoMes` leem isso para um mês.
+- **Backend:** `aceitaLancamento`, `podeTrocarDeTipo` e `protegeValorBase` olham o mês da transação (`startYear`/`startMonth`). Virar Fixo cabe quando todas as ativas são únicas e nenhum mês tem mais de uma. A recusa "valor-lancada" nas Finanças só olha as transações do mês do pedido. `lancamentoDaSessaoFixa` recebe o mês: a Conferência cruza a linha com a transação do mês da linha, e uma linha de outro mês cria a transação daquele mês. A mensagem de recusa deixou de falar em "outro mês".
+- **Frontend:** a Conferência marca "Fixo já lançado neste mês" conforme o mês da tela, e a marca muda ao trocar de mês. O formulário de Finanças tira a Fixo da lista só no mês da data escolhida. O mobile faz o mesmo na Conferência.
+
+Motivo: um seguro lançado em outubro numa sessão Fixo bloqueava setembro e agosto, porque o sistema entendia Fixo como "uma transação só". A pessoa definiu que Fixo é "uma por mês".
+
+Verificação: 449 testes no backend (o domínio da sessão ganhou os casos por mês: aceitar outro mês, meses ocupados, troca de tipo com uma única por mês, base protegida só no mês dela); tsc limpo em backend, frontend, agents e mobile; lint limpo.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/grupos/dominio/sessao.ts` e `sessao.spec.ts`
+- `apps/backend/src/grupos/adaptadores/prisma-grupos-repositorio.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`, `portas/financas-repositorio.ts` e `aplicacao/financas.service.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts`
+- `apps/backend/src/assistente/dominio/resultados.ts` e `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx` e `app/financas/page.tsx`
+- `apps/mobile/src/paginas/extratos/Conferencia.tsx`

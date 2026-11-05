@@ -477,7 +477,6 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         id: entryId,
         tenantId,
         justification: JUSTIFICATIVA_DO_EXTRATO,
-        category: "unique",
         statementLines: { none: { tenantId } },
         statementLineParts: { none: { tenantId } },
       },

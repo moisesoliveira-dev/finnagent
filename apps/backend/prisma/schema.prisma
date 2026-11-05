@@ -110,6 +110,9 @@ model Entry {
   accountId          String?             @map("account_id")
   // Transferência entre contas da própria pessoa: muda o saldo das contas, não a sobra do mês.
   transfer           Boolean             @default(false)
+  // Empréstimo: de quem é e o total combinado. O saldo é o total menos o que já foi pago.
+  counterparty       String              @default("")
+  principalCents     Int?                @map("principal_cents")
   account            Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
   session            Session             @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   coveredBy          Entry?              @relation("Cobertura", fields: [coveredById], references: [id], onDelete: SetNull)
@@ -138,6 +141,12 @@ model EntryOccurrence {
   paidCents    Int?      @map("paid_cents")
   paidOn       DateTime? @map("paid_on") @db.Date
   status       String    @default("pending")
+  // parcela ou multa (o que foi pago a mais numa parcela atrasada).
+  kind         String    @default("parcela")
+  // Na parcela e no empréstimo: qual parcela do contrato esta ocorrência é.
+  parcel       Int?
+  // O pagamento (linha do extrato ou registro à mão) que resolveu a ocorrência; serve para desfazer.
+  paymentId    String?   @map("payment_id")
   entry        Entry     @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Cascade)
 
   @@id([tenantId, entryId, number])

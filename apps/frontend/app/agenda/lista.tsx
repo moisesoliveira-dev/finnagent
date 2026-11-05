@@ -8,9 +8,21 @@ import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada } from "../../components/ui/movimento";
 import { rotuloDaSituacao, tomDaSituacao } from "../financas/rotulos";
-import { feriadosNoDia, SelosDoFeriado } from "./feriados";
-import { ehHoje, itensNoDia, rotuloDaCategoria, rotuloDoDia, rotuloDoStatus, tomDaCategoria, type ItemDia } from "./itens";
+import { feriadosNoDia, LinhaDoFeriado } from "./feriados";
+import {
+  diaDaSemanaCurto,
+  ehHoje,
+  itensNoDia,
+  rotuloDaCategoria,
+  rotuloDoDia,
+  rotuloDoStatus,
+  type ItemDia,
+} from "./itens";
 
+/**
+ * A visão em lista do mês: uma lista única, um bloco por dia. O dia fica à esquerda (número grande e o dia da
+ * semana), como numa agenda de papel; à direita, os feriados e os itens daquele dia, uma linha cada.
+ */
 export function ListaMes({
   year,
   month,
@@ -36,26 +48,44 @@ export function ListaMes({
     );
   }
   return (
-    <div className="grid min-w-0 gap-8">
+    <List>
       {dias.map((day) => {
         const doDia = itensNoDia(itens, day);
+        const feriadosDoDia = feriadosNoDia(feriados, day);
+        const hoje = ehHoje(year, month, day);
         return (
-          <section key={day} className="grid min-w-0 gap-3">
-            <h2 className="flex flex-wrap items-center gap-2 font-display text-lg">
-              {rotuloDoDia(year, month, day)}
-              {ehHoje(year, month, day) ? (
-                <Chip tone="info">
-                  Hoje
-                </Chip>
-              ) : null}
-              <SelosDoFeriado feriados={feriadosNoDia(feriados, day)} />
-            </h2>
-            {/* Dia que só tem o feriado mostra o título e o selo, sem o quadro de "Nada neste dia". */}
-            {doDia.length > 0 ? <ListaDoDia itens={doDia} onStatus={onStatus} onEdit={onEdit} /> : null}
-          </section>
+          <li
+            key={day}
+            aria-label={rotuloDoDia(year, month, day)}
+            className="grid min-w-0 gap-3 border-b border-line px-4 py-4 last:border-b-0 tab:flex tab:gap-6"
+          >
+            <time
+              dateTime={`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`}
+              className="flex items-baseline gap-2 tab:w-12 tab:shrink-0 tab:flex-col tab:items-start tab:gap-1"
+            >
+              <span
+                className={cn(
+                  "font-display text-xl leading-none font-bold tracking-titulo",
+                  hoje ? "text-brand" : "text-ink",
+                )}
+              >
+                {day}
+              </span>
+              <span className={cn("etiqueta", hoje ? "text-brand" : "text-ink-2")}>{diaDaSemanaCurto(year, month, day)}</span>
+              {hoje ? <Chip tone="info">Hoje</Chip> : null}
+            </time>
+            <ul className="grid min-w-0 flex-1">
+              {feriadosDoDia.map((feriado) => (
+                <LinhaDoFeriado key={`${feriado.data}-${feriado.nome}`} feriado={feriado} />
+              ))}
+              {doDia.map((item) => (
+                <Linha key={item.id} item={item} onStatus={onStatus} onEdit={onEdit} />
+              ))}
+            </ul>
+          </li>
         );
       })}
-    </div>
+    </List>
   );
 }
 
@@ -122,9 +152,9 @@ function ItemDoDia({
   return (
     <ItemAnimado className="relative border-b border-line py-4 pl-3 last:border-b-0">
       <span className={cn("absolute inset-y-3 left-0 w-1 rounded-sm", faixaDoItem(item))} aria-hidden />
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-4">
-        <time className="pt-1 text-xs text-ink-2">{item.time ?? "Dia todo"}</time>
-        <div className="grid min-w-0 gap-2">
+      <div className="flex gap-4">
+        <time className="w-16 shrink-0 pt-1 text-xs text-ink-2">{item.time ?? "Dia todo"}</time>
+        <div className="grid min-w-0 flex-1 gap-2">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="min-w-0 truncate font-medium">{item.title}</h3>
             <span className="flex shrink-0 items-center gap-1">
@@ -196,6 +226,7 @@ function OkCompromisso({ feito, onChange }: { feito: boolean; onChange: () => vo
   );
 }
 
+/** A cor do item, a mesma dos pontos da legenda de camadas: índigo é compromisso, verde e vermelho é dinheiro. */
 function faixaDoItem(item: ItemDia) {
   if ((item.link?.cents ?? 0) < 0) return "bg-neg";
   if ((item.link?.cents ?? 0) > 0) return "bg-pos";
@@ -216,6 +247,17 @@ function metaDoItem(item: ItemDia) {
   return partes;
 }
 
+/** O que a linha diz em texto, abaixo do título: de onde vem o dinheiro, a agenda, a repetição e o lugar. */
+function detalhesDaLinha(item: ItemDia) {
+  const partes: string[] = [];
+  if (item.link) partes.push(`${item.link.groupName} › ${item.link.sessionName}`);
+  if (item.acumula) partes.push(`Acumula ${item.acumula.label}`);
+  if (item.calendar) partes.push(item.calendar);
+  if (item.category) partes.push(rotuloDaCategoria(item.category));
+  if (item.location) partes.push(item.location);
+  return partes;
+}
+
 export function ListaDoDia({
   itens,
   onStatus,
@@ -231,7 +273,7 @@ export function ListaDoDia({
     );
   }
   return (
-    <List>
+    <List className="overflow-hidden px-4">
       {itens.map((item) => (
         <Linha key={item.id} item={item} onStatus={onStatus} onEdit={onEdit} />
       ))}
@@ -239,6 +281,10 @@ export function ListaDoDia({
   );
 }
 
+/**
+ * Uma linha da lista: a hora numa coluna fixa, o ponto colorido e o título, os detalhes em texto embaixo, e o
+ * valor com a situação à direita. Só a situação vira chip; o resto é texto, para a linha caber no celular.
+ */
 function Linha({
   item,
   onStatus,
@@ -250,46 +296,34 @@ function Linha({
 }) {
   const pagamento = item.link?.situation ?? null;
   const proximo = item.status === "done" ? "undone" : "done";
+  const detalhes = detalhesDaLinha(item);
+  const valor = item.link?.cents ?? item.acumula?.cents ?? null;
   return (
-    <li
-      className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 border-b border-line px-4 py-3 last:border-b-0 tab:grid-cols-[auto_minmax(0,1fr)_auto]",
-        item.kind === "compromisso" && "border-l-4 border-l-event pl-3",
-      )}
-    >
-      <time className="text-sm text-ink-2">{item.time ?? "Dia todo"}</time>
-      <div className="flex min-w-0 flex-col gap-1 break-words">
-        {item.kind === "compromisso" ? (
-          <button type="button" className={cn("text-left font-medium text-ink hover:text-brand", focusRing)} onClick={() => onEdit(item.id)}>
-            {item.title}
-          </button>
-        ) : (
-          <div className="font-medium">{item.title}</div>
-        )}
-        {item.description ? <p className="text-sm text-ink-2">{item.description}</p> : null}
-        {item.location ? <p className="text-sm text-ink-2">{item.location}</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Chip tone={item.kind === "compromisso" ? "event" : "default"}>{item.kind === "compromisso" ? item.calendar : "Lançamento"}</Chip>
-          {item.category ? <Chip tone={tomDaCategoria(item.category)}>{rotuloDaCategoria(item.category)}</Chip> : null}
-          {item.status ? (
-            <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
-          ) : null}
-          {item.link ? (
-            <Chip>
-              {item.kind === "compromisso" ? "Vinculado · " : ""}
-              {item.link.groupName} › {item.link.sessionName}
-            </Chip>
-          ) : null}
-          {item.acumula ? <Chip tone="event">Acumula · {item.acumula.label}</Chip> : null}
-          {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
-        </div>
+    <li className="flex min-w-0 items-start gap-3 border-b border-line py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <time className="w-16 shrink-0 text-sm leading-6 text-ink-2">{item.time ?? "Dia todo"}</time>
+      <div className="grid min-w-0 flex-1 gap-1">
+        <span className="flex min-w-0 items-center gap-2">
+          <i className={cn("size-2 shrink-0 rounded-full", faixaDoItem(item))} aria-hidden />
+          {item.kind === "compromisso" ? (
+            <button
+              type="button"
+              className={cn("min-w-0 truncate text-left font-medium text-ink hover:text-brand", focusRing)}
+              onClick={() => onEdit(item.id)}
+            >
+              {item.title}
+            </button>
+          ) : (
+            <span className="min-w-0 truncate font-medium">{item.title}</span>
+          )}
+        </span>
+        {detalhes.length > 0 ? <p className="truncate text-sm text-ink-2">{detalhes.join(" · ")}</p> : null}
+        {item.description ? <p className="line-clamp-2 text-sm text-ink-2">{item.description}</p> : null}
       </div>
-      <div className="col-start-2 flex flex-wrap items-center justify-end gap-2 tab:col-start-auto">
-        {item.link ? <Money cents={item.link.cents} strong /> : null}
-        {!item.link && item.acumula ? <Money cents={item.acumula.cents} strong /> : null}
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {valor !== null ? <Money cents={valor} strong /> : null}
+        {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
         {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
       </div>
     </li>
   );
 }
-

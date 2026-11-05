@@ -13,7 +13,7 @@ import {
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { LIMITE_OBSERVACAO_DO_EXTRATO } from "@finnagent/contracts";
+import { DIFERENCAS_DO_PAGAMENTO, ESQUEMA_DO_TIPO_DA_LINHA, LIMITE_OBSERVACAO_DO_EXTRATO } from "@finnagent/contracts";
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
@@ -22,6 +22,7 @@ import { AgenteIndisponivel, PedidoInvalido } from "./dominio/erros.js";
 import { PedidoInvalido as PedidoInvalidoDeFinancas } from "../financas/dominio/erros.js";
 
 const tenantId = z.uuid();
+const tipoDaLinha = ESQUEMA_DO_TIPO_DA_LINHA.optional();
 const mapeamento = z.object({
   date: z.number().int().min(0).max(40),
   description: z.number().int().min(0).max(40),
@@ -103,6 +104,7 @@ export class ExtratosController {
         line: z.number().int().min(1),
         entryId: z.uuid(),
         valor: z.enum(["extrato", "lancamento"]).optional(),
+        diferenca: z.enum(DIFERENCAS_DO_PAGAMENTO).optional(),
       })
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha o lançamento desta linha.");
@@ -113,6 +115,7 @@ export class ExtratosController {
         pedido.data.line,
         pedido.data.entryId,
         pedido.data.valor,
+        pedido.data.diferenca,
       ),
     );
   }
@@ -137,6 +140,7 @@ export class ExtratosController {
               valor: z.enum(["extrato", "lancamento"]).optional(),
               emPartes: z.boolean().optional(),
               nome: z.string().trim().min(1).max(160).optional(),
+              tipo: tipoDaLinha,
             }),
           )
           .min(1)
@@ -159,6 +163,7 @@ export class ExtratosController {
               cents: z.number().int().refine((valor) => valor !== 0),
               sessionId: z.uuid(),
               nome: z.string().trim().min(1).max(160).optional(),
+              tipo: tipoDaLinha,
             }),
           )
           .min(PARTES_MINIMAS)
@@ -194,6 +199,7 @@ export class ExtratosController {
         valor: z.enum(["extrato", "lancamento"]).optional(),
         emPartes: z.boolean().optional(),
         nome: z.string().trim().min(1).max(160).optional(),
+        tipo: tipoDaLinha,
       })
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha a sessão para acumular a linha.");
@@ -202,6 +208,7 @@ export class ExtratosController {
         ...(pedido.data.valor ? { valor: pedido.data.valor } : {}),
         ...(pedido.data.emPartes ? { emPartes: true } : {}),
         ...(pedido.data.nome ? { nome: pedido.data.nome } : {}),
+        ...(pedido.data.tipo ? { tipo: pedido.data.tipo } : {}),
       }),
     );
   }

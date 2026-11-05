@@ -64,6 +64,8 @@ const lancamento = z.object({
   dueOrder: inteiro.min(1).max(23).nullable().default(null),
   dueShift: z.enum(AJUSTES_DE_DIA_UTIL).default("manter"),
   dueCount: z.enum(CONTAGENS_DE_DIA_UTIL).default("bancaria"),
+  counterparty: z.string().max(80).default(""),
+  principalCents: inteiro.nullable().default(null),
 });
 const ocorrencia = z.object({
   entryId: id,
@@ -73,6 +75,9 @@ const ocorrencia = z.object({
   paidCents: inteiro.nullable(),
   paidOn: dataOuNulo,
   status: texto,
+  kind: z.enum(["parcela", "multa"]).default("parcela"),
+  parcel: inteiro.nullable().default(null),
+  paymentId: z.string().nullable().default(null),
 });
 const ajuste = z.object({ entryId: id, year: inteiro, month: inteiro, effect: texto });
 const valor = z.object({ entryId: id, year: inteiro, month: inteiro, cents: inteiro });

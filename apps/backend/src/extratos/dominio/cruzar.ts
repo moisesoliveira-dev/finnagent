@@ -1,3 +1,4 @@
+import { dataContabil, ehMulta, ehSerie } from "@finnagent/contracts";
 import {
   categoriaDeCompromisso,
   ocorrenciasDoLancamento,
@@ -24,11 +25,15 @@ export function cruzaveisDoMes(
   const usadas = new Map<string, number>();
   for (const id of vinculadas) if (id) usadas.set(id, (usadas.get(id) ?? 0) + 1);
   return entries.flatMap((entry) => {
+    // Parcela e empréstimo: a linha paga o que ainda falta, em qualquer mês (adiantado ou atrasado).
+    const pendentes = ehSerie(entry.category)
+      ? (entry.occurrences ?? []).filter((item) => item.status === "pending" && !ehMulta(item)).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      : [];
     const doMes = (entry.occurrences ?? []).filter(
-      (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
+      (item) => dataContabil(item).startsWith(mes) && (item.status === "pending" || item.status === "completed"),
     );
-    if (doMes.length === 0) return [];
-    const alvo = doMes.find((item) => item.status === "pending") ?? doMes[0];
+    if (doMes.length === 0 && pendentes.length === 0) return [];
+    const alvo = pendentes[0] ?? doMes.find((item) => item.status === "pending") ?? doMes[0]!;
     return [
       {
         entryId: entry.id,
@@ -39,7 +44,7 @@ export function cruzaveisDoMes(
         day: Number(alvo.dueDate.slice(8, 10)),
         cents: alvo.plannedCents,
         category: entry.category,
-        vagas: doMes.length - (usadas.get(entry.id) ?? 0),
+        vagas: ehSerie(entry.category) ? pendentes.length : doMes.length - (usadas.get(entry.id) ?? 0),
       },
     ];
   });
@@ -54,11 +59,21 @@ export function cabeNaLinha(linha: LinhaParaCruzar, item: LancamentoCruzavel) {
 // `cabeNaLinha` já barra extra com saída; esta checagem protege quem chamar `valorDoMes` direto.
 const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-/** A ocorrência do mês que o cruzamento paga: a pendente, ou a já contada se não houver pendente. */
+/**
+ * A ocorrência que o cruzamento paga. Na parcela e no empréstimo, a primeira pendente, de qualquer mês; nas outras,
+ * a pendente do mês da linha, ou a já contada se não houver pendente.
+ */
 export function ocorrenciaContada(entry: Lancamento, date: string) {
+  const todas = ocorrenciasDoLancamento(entry);
+  if (ehSerie(entry.category)) {
+    const pendente = todas
+      .filter((item) => item.status === "pending" && !ehMulta(item))
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.number - b.number)[0];
+    if (pendente) return pendente;
+  }
   const chave = date.slice(0, 7);
-  const lista = ocorrenciasDoLancamento(entry).filter(
-    (item) => item.dueDate.startsWith(chave) && (item.status === "pending" || item.status === "completed"),
+  const lista = todas.filter(
+    (item) => dataContabil(item).startsWith(chave) && (item.status === "pending" || item.status === "completed"),
   );
   return lista.find((item) => item.status === "pending") ?? lista[0] ?? null;
 }

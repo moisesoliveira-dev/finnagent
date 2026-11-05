@@ -8,6 +8,7 @@ import {
   PADROES_DE_VENCIMENTO_INICIAIS,
   RECORRENCIAS,
   REGRA_SEM_AJUSTE,
+  sessaoAceitaNoMes,
   STATUS_TRANSACAO,
   aceitaRegraDeVencimento,
   criarCalendario,
@@ -50,6 +51,7 @@ import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
 import { Contas } from "./contas";
+import { Emprestimos } from "./emprestimos";
 import { RegraDoVencimento } from "./regra-do-vencimento";
 import { centavosParaReais, doisDigitos, reaisParaCentavos } from "./reais";
 import {
@@ -80,6 +82,9 @@ type Rascunho = {
   installmentNumber: string;
   dueDate: string;
   interestRate: string;
+  /** Empréstimo: de quem é e o total combinado. */
+  counterparty: string;
+  principal: string;
   nextDueDate: string;
   recurrence: Recorrencia;
   recurrenceInterval: string;
@@ -245,7 +250,7 @@ export default function Financas() {
           endedAt: null,
           kind: "acumulo",
           categories: [...CATEGORIAS_TRANSACAO],
-          available: true,
+          occupiedMonths: [],
           cents: 0,
           additions: [],
           totalCents: 0,
@@ -271,17 +276,18 @@ export default function Financas() {
   async function abrirLancamento() {
     try {
       const [abertas] = await Promise.all([sessoesAbertas(), prepararVencimento()]);
-      const opcoes = abertas.filter((session) => session.available);
+      const inicio = workflow ?? { year: ano, month: 3, day: 1 };
+      const date = dataIso(inicio.year, inicio.month, inicio.day);
+      // A sessão Fixo só sai da lista no mês em que já tem a transação; a data muda a lista no formulário.
+      const opcoes = abertas.filter((session) => sessaoAceitaNoMes(session, inicio.year, inicio.month));
       if (opcoes.length === 0) {
         toast.alerta(
           abertas.length === 0
             ? "Crie um grupo e uma sessão antes do lançamento."
-            : "As sessões fixas já foram lançadas.",
+            : "As sessões fixas já têm a transação deste mês.",
         );
         return;
       }
-      const inicio = workflow ?? { year: ano, month: 3, day: 1 };
-      const date = dataIso(inicio.year, inicio.month, inicio.day);
       setSessions(opcoes);
       setDraft({
         id: crypto.randomUUID(),
@@ -300,6 +306,8 @@ export default function Financas() {
         installmentNumber: "1",
         dueDate: date,
         interestRate: "",
+        counterparty: "",
+        principal: "",
         nextDueDate: date,
         recurrence: "monthly",
         recurrenceInterval: "1",
@@ -345,6 +353,8 @@ export default function Financas() {
           installmentNumber: numeroDoCampo(draft.installmentNumber),
           dueDate: draft.dueDate || null,
           interestRate: numeroDoCampo(draft.interestRate.replace(",", ".")),
+          counterparty: draft.counterparty.trim(),
+          principalCents: reaisParaCentavos(draft.principal),
           nextDueDate: draft.nextDueDate || null,
           recurrence: draft.recurrence,
           recurrenceInterval: numeroDoCampo(draft.recurrenceInterval),
@@ -429,6 +439,14 @@ export default function Financas() {
           {ready && data ? (
             <Contas contas={contas} entries={data.entries} hoje={hojeIso()} onMudou={carregarContas} />
           ) : null}
+          {ready && data ? (
+            <Emprestimos
+              entries={data.entries}
+              onMudou={async () => {
+                await carregar();
+              }}
+            />
+          ) : null}
           {ready && workflow && data ? (
             <Troca id={`${visao}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">
               {visao === "geral" ? (
@@ -491,7 +509,7 @@ export default function Financas() {
                 className={field}
               >
                 {sessions
-                  .filter((session) => session.available || session.id === draft?.sessionId)
+                  .filter((session) => (draft ? sessaoAceitaNoMes(session, ...anoEMes(draft.date)) : true) || session.id === draft?.sessionId)
                   .map((session) => (
                   <option key={session.id} value={session.id}>
                     {session.groupName} · {session.name}
@@ -717,37 +735,32 @@ export default function Financas() {
             {draft && regra?.loan ? (
               <div className="dialog-par">
                 <div className="grid gap-1">
-                  <Rotulo htmlFor="lancamento-vencimento" dica="O dia em que o empréstimo vence.">
-                    Vencimento
+                  <Rotulo htmlFor="lancamento-pessoa" dica="Quem emprestou para você, ou quem recebeu de você.">
+                    Pessoa
                   </Rotulo>
                   <input
-                    id="lancamento-vencimento"
-                    type="date"
-                    value={draft.dueDate}
+                    id="lancamento-pessoa"
+                    maxLength={80}
+                    required
+                    value={draft.counterparty}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current ? { ...current, dueDate: event.target.value } : current,
-                      )
+                      setDraft((current) => (current ? { ...current, counterparty: event.target.value } : current))
                     }
                     className={field}
                   />
                 </div>
                 <div className="grid gap-1">
                   <Rotulo
-                    htmlFor="lancamento-juros"
-                    dica="A taxa fica no contrato. A prestação que entra na conta é o valor, sem somar a taxa de novo."
+                    htmlFor="lancamento-total"
+                    dica="O total combinado, com juros se houver. O saldo é ele menos o que já foi pago. O valor acima é a parcela combinada, só como previsão."
                   >
-                    Juros (%)
+                    Total combinado
                   </Rotulo>
-                  <input
-                    id="lancamento-juros"
-                    inputMode="decimal"
-                    value={draft.interestRate}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current ? { ...current, interestRate: event.target.value } : current,
-                      )
-                    }
+                  <CampoValor
+                    id="lancamento-total"
+                    required
+                    value={draft.principal}
+                    onChange={(principal) => setDraft((current) => (current ? { ...current, principal } : current))}
                     className={field}
                   />
                 </div>
@@ -929,6 +942,13 @@ function subtitulo(workflow: Workflow) {
   return `Workflow de ${workflow.year} · iniciado em ${doisDigitos(workflow.day)}/${doisDigitos(workflow.month)}`;
 }
 
+/** O ano e o mês de uma data ISO; sem data válida, o mês atual. */
+function anoEMes(iso: string): [number, number] {
+  const [ano, mes] = iso.split("-").map(Number);
+  if (!ano || !mes) return [new Date().getFullYear(), new Date().getMonth() + 1];
+  return [ano, mes];
+}
+
 function numeroDoCampo(texto: string) {
   if (texto.trim() === "") return null;
   const numero = Number(texto);
@@ -954,6 +974,8 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
     installmentNumber: String(entry.installmentNumber ?? 1),
     dueDate: entry.dueDate ?? entry.date,
     interestRate: entry.interestRate == null ? "" : String(entry.interestRate).replace(".", ","),
+    counterparty: entry.counterparty ?? "",
+    principal: entry.principalCents ? centavosParaReais(entry.principalCents) : "",
     nextDueDate: entry.nextDueDate ?? entry.date,
     recurrence: entry.recurrence ?? "monthly",
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),

@@ -1,4 +1,4 @@
-import { centavosNoMes, ocorrenciasDoLancamento, type FinancasResposta, type LancamentoDoMes } from "@finnagent/contracts";
+import { centavosNoMes, dataContabil, ocorrenciasDoLancamento, type FinancasResposta, type LancamentoDoMes } from "@finnagent/contracts";
 import { situacaoNoMes } from "../../financas/dominio/vista.js";
 
 /** Os vencimentos do mês para a agenda, no dia real de cada um. */
@@ -13,8 +13,9 @@ export function lancamentosDoMes(base: FinancasResposta, year: number, month: nu
     // vencimento de outro mês, e a fixa semanal vence mais de uma vez. A soma dos dias é o valor do mês.
     const porDia = new Map<number, { number: number; cents: number }>();
     for (const item of ocorrenciasDoLancamento(entry)) {
-      if (!item.dueDate.startsWith(prefixo) || (item.status !== "pending" && item.status !== "completed")) continue;
-      const dia = Math.min(Number(item.dueDate.slice(8, 10)), ultimo);
+      const data = dataContabil(item);
+      if (!data.startsWith(prefixo) || (item.status !== "pending" && item.status !== "completed")) continue;
+      const dia = Math.min(Number(data.slice(8, 10)), ultimo);
       const valor = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
       const atual = porDia.get(dia);
       porDia.set(dia, { number: atual?.number ?? item.number, cents: (atual?.cents ?? 0) + valor });

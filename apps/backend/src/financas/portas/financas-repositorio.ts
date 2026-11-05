@@ -1,4 +1,6 @@
 import type {
+  DiferencaDoPagamento,
+  PedidoDePagamento,
   CategoriaTransacao,
   EfeitoTransacao,
   FinancasResposta,
@@ -47,10 +49,17 @@ export type NovoLancamento = {
   accountId?: string | null;
   /** Transferência entre contas próprias: fora da sobra. */
   transfer?: boolean;
+  /** Empréstimo: de quem é e o total combinado. */
+  counterparty?: string;
+  principalCents?: number | null;
 };
+
+/** `paymentId`: o id que identifica o pagamento, para desfazer. `diferenca`: o que fazer com a sobra na parcela. */
+export type OpcoesDoPagamento = { paymentId?: string; diferenca?: DiferencaDoPagamento };
 
 export type FalhaDeLancamento =
   | "identificador"
+  | "escolha-diferenca"
   | "sessao-ausente"
   | "conta-ausente"
   | "sessao-encerrada"
@@ -86,7 +95,8 @@ export interface FinancasRepositorio {
   /** O lançamento, se a sessão ainda não foi encerrada. */
   obterAberto(tenantId: string, id: string): Promise<Lancamento | null>;
   /** A transação ativa de uma sessão Fixo viva. Nulo quando a sessão não é Fixo, está encerrada ou está vazia. */
-  lancamentoDaSessaoFixa(tenantId: string, sessionId: string): Promise<{ entryId: string } | null>;
+  /** A transação que a sessão Fixo já tem nesse mês, se houver. */
+  lancamentoDaSessaoFixa(tenantId: string, sessionId: string, year: number, month: number): Promise<{ entryId: string } | null>;
   /**
    * O calendário decide as datas dos vencimentos pela regra (feriados nacionais e os locais da conta).
    * `emPartes` libera mais uma transação numa sessão Fixo que já tem a dela.
@@ -123,17 +133,36 @@ export interface FinancasRepositorio {
     id: string,
     commitmentId: string,
   ): Promise<Lancamento | FalhaDeLancamento>;
+  /** Paga pela linha do extrato: na série, o valor vai para o que ainda falta; nas outras, para a ocorrência do mês. */
   pagarPeloExtrato(
     tenantId: string,
     id: string,
     date: string,
     cents: number,
+    calendario: CalendarioDeDiasUteis,
+    opcoes?: OpcoesDoPagamento,
   ): Promise<Lancamento | FalhaDeLancamento>;
+  /** Desfaz o pagamento da linha: pelo id do pagamento, quando ele existe; senão pela data e pelo valor. */
   reabrirPeloExtrato(
     tenantId: string,
     id: string,
     date: string,
     cents: number,
+    calendario: CalendarioDeDiasUteis,
+    paymentId?: string,
+  ): Promise<Lancamento | FalhaDeLancamento>;
+  registrarPagamento(
+    tenantId: string,
+    id: string,
+    pedido: PedidoDePagamento,
+    paymentId: string,
+    calendario: CalendarioDeDiasUteis,
+  ): Promise<Lancamento | FalhaDeLancamento>;
+  desfazerPagamento(
+    tenantId: string,
+    id: string,
+    paymentId: string,
+    calendario: CalendarioDeDiasUteis,
   ): Promise<Lancamento | FalhaDeLancamento>;
   adiantar(
     tenantId: string,

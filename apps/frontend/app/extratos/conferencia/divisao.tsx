@@ -1,19 +1,24 @@
 "use client";
 
-import type { LinhaConferencia } from "@finnagent/contracts";
+import { erroDoTipoDaLinha, type CategoriaTransacao, type LinhaConferencia, type TipoDaLinha } from "@finnagent/contracts";
 import { useState } from "react";
 import { PainelDaCalculadora, useCalculadora } from "../../../components/calculadora/calculadora";
-import { centavosDaConta } from "../../../components/calculadora/expressao";
 import { Button } from "../../../components/ui/button";
 import { campo, cn, focusRing } from "../../../components/ui/cn";
 import { Dialogo } from "../../../components/ui/dialogo";
 import { formatarReais } from "../../../components/ui/money";
+import { CampoValor } from "../../financas/campo-valor";
+import { centavosParaReais, reaisParaCentavos } from "../../financas/reais";
 import { BuscaSessao, type SessaoOpcao } from "./busca-sessao";
+import { RASCUNHO_UNICO, TipoDaLinhaCampos, rascunhoAceito, tipoDoRascunho, type RascunhoDoTipo } from "./tipo-da-linha";
 
-type Parte = { texto: string; sessionId: string; nome: string };
+type Parte = { texto: string; sessionId: string; nome: string; tipo: RascunhoDoTipo };
+
+/** Uma parte pronta para o backend: o valor com sinal, a sessão, o nome (se mudou) e o tipo (se não for única). */
+export type ParteParaDividir = { cents: number; sessionId: string; nome?: string; tipo?: TipoDaLinha };
 
 /** A sessão da lista. `fixa` vem quando ela é Fixo e já tem a transação: a parte paga essa transação. */
-type SessaoDaDivisao = SessaoOpcao & { fixa?: { cents: number; total: number } | null };
+type SessaoDaDivisao = SessaoOpcao & { fixa?: { cents: number; total: number } | null; categories?: CategoriaTransacao[] };
 
 const MAXIMO_DE_PARTES = 10;
 
@@ -56,9 +61,9 @@ export function NomesLembrados({
   );
 }
 
-/** O valor de cada parte, sempre no sentido da linha: a pessoa digita o valor (ou uma conta) sem sinal. */
+/** O valor de cada parte, sempre no sentido da linha: a pessoa digita o valor sem sinal. */
 function centavosDaParte(texto: string, sinal: number) {
-  const valor = centavosDaConta(texto);
+  const valor = reaisParaCentavos(texto);
   return valor === null || valor === 0 ? null : Math.abs(valor) * sinal;
 }
 
@@ -75,7 +80,7 @@ export function DialogoDeDivisao({
   sessoes: SessaoDaDivisao[];
   sessaoInicial: string;
   ocupado: boolean;
-  onDividir: (partes: { cents: number; sessionId: string; nome?: string }[]) => void;
+  onDividir: (partes: ParteParaDividir[]) => void;
   onFechar: () => void;
   onCriarSessao?: (termo: string, escolher: (id: string) => void) => void;
 }) {
@@ -110,7 +115,7 @@ function CorpoDaDivisao({
   sessoes: SessaoDaDivisao[];
   sessaoInicial: string;
   ocupado: boolean;
-  onDividir: (partes: { cents: number; sessionId: string; nome?: string }[]) => void;
+  onDividir: (partes: ParteParaDividir[]) => void;
   onFechar: () => void;
   onCriarSessao?: (termo: string, escolher: (id: string) => void) => void;
 }) {
@@ -118,23 +123,28 @@ function CorpoDaDivisao({
   const [comCalculadora, setComCalculadora] = useState(false);
   const nomeInicial = linha.names[0] ?? "";
   const [partes, setPartes] = useState<Parte[]>([
-    { texto: "", sessionId: sessaoInicial, nome: nomeInicial },
-    { texto: "", sessionId: "", nome: nomeInicial },
+    { texto: "", sessionId: sessaoInicial, nome: nomeInicial, tipo: RASCUNHO_UNICO },
+    { texto: "", sessionId: "", nome: nomeInicial, tipo: RASCUNHO_UNICO },
   ]);
   const sinal = linha.cents < 0 ? -1 : 1;
   const total = Math.abs(linha.cents);
   const valores = partes.map((parte) => centavosDaParte(parte.texto, sinal));
   const soma = valores.reduce<number>((acumulado, valor) => acumulado + Math.abs(valor ?? 0), 0);
   const restante = total - soma;
-  const prontas = valores.every((valor) => valor !== null) && partes.every((parte) => parte.sessionId);
+  // O tipo de cada parte, conferido com o valor dela. A parte que paga a transação da sessão Fixo não cria lançamento.
+  const sessaoDa = (parte: Parte) => sessoes.find((sessao) => sessao.id === parte.sessionId);
+  const tipoDaParte = (parte: Parte, indice: number) =>
+    rascunhoAceito(parte.tipo, valores[indice] ?? linha.cents, sessaoDa(parte)?.categories);
+  const errosDoTipo = partes.map((parte, indice) => {
+    const valor = valores[indice];
+    return valor === null || sessaoDa(parte)?.fixa ? null : erroDoTipoDaLinha(tipoDoRascunho(tipoDaParte(parte, indice)), valor);
+  });
+  const prontas =
+    valores.every((valor) => valor !== null) && partes.every((parte) => parte.sessionId) && errosDoTipo.every((erro) => erro === null);
   const pode = prontas && restante === 0 && !ocupado;
 
   function mudar(indice: number, mudanca: Partial<Parte>) {
     setPartes((atual) => atual.map((parte, posicao) => (posicao === indice ? { ...parte, ...mudanca } : parte)));
-  }
-
-  function emTexto(cents: number) {
-    return (cents / 100).toFixed(2).replace(".", ",");
   }
 
   function enviar() {
@@ -142,10 +152,12 @@ function CorpoDaDivisao({
     onDividir(
       partes.map((parte, indice) => {
         const nome = parte.nome.trim();
+        const tipo = tipoDoRascunho(tipoDaParte(parte, indice));
         return {
           cents: valores[indice] as number,
           sessionId: parte.sessionId,
           ...(nome && nome !== linha.description.trim() ? { nome } : {}),
+          ...(tipo.category !== "unique" ? { tipo } : {}),
         };
       }),
     );
@@ -159,7 +171,7 @@ function CorpoDaDivisao({
         </h2>
         <p className="text-sm text-ink-2">
           {linha.description || "Linha do extrato"}. Cada parte vira um lançamento pago, na sessão e com o nome que você
-          escolher. O valor aceita uma conta, como 120,50 / 2.
+          escolher. Para dividir por uma conta, abra a calculadora e use o resultado.
         </p>
       </div>
 
@@ -184,27 +196,19 @@ function CorpoDaDivisao({
               </div>
               <div className="grid gap-2 tab:grid-cols-3">
                 <div className="grid gap-1">
-                  <input
+                  <CampoValor
                     className={cn(campo, "w-full", invalido && "border-neg")}
                     aria-label={`Valor da parte ${indice + 1}`}
                     aria-invalid={invalido}
-                    inputMode="decimal"
-                    placeholder="0,00"
                     value={parte.texto}
-                    onChange={(event) => mudar(indice, { texto: event.target.value })}
-                    onBlur={() => {
-                      // Uma conta digitada vira o valor dela ao sair do campo.
-                      if (valor !== null && /[+\-−×*/÷%^()√]/.test(parte.texto.replace(/^\s*-/, ""))) {
-                        mudar(indice, { texto: emTexto(Math.abs(valor)) });
-                      }
-                    }}
+                    onChange={(texto) => mudar(indice, { texto })}
                   />
                   <span className="flex flex-wrap gap-1">
                     {restante > 0 ? (
                       <button
                         type="button"
                         className={cn("etiqueta px-1 text-brand hover:underline", focusRing)}
-                        onClick={() => mudar(indice, { texto: emTexto(Math.abs(valor ?? 0) + restante) })}
+                        onClick={() => mudar(indice, { texto: centavosParaReais(Math.abs(valor ?? 0) + restante) })}
                       >
                         + restante
                       </button>
@@ -214,7 +218,7 @@ function CorpoDaDivisao({
                         type="button"
                         className={cn("etiqueta px-1 text-brand hover:underline", focusRing)}
                         title="O valor guardado na calculadora"
-                        onClick={() => mudar(indice, { texto: emTexto(Math.round(Math.abs(resultado) * 100)) })}
+                        onClick={() => mudar(indice, { texto: centavosParaReais(Math.round(Math.abs(resultado) * 100)) })}
                       >
                         Calculadora
                       </button>
@@ -229,6 +233,17 @@ function CorpoDaDivisao({
                   onEscolher={(id) => mudar(indice, { sessionId: id })}
                   onCriar={onCriarSessao}
                 />
+                {fixa ? null : (
+                  <TipoDaLinhaCampos
+                    className="tab:col-span-3"
+                    rotulo={`Tipo da parte ${indice + 1}`}
+                    cents={valor ?? linha.cents}
+                    aceitas={sessaoDa(parte)?.categories}
+                    valor={tipoDaParte(parte, indice)}
+                    onChange={(tipo) => mudar(indice, { tipo })}
+                  />
+                )}
+                {errosDoTipo[indice] ? <p className="text-sm text-neg tab:col-span-3">{errosDoTipo[indice]}</p> : null}
               </div>
               {fixa ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
@@ -237,7 +252,7 @@ function CorpoDaDivisao({
                     continua com o nome dela.
                   </span>
                   {valor === null || Math.abs(valor) !== Math.abs(fixa.cents) ? (
-                    <Button variant="quiet" onClick={() => mudar(indice, { texto: emTexto(Math.abs(fixa.cents)) })}>
+                    <Button variant="quiet" onClick={() => mudar(indice, { texto: centavosParaReais(Math.abs(fixa.cents)) })}>
                       Usar {formatarReais(Math.abs(fixa.cents))}
                     </Button>
                   ) : null}
@@ -268,7 +283,7 @@ function CorpoDaDivisao({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           disabled={partes.length >= MAXIMO_DE_PARTES}
-          onClick={() => setPartes((atual) => [...atual, { texto: "", sessionId: "", nome: nomeInicial }])}
+          onClick={() => setPartes((atual) => [...atual, { texto: "", sessionId: "", nome: nomeInicial, tipo: RASCUNHO_UNICO }])}
         >
           Mais uma parte
         </Button>

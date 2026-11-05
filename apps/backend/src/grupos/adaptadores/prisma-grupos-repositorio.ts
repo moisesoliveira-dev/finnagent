@@ -5,7 +5,8 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { aceitaLancamento, categoriasDaSessao, hojeNoFuso, podeTrocarDeTipo, resumoDaSessao } from "../dominio/sessao.js";
+import { chaveDoMes } from "@finnagent/contracts";
+import { categoriasDaSessao, hojeNoFuso, mesesOcupados, podeTrocarDeTipo, resumoDaSessao } from "../dominio/sessao.js";
 import { montarVirada, sessoesEncerradas } from "../dominio/virada.js";
 import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
 
@@ -25,6 +26,8 @@ const sessaoCompleta = {
       position: true,
       status: true,
       cents: true,
+      startYear: true,
+      startMonth: true,
       amounts: { select: { cents: true } },
     },
   },
@@ -189,9 +192,10 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       if (trocou) {
         const lancamentos = await tx.entry.findMany({
           where: { sessionId: id, tenantId },
-          select: { status: true, category: true },
+          select: { status: true, category: true, startYear: true, startMonth: true },
         });
-        if (!podeTrocarDeTipo(tipoAtual, kind, lancamentos)) return "tipo" as const;
+        const comMes = lancamentos.map((item) => ({ ...item, month: chaveDoMes(item.startYear, item.startMonth) }));
+        if (!podeTrocarDeTipo(tipoAtual, kind, comMes)) return "tipo" as const;
       }
       const gravadas = await tx.session.updateMany({
         where: { id, tenantId },
@@ -335,19 +339,26 @@ function sessaoDe(row: {
   endedAt: Date | null;
   cents: number;
   kind: string;
-  entries: { id: string; position: number; status: string; cents: number; amounts: { cents: number }[] }[];
+  entries: {
+    id: string;
+    position: number;
+    status: string;
+    cents: number;
+    startYear: number;
+    startMonth: number;
+    amounts: { cents: number }[];
+  }[];
 }): Sessao {
   const kind: TipoSessao = row.kind === "valor" ? "valor" : "acumulo";
-  const resumo = resumoDaSessao(
-    kind,
-    row.entries.map((item) => ({
-      id: item.id,
-      position: item.position,
-      status: item.status,
-      cents: item.cents,
-      months: item.amounts.map((mes) => mes.cents),
-    })),
-  );
+  const lancamentos = row.entries.map((item) => ({
+    id: item.id,
+    position: item.position,
+    status: item.status,
+    cents: item.cents,
+    months: item.amounts.map((mes) => mes.cents),
+    month: chaveDoMes(item.startYear, item.startMonth),
+  }));
+  const resumo = resumoDaSessao(kind, lancamentos);
   return {
     id: row.id,
     groupId: row.groupId,
@@ -358,7 +369,7 @@ function sessaoDe(row: {
     endedAt: dataIso(row.endedAt),
     kind,
     categories: categoriasDaSessao(kind),
-    available: aceitaLancamento(kind, row.entries),
+    occupiedMonths: mesesOcupados(kind, lancamentos),
     cents: resumo.cents,
     additions: resumo.additions,
     totalCents: resumo.totalCents,

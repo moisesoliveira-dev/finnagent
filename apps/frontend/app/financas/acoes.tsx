@@ -17,6 +17,7 @@ import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
+import { DialogoDePagamento, faltaPagar, ultimoPagamento } from "./pagamento";
 import { reaisParaCentavos } from "./reais";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA, ROTULO_STATUS, ROTULO_TIPO, unidadeDaRecorrencia } from "./rotulos";
 
@@ -222,7 +223,7 @@ function Formulario({
             </select>
           </div>
           {entry.actions.series ? (
-            <Serie id={entry.id} serie={entry.actions.series} ocupado={ocupado} executar={executar} />
+            <Serie entry={entry} ocupado={ocupado} executar={executar} onAtualizar={onAtualizar} />
           ) : null}
           {entry.actions.fixedMonth ? (
             <div className="grid gap-3">
@@ -382,42 +383,60 @@ function Detalhe({ entry }: { entry: LancamentoVista }) {
 }
 
 function Serie({
-  id,
-  serie,
+  entry,
   ocupado,
   executar,
+  onAtualizar,
 }: {
-  id: string;
-  serie: "installment" | "loan";
+  entry: LancamentoVista;
   ocupado: boolean;
   executar: (path: string, init: RequestInit, sucesso: string) => Promise<void>;
+  onAtualizar: () => Promise<void>;
 }) {
+  const [pagando, setPagando] = useState<{ quitar: boolean } | null>(null);
+  const serie = entry.category === "loan" ? "loan" : "installment";
   const trecho = serie === "loan" ? "emprestimo" : "parcelas";
-  const nome = serie === "loan" ? "empréstimo" : "parcelas";
+  const falta = faltaPagar(entry);
+  const ultimo = ultimoPagamento(entry);
   return (
     <div className="flex flex-wrap justify-end gap-2">
+      {falta > 0 ? (
+        <>
+          <Button type="button" disabled={ocupado} onClick={() => setPagando({ quitar: false })}>
+            Pagar
+          </Button>
+          <Button type="button" variant="quiet" disabled={ocupado} onClick={() => setPagando({ quitar: true })}>
+            Quitar
+          </Button>
+        </>
+      ) : null}
+      {ultimo ? (
+        <Button
+          type="button"
+          variant="quiet"
+          disabled={ocupado}
+          onClick={() =>
+            void executar(`/api/lancamentos/${entry.id}/pagamentos/${ultimo}`, { method: "DELETE" }, "Último pagamento desfeito.")
+          }
+        >
+          Desfazer último pagamento
+        </Button>
+      ) : null}
       <Button
         type="button"
-        disabled={ocupado}
-        onClick={() =>
-          void executar(`/api/lancamentos/${id}/${trecho}/adiantar`, { method: "POST" }, `Parcela do ${nome} adiantada.`)
-        }
-      >
-        Adiantar
-      </Button>
-      <Button
-        type="button"
+        variant="quiet"
         disabled={ocupado}
         onClick={() =>
           void executar(
-            `/api/lancamentos/${id}/${trecho}/cancelar`,
+            `/api/lancamentos/${entry.id}/${trecho}/cancelar`,
             { method: "POST" },
             serie === "loan" ? "Empréstimo cancelado." : "Parcelas canceladas.",
           )
         }
       >
-        Cancelar
+        Cancelar o restante
       </Button>
+      <DialogoDePagamento entry={pagando ? entry : null} quitar={pagando?.quitar ?? false} onFechar={() => setPagando(null)} onPago={onAtualizar} />
     </div>
   );
 }
