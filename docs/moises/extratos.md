@@ -316,3 +316,39 @@ Arquivos:
 - `apps/frontend/app/agenda/itens.ts` e `page.tsx`
 - `apps/frontend/app/relatorios/page.tsx`
 - `apps/frontend/app/api/contas/` (novo)
+
+## Leitura de PDF que não chegava ao modelo, e o ano das datas
+
+- **O que acontecia:** o PDF era montado no bloco nativo da OpenAI (`{ type: "file", file: { file_data } }`). O LangChain 1.6 só converte com garantia o bloco padrão dele; com os modelos que usam a API Responses, o arquivo caía fora do pedido e o modelo respondia "envie a imagem ou o PDF do extrato". Essa frase virava a transcrição, o organizador não achava linha nenhuma, e o extrato falhava com "Nenhuma linha encontrada no extrato.", que não dizia o problema.
+- **Correção geral:** o arquivo vai no bloco padrão do LangChain (`source_type: "base64"`, com o nome no `metadata`), que ele converte para a API de Chat e para a Responses, em qualquer provedor compatível. PDF e imagem.
+- **Trava:** uma transcrição sem nenhum valor com centavos não é extrato vazio, é o modelo sem o arquivo. Nesse caso a importação falha com "A IA não conseguiu ler o conteúdo do arquivo. Confira se o modelo escolhido para a leitura de extratos aceita PDF e imagem…", em vez de "nenhuma linha".
+- **Ano das datas:** fatura de cartão mostra "28 SET" sem ano, e o organizador chutava o ano (gravou 2025 numa fatura de 2026). Agora ele recebe o dia de hoje e o nome do arquivo, e a instrução manda usar o ano que o documento indica (período, emissão, vencimento, nome do arquivo) e, sem indicação, o ano mais recente em que a data não fica no futuro. A transcrição também passou a pedir o período, a emissão e o vencimento.
+- **Sinal na fatura:** a instrução diz que compra, parcela, juros, IOF e tarifa são saída, e pagamento da fatura, estorno e crédito são entrada.
+
+Motivo: o PDF do usuário falhava sem explicação, e a causa valia para todo PDF e imagem com os modelos novos.
+
+Verificação: reproduzido fora do sistema com o mesmo PDF e o mesmo modelo: antes, o modelo respondia "envie o PDF"; depois, transcreve e organiza 21 linhas. No Docker local, o extrato que tinha falhado foi reprocessado pela API e ficou importado com 21 linhas, sem erro, de 28/09/2026 a 27/10/2026 (antes do ajuste do ano, vinha 2025). Testes do agents: 60. Não verificado: imagem (PNG/JPG) pelo mesmo caminho, e outros provedores além da OpenAI.
+
+Arquivos:
+
+- `apps/agents/src/extratos/adaptadores/openai.ts`
+- `apps/agents/src/extratos/adaptadores/openai.spec.ts` (novo)
+- `apps/agents/src/extratos/adaptadores/grafo.ts` e `grafo.spec.ts`
+- `apps/agents/src/extratos/portas/leitor.ts`
+
+## Sessão e grupo novos sem sair da Conferência
+
+- A busca de sessão da linha (e a de cada parte, na divisão) termina com a opção "Nova sessão", com o que foi digitado entre aspas. Ela abre um diálogo com o nome (sugerido pelo que foi digitado ou pela descrição da linha), o grupo (os que existem ou "Novo grupo", com o nome) e o tipo (Acúmulo por padrão, ou Fixo). Usa as mesmas rotas da aba Grupos (`POST /api/grupos` e `POST /api/sessoes`).
+- A sessão criada entra na lista na hora e já fica escolhida na linha que pediu; a lista completa é recarregada em seguida. O aviso "Crie uma sessão em Grupos" saiu: sem sessão nenhuma, a busca aparece do mesmo jeito, só com a opção de criar.
+- Teclado: seta para baixo chega na opção de criar e Enter abre o diálogo.
+
+Motivo: para lançar uma linha de um gasto novo a pessoa tinha que sair da Conferência, criar o grupo e a sessão em Grupos e voltar.
+
+Verificação: tsc e lint limpos; no Docker local, em 1280 px, digitar "ZZ Padaria" numa linha ofereceu Nova sessão "ZZ Padaria", o diálogo abriu com o nome sugerido, "Novo grupo" com "ZZ Grupo" criou os dois e a linha ficou com "ZZ Grupo / ZZ Padaria", sem rolagem horizontal. Dados de teste apagados. Não verificado: o mesmo caminho pela divisão (só o código) e o app mobile, que não ganhou a opção.
+
+Arquivos:
+
+- `apps/frontend/app/extratos/conferencia/nova-sessao.tsx` (novo)
+- `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
+- `apps/frontend/app/extratos/conferencia/divisao.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx`

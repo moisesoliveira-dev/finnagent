@@ -94,3 +94,24 @@ Arquivos:
 
 - `apps/frontend/app/financas/visao-geral.tsx`
 - `apps/frontend/app/financas/tabela.tsx`
+
+## A sobra passa de um mês para o outro
+
+- A sobra de um mês que não foi gasta nem separada para metas passa para o mês seguinte. `sobraAcumulada` (contracts) soma a sobra de cada mês desde o início do workflow até o mês pedido; o que foi separado para uma meta é saída na sessão dela, então já está descontado.
+- **Metas:** a sobra que as metas disputam (`surplusCents`) passou a ser a deste mês mais o que veio dos meses anteriores (`carriedCents`); `monthSurplusCents` guarda só a do mês. A tela mostra "Sobra até <mês>" e, quando há, "Veio dos meses anteriores". A sugestão de divisão e a aprovação partem da acumulada.
+- **Dashboard:** o painel traz `sobraAcumulada` (até o fim do período) e mostra "Acumulada desde o início" abaixo da sobra do período quando for diferente dela.
+- **Assistente:** o resultado de `consultar_mes_financeiro` traz a acumulada, e o consultor sabe que "quanto tenho livre" é ela.
+
+Motivo: a sobra de um mês não some no mês seguinte; é o que a pessoa realmente tem para gastar ou guardar.
+
+Verificação: tsc e lint limpos nos quatro apps; 439 testes no backend (novo: a acumulada por mês e com separação para meta), 60 no agents. Não verificado: a tela de Metas e o Dashboard no navegador com dados de vários meses (só pelo tipo e pelos testes).
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/metas/aplicacao/metas.service.ts`
+- `apps/backend/src/financas/dominio/regras.spec.ts`
+- `apps/backend/src/notificacoes/dominio/avisos.spec.ts`
+- `apps/backend/src/assistente/dominio/resultados.ts`
+- `apps/agents/src/assistente/dominio/consultor.ts`
+- `apps/frontend/app/page.tsx` e `app/metas/page.tsx`

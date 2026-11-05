@@ -282,3 +282,58 @@ Arquivos:
 - `apps/frontend/app/assistente/` (anexos.ts novo, compositor, chat e mensagem)
 - `apps/frontend/app/extratos/page.tsx`
 - `apps/frontend/components/ui/icone.tsx`
+
+## Menos tokens por turno, sem mudar como o consultor age
+
+- O prompt do consultor passou a terminar com o que muda a cada chamada (preferências da pessoa e a linha "Hoje é…, você conversa com…"). Antes a data vinha logo depois da identidade e quebrava o prefixo: o provedor não reaproveitava do cache as três mil palavras de regras que são iguais sempre.
+- O resultado das consultas deixou de ir em JSON bruto. `consultar_lancamentos`, `consultar_mes_financeiro`, `consultar_painel`, `listar_grupos_e_sessoes`, `consultar_conferencia` e `consultar_agenda` voltam uma linha por item, com os ids, nomes, valores, datas e situações que o modelo usa (`apps/backend/src/assistente/dominio/resultados.ts`). As demais voltam em JSON sem null, texto vazio e lista vazia. Um formato inesperado cai no JSON limpo, sem quebrar.
+- O plano executado já devolve o efeito no mês calculado pelo sistema (a sobra antes e depois, dos fatos do cartão) e o ciclo não manda mais consultar `consultar_mes_financeiro` em seguida: é um passo a menos por plano.
+
+Motivo: cada passo reenvia o prompt inteiro e todos os resultados anteriores do turno; o custo estava no prefixo sem cache, nos JSONs e na consulta extra.
+
+Verificação: 438 testes no backend (novos para os formatos e o JSON limpo) e 50 no agents; tipos e lint limpos; Docker reconstruído. Com o modelo real: "Lance R$ 12,50 de saída hoje…" consultou grupos e sessões uma vez, propôs o plano e, ao aprovar, criou o lançamento e respondeu com a sobra antes e depois sem consultar o mês de novo. Não verificado: o tamanho real em tokens por passo no Langfuse, que é onde dá para ver a parte que vem do cache.
+
+Arquivos:
+
+- `apps/agents/src/assistente/dominio/prompts.ts` e `prompts.spec.ts`
+- `apps/backend/src/assistente/dominio/resultados.ts` (novo) e `resultados.spec.ts` (novo)
+- `apps/backend/src/assistente/dominio/conversa.ts`
+- `apps/backend/src/assistente/adaptadores/executor-http.ts`
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts`
+
+## Ditado por voz no chat
+
+- O compositor ganhou o botão do microfone. O navegador transcreve a fala com o reconhecimento de voz dele (Web Speech API, `SpeechRecognition`, em pt-BR, contínuo e com resultado parcial), o texto cai na caixa enquanto a pessoa fala, e ela revisa e envia como se tivesse digitado. O áudio não vai para a IA do Prumo nem para o backend: só o texto segue pelo caminho de sempre.
+- O botão só aparece em navegador com suporte (Chrome, Edge, Safari; o Firefox não tem). Sem permissão de microfone, sem microfone ou sem conexão, a linha de ajuda diz o que faltou. Enviar (Enter ou o botão) para o ditado.
+- O cabeçalho `Permissions-Policy` do `next.config.ts` proibia o microfone (`microphone=()`), e com isso o navegador recusava sem perguntar. Passou a `microphone=(self)`: liberado só para a própria origem; câmera e localização continuam fechadas.
+- Antes de ouvir, a aplicação pede o microfone ao navegador (`getUserMedia`), que abre o pedido de permissão na hora; a faixa de áudio é fechada em seguida, porque quem grava é o reconhecimento de voz. Recusa, microfone ausente ou página sem HTTPS viram mensagem na linha de ajuda.
+- O app mobile não ganhou o botão: o WebView do Android não expõe o reconhecimento de voz; precisaria do plugin nativo do Capacitor.
+- No celular, a caixa de mensagem ocupa a linha inteira e os botões (clipe, microfone e Enviar) descem para a linha de baixo; com mais um botão, tudo numa linha deixava a caixa com três palavras de largura. A dica da caixa encurtou para "Escreva, dite ou anexe um extrato".
+
+Motivo: pedir por voz sem mandar áudio para o modelo, e sem serviço novo de transcrição.
+
+Verificação: tsc e lint limpos; Docker reconstruído; no Chrome headless, em 375 e 1280 px, o botão aparece com 40 px, a caixa empilha no celular e a página não rola na horizontal. Não verificado: a transcrição em si, que precisa de microfone e de uma pessoa falando.
+
+Arquivos:
+
+- `apps/frontend/app/assistente/ditado.ts` (novo)
+- `apps/frontend/app/assistente/compositor.tsx`
+- `apps/frontend/components/ui/icone.tsx`
+
+## Chat com cara de chat: ícones, lista por recência, renomear e fixar
+
+- **Compositor:** o "+" à esquerda abre um menu com o que entra junto com a mensagem (hoje, "Anexar arquivo"); o microfone e o enviar ficam à direita, só com ícone (seta para cima em amarelo; "parar" vira um quadrado). A dica da caixa virou "Pergunte ou peça algo". Nada saiu: anexar, ditar, arrastar o arquivo, Enter e Shift+Enter continuam.
+- **Lista de conversas:** separada por quando foi usada, como nos chats de IA: Fixadas, Hoje, Ontem, Últimos 7 dias, Últimos 30 dias e, depois, o mês e o ano. A hora de cada item saiu, porque a seção já diz. Cada conversa tem três ícones (fixar, renomear, apagar), à vista no toque e, com mouse, ao passar ou focar. Renomear é na própria lista (também por duplo clique): Enter salva, Escape cancela, até 80 caracteres.
+- **Fixar:** a conversa ganhou `pinned` (migração `20261105120000_conversa_fixada`). Fixada fica no alto, à frente das outras, e a retenção não a apaga. A rota `PATCH /assistente/conversas/:id` aceita `title` e/ou `pinned` (antes só o título) e grava `renomear-conversa` e `fixar-conversa` no outbox.
+
+Motivo: as funções estavam espalhadas na caixa e a lista não dizia quando cada conversa foi usada nem deixava nomear ou fixar.
+
+Verificação: tsc e lint limpos; 438 testes no backend; migração aplicada no Postgres local e diff vazio; pela API, fixar e renomear devolvem o resumo e um corpo vazio responde 400 com a mensagem. No navegador, em 1280 e 375 px, a lista mostra as seções (Fixadas e Hoje com uma conversa fixada de teste), o "+" e o enviar por ícone aparecem, e a página não rola na horizontal. Não verificado: renomear pela lista com o mouse (só pela API) e o app mobile, que mantém a lista antiga.
+
+Arquivos:
+
+- `apps/backend/prisma/schema.prisma` e a migração nova
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/assistente/` (controlador, serviço, `dominio/pedido.ts`, porta e adaptador das conversas, spec do serviço)
+- `apps/frontend/app/assistente/conversas.tsx`, `compositor.tsx` e `chat.tsx`
+- `apps/frontend/components/ui/icone.tsx`
