@@ -1,4 +1,5 @@
 import {
+  sobraAcumulada,
   centavosNoMes,
   colunasDoAno,
   encerraNoMes,
@@ -44,6 +45,15 @@ describe("regras de finanças", () => {
       ),
     );
     expect(valores[7]).toBe(-240_730);
+  });
+
+  it("a sobra acumula de mês em mês desde o início do workflow", () => {
+    // O salário entra em março, abril e maio: até maio, três sobras.
+    expect(sobraAcumulada([salario], WORKFLOW_INICIAL, 2026, 4)).toBe(3 * 620_000);
+    expect(sobraAcumulada([salario], WORKFLOW_INICIAL, 2026, 2)).toBe(620_000);
+    expect(sobraAcumulada([salario], WORKFLOW_INICIAL, 2025, 11)).toBe(0);
+    // O que foi separado para uma meta é saída: já não está na acumulada.
+    expect(sobraAcumulada([salario, { ...salario, id: "meta", type: "variável", category: "unique", months: [{ year: 2026, month: 4, cents: -20_000 }], cents: 0 }], WORKFLOW_INICIAL, 2026, 4)).toBe(3 * 620_000 - 20_000);
   });
 
   it("transferência entre contas próprias não entra na sobra", () => {

@@ -383,9 +383,14 @@ export default function MetasPage() {
             return (
               <section aria-label="Resumo das metas" className="mb-6 grid min-w-0 gap-4 border border-line bg-surface p-4">
                 <dl className="flex flex-wrap gap-x-8 gap-y-4">
-                  <Stat label={`Sobra de ${MESES[dados.month - 1]}`}>
+                  <Stat label={`Sobra até ${MESES[dados.month - 1]}`}>
                     <Money cents={dados.surplusCents} strong />
                   </Stat>
+                  {dados.carriedCents !== 0 ? (
+                    <Stat label="Veio dos meses anteriores">
+                      <Money cents={dados.carriedCents} />
+                    </Stat>
+                  ) : null}
                   <Stat label="Separado este mês">
                     <Money cents={-dados.separatedCents} />
                   </Stat>
