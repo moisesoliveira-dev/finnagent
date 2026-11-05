@@ -10,6 +10,7 @@ import {
   RETENCOES_DO_CHAT,
   TEXTO_SO_COM_ANEXO,
   idDeModelo,
+  type AtualizacaoDaConversa,
   type ConfiguracaoDoAssistente,
   type PedidoDeMensagem,
   type PedidoDeProvedor,
@@ -114,7 +115,14 @@ export function interpretarMensagem(corpo: unknown): PedidoDeMensagem | string {
   return "Escreva uma mensagem ou escolha uma opção.";
 }
 
-export function interpretarTitulo(corpo: unknown) {
-  const lido = z.object({ title: z.string().trim().min(1).max(80) }).safeParse(corpo);
-  return lido.success ? lido.data.title : "Dê um título de até 80 caracteres.";
+/** O título novo e/ou a fixação. Pelo menos um dos dois. */
+export function interpretarAtualizacao(corpo: unknown): AtualizacaoDaConversa | string {
+  const lido = z
+    .object({ title: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional() })
+    .refine((pedido) => pedido.title !== undefined || pedido.pinned !== undefined)
+    .safeParse(corpo);
+  if (lido.success) return lido.data;
+  const caminho = lido.error.issues[0]?.path[0];
+  if (caminho === "title") return "Dê um título de até 80 caracteres.";
+  return "Diga o título novo ou se a conversa fica fixada.";
 }

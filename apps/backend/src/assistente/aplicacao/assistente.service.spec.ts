@@ -35,7 +35,7 @@ class Conversas implements ConversasRepositorio {
     return structuredClone({ resumo: { ...item.resumo, pendente: item.pendencia !== null }, pendencia: item.pendencia, mensagens: item.mensagens });
   }
   async criar(tenantId: string, userId: string, id: string, title: string) {
-    const resumo = { id, title, updatedAt: new Date().toISOString(), pendente: false };
+    const resumo = { id, title, updatedAt: new Date().toISOString(), pendente: false, pinned: false };
     this.dados.set(id, { tenantId, userId, resumo, pendencia: null, mensagens: [] });
     return resumo;
   }
@@ -55,6 +55,9 @@ class Conversas implements ConversasRepositorio {
     this.dados.get(conversationId)!.pendencia = structuredClone(pendencia);
   }
   async renomear() {
+    return null;
+  }
+  async fixar() {
     return null;
   }
   async remover() {
