@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { Avatar } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { cn, focusRing } from "../ui/cn";
+import { Icone } from "../ui/icone";
+import { useMenu } from "../ui/menu-lateral";
 import { desligarPush } from "../notificacoes/push-do-navegador";
 import { useToast } from "../ui/toast";
 import { PERFIL_ATUALIZADO } from "./perfil-evento";
@@ -18,6 +20,7 @@ export function ContaDoMenu() {
   const toast = useToast();
   const [perfil, setPerfil] = useState<PerfilDoUsuario | null>(null);
   const [saindo, setSaindo] = useState(false);
+  const recolhido = useMenu();
 
   useEffect(() => {
     let vivo = true;
@@ -54,7 +57,7 @@ export function ContaDoMenu() {
   return (
     // Coluna flex, e não grid: o grid cresce até o tamanho do texto e empurra o nome para fora do menu.
     <div className="flex min-w-0 flex-col gap-1 tab:mt-auto">
-      {perfil?.semLogin ? <p className="etiqueta px-3 text-pending">Dev, sem login</p> : null}
+      {perfil?.semLogin && !recolhido ? <p className="etiqueta px-3 text-pending">Dev, sem login</p> : null}
       {perfil ? (
         <Link
           href="/perfil"
@@ -63,16 +66,25 @@ export function ContaDoMenu() {
           aria-current={pathname === "/perfil" ? "page" : undefined}
           className={cn(
             "flex min-h-10 min-w-0 items-center gap-3 px-3 text-sm transition-colors hover:text-ink",
+            recolhido && "tab:justify-center tab:px-0",
             pathname === "/perfil" ? "text-brand" : "text-ink-2",
             focusRing,
           )}
         >
           <Avatar nome={nome} tom={perfil.avatarTone} className="size-8 text-xs" />
-          <span className="hidden min-w-0 flex-1 truncate tab:block">{nome}</span>
+          <span className={cn("hidden min-w-0 flex-1 truncate", !recolhido && "tab:block")}>{nome}</span>
         </Link>
       ) : null}
-      <Button variant="quiet" onClick={() => void sair()} disabled={saindo} className="justify-start">
-        Sair
+      <Button
+        variant="quiet"
+        onClick={() => void sair()}
+        disabled={saindo}
+        aria-label="Sair da conta"
+        title="Sair"
+        className={cn("justify-start", recolhido && "tab:size-10 tab:justify-center tab:px-0")}
+      >
+        <Icone name="sair" />
+        <span className={cn(recolhido && "tab:sr-only")}>Sair</span>
       </Button>
     </div>
   );
