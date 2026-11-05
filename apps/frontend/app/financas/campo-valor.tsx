@@ -3,20 +3,19 @@
 import { useRef } from "react";
 import { proximaMascara } from "./reais";
 
+/**
+ * O campo de dinheiro de toda a aplicação: só aceita dígitos e mostra o valor já em reais ("1.234,56"), com os
+ * centavos entrando pela direita. Quem lê o valor usa `reaisParaCentavos`; quem preenche usa `centavosParaReais`.
+ */
 export function CampoValor({
-  id,
   value,
   onChange,
   className,
-  required = false,
   placeholder = "0,00",
-}: {
-  id: string;
+  ...resto
+}: Omit<React.ComponentProps<"input">, "value" | "onChange" | "type" | "inputMode" | "autoComplete"> & {
   value: string;
   onChange: (valor: string) => void;
-  className?: string;
-  required?: boolean;
-  placeholder?: string;
 }) {
   const campo = useRef<HTMLInputElement>(null);
 
@@ -33,14 +32,13 @@ export function CampoValor({
   return (
     <input
       ref={campo}
-      id={id}
       inputMode="numeric"
       autoComplete="off"
-      required={required}
       placeholder={placeholder}
       value={value}
       onChange={(event) => digitar(event.target.value)}
       className={`${className ?? ""} text-right tabular-nums`}
+      {...resto}
     />
   );
 }

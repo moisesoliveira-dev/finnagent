@@ -16,6 +16,7 @@ import { Money } from "../../components/ui/money";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { api } from "./api";
+import { CampoValor } from "./campo-valor";
 import { centavosParaReais, reaisParaCentavos } from "./reais";
 
 type Rascunho = { id: string | null; name: string; kind: TipoDeConta; opening: string };
@@ -162,13 +163,11 @@ export function Contas({
                 >
                   Saldo inicial
                 </Rotulo>
-                <input
+                <CampoValor
                   id="conta-saldo"
                   className={field}
-                  inputMode="decimal"
-                  placeholder="0,00"
                   value={rascunho?.opening ?? ""}
-                  onChange={(event) => setRascunho((atual) => (atual ? { ...atual, opening: event.target.value } : atual))}
+                  onChange={(valor) => setRascunho((atual) => (atual ? { ...atual, opening: valor } : atual))}
                 />
               </div>
             </div>

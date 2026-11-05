@@ -9,6 +9,7 @@ import { List } from "../../components/ui/list";
 import { Money } from "../../components/ui/money";
 import { useToast } from "../../components/ui/toast";
 import { api } from "./api";
+import { CampoValor } from "./campo-valor";
 import { centavosParaReais, reaisParaCentavos } from "./reais";
 import { rotuloDaSituacao, tomDaSituacao } from "./rotulos";
 
@@ -152,14 +153,13 @@ function CamposPendentes({
         onBlur={gravarData}
         className={campo}
       />
-      <input
+      <CampoValor
         aria-label={`Valor da ocorrência ${item.number}`}
         value={valor}
-        inputMode="decimal"
         disabled={ocupado}
-        onChange={(event) => setValor(event.target.value)}
+        onChange={setValor}
         onBlur={gravarValor}
-        className={`${campo} min-w-0 flex-1 text-right`}
+        className={`${campo} min-w-0 flex-1`}
       />
     </>
   );

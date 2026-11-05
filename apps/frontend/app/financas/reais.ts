@@ -45,3 +45,15 @@ export function centavosParaReais(cents: number) {
 export function doisDigitos(valor: number) {
   return String(valor).padStart(2, "0");
 }
+
+/** Mantém só dígitos, até `maximo` deles. */
+export function apenasDigitos(texto: string, maximo = 10) {
+  return texto.replace(/\D/g, "").slice(0, maximo);
+}
+
+/** Mantém só dígitos e a primeira vírgula, com até duas casas; o ponto digitado vira vírgula. */
+export function apenasDecimal(texto: string) {
+  const limpo = texto.replace(".", ",").replace(/[^\d,]/g, "");
+  const [inteiro, ...resto] = limpo.split(",");
+  return resto.length ? `${inteiro},${resto.join("").slice(0, 2)}` : inteiro;
+}
