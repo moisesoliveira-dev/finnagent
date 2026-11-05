@@ -1,3 +1,4 @@
+import { dataContabil, ehMulta } from "@finnagent/contracts";
 import {
   CATEGORIAS_TRANSACAO,
   STATUS_TRANSACAO,
@@ -127,7 +128,7 @@ export function situacaoNoMes(
 ): SituacaoOcorrencia {
   const prefixo = `${year}-${String(month).padStart(2, "0")}-`;
   const situacoes = ocorrenciasDoLancamento(entry)
-    .filter((item) => item.dueDate.startsWith(prefixo))
+    .filter((item) => dataContabil(item).startsWith(prefixo))
     .filter((item) => item.status === "pending" || item.status === "completed")
     .map((item) => situacaoDaOcorrencia(item, hoje));
   if (situacoes.includes("late")) return "late";
@@ -164,7 +165,8 @@ export function montarBase(base: FinancasResposta, hoje: string, filtro: FiltroB
     if (busca && !texto.toLowerCase().includes(busca)) continue;
     const lista = ocorrenciasDoLancamento(entry);
     for (const item of lista) {
-      const [ano, mes, dia] = item.dueDate.split("-").map(Number);
+      // A ocorrência paga conta no mês do pagamento; a pendente, no do vencimento.
+      const [ano, mes, dia] = dataContabil(item).split("-").map(Number);
       if (ano !== year || !mes || !dia || !months.includes(mes)) continue;
       if (month != null && mes !== month) continue;
       if (day != null && dia !== day) continue;
@@ -185,9 +187,10 @@ export function montarBase(base: FinancasResposta, hoje: string, filtro: FiltroB
         situation: situacaoDaOcorrencia(item, hoje),
         cents,
         installment:
-          entry.type === "parcela" || entry.type === "empréstimo"
-            ? { number: item.number, total: entry.installments ?? lista.length }
+          (entry.type === "parcela" || entry.type === "empréstimo") && !ehMulta(item)
+            ? { number: item.parcel ?? item.number, total: entry.installments ?? lista.length }
             : null,
+        fee: ehMulta(item),
         remove: removerDaLinha(entry, lista, item),
         synced: entry.synced,
         transfer: entry.transfer ?? false,

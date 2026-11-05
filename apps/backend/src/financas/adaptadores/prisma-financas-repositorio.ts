@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import {
   alterouIdentidade,
@@ -9,6 +10,7 @@ import {
   CONTAGENS_DE_DIA_UTIL,
   REGRA_SEM_AJUSTE,
   TIPOS_DE_REGRA,
+  dataPelaRegra,
   gradeDoLancamento,
   GRUPO_DAS_METAS,
   mesmaRegra,
@@ -31,15 +33,18 @@ import {
   type TipoLancamento,
   type TipoTransacao,
 } from "@finnagent/contracts";
+import type { PedidoDePagamento } from "@finnagent/contracts";
+import type { OpcoesDoPagamento } from "../portas/financas-repositorio.js";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { categoriaPermitida, protegeValorBase } from "../../grupos/dominio/sessao.js";
+import { chaveDoMes } from "@finnagent/contracts";
 import type { TipoSessao } from "@finnagent/contracts";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
 import type { Prisma } from "@prisma/client";
-import { ocorrenciaDoPagamento, pagarOcorrencia } from "../dominio/pagamento.js";
+import { aplicarPagamento, desfazerPagamento, type ContratoDoPagamento } from "../dominio/pagamento.js";
 import { jurosEmPontos, percentualDeJuros } from "../dominio/transacao.js";
 import { removerDaLinha } from "../dominio/vista.js";
 import type {
@@ -155,12 +160,13 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     return lancamentoDe(row);
   }
 
-  async lancamentoDaSessaoFixa(tenantId: string, sessionId: string) {
+  /** A transação que a sessão Fixo já tem nesse mês (a primeira dele), se houver. */
+  async lancamentoDaSessaoFixa(tenantId: string, sessionId: string, year: number, month: number) {
     const sessao = await this.banco().session.findFirst({
       where: { id: sessionId, tenantId, kind: "valor", endedAt: null },
       select: {
         entries: {
-          where: { tenantId, status: { not: "cancelled" } },
+          where: { tenantId, status: { not: "cancelled" }, startYear: year, startMonth: month },
           orderBy: { position: "asc" },
           select: { id: true },
           take: 1,
@@ -187,7 +193,15 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         if (mesmoLancamento(atual, pedido)) return lancamentoDe(atual);
         return "identificador" as const;
       }
-      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category, undefined, emPartes);
+      const recusa = await recusaDaSessao(
+        tx,
+        tenantId,
+        pedido.sessionId,
+        pedido.category,
+        { year: pedido.startYear, month: pedido.startMonth },
+        undefined,
+        emPartes,
+      );
       if (recusa) return recusa;
       const cobertura = await recusaDaCobertura(tx, tenantId, pedido.id, pedido.coveredById ?? null);
       if (cobertura) return cobertura;
@@ -248,13 +262,20 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       const grade = regenerar
         ? mesclarGrade(efetivasDaLinha(atual), gradeDoPedido({ ...pedido, status: "pending" }, calendario))
         : null;
-      const recusa = await recusaDaSessao(tx, tenantId, pedido.sessionId, pedido.category, {
-        id: atual.id,
-        cents: atual.cents,
-        mode: atual.mode,
-        pedidoCents: pedido.cents,
-        pedidoMode: pedido.mode,
-      });
+      const recusa = await recusaDaSessao(
+        tx,
+        tenantId,
+        pedido.sessionId,
+        pedido.category,
+        { year: pedido.startYear, month: pedido.startMonth },
+        {
+          id: atual.id,
+          cents: atual.cents,
+          mode: atual.mode,
+          pedidoCents: pedido.cents,
+          pedidoMode: pedido.mode,
+        },
+      );
       if (recusa) return recusa;
       const cobertura = await recusaDaCobertura(
         tx,
@@ -368,23 +389,70 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     });
   }
 
-  async pagarPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+  async pagarPeloExtrato(
+    tenantId: string,
+    id: string,
+    date: string,
+    cents: number,
+    calendario: CalendarioDeDiasUteis,
+    opcoes: OpcoesDoPagamento = {},
+  ) {
     return this.alterar(tenantId, id, "pagar-pelo-extrato", async (tx, atual) => {
       const lista = await this.materializar(tx, tenantId, atual);
-      const number = ocorrenciaDoPagamento(lista, date);
-      if (number == null) return "bloqueada" as const;
-      const proxima = lista.map((item) => (item.number === number ? pagarOcorrencia(item, cents, date) : item));
-      await this.substituir(tx, tenantId, id, proxima);
-      await this.resumir(tx, tenantId, atual, proxima);
-      await this.alinharAjustes(tx, tenantId, atual, proxima);
-      await this.marcarCompromissos(tx, tenantId, id, date, "done");
-      return { number, paidCents: cents, paidOn: date };
+      const pagamento = { date, cents: Math.abs(cents), paymentId: opcoes.paymentId ?? randomUUID(), diferenca: opcoes.diferenca };
+      const resultado = aplicarPagamento(contratoDoPagamento(atual), lista, pagamento, datarDe(atual, calendario));
+      if (typeof resultado === "string") return resultado;
+      await this.gravarPagamento(tx, tenantId, atual, resultado.lista, date);
+      return { paymentId: pagamento.paymentId, cents: pagamento.cents, paidOn: date };
     });
   }
 
-  async reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
+  async registrarPagamento(tenantId: string, id: string, pedido: PedidoDePagamento, paymentId: string, calendario: CalendarioDeDiasUteis) {
+    return this.alterar(tenantId, id, "registrar-pagamento", async (tx, atual) => {
+      const lista = await this.materializar(tx, tenantId, atual);
+      const pagamento = { date: pedido.date, cents: Math.abs(pedido.cents), paymentId, diferenca: pedido.diferenca };
+      const resultado = aplicarPagamento(contratoDoPagamento(atual), lista, pagamento, datarDe(atual, calendario));
+      if (typeof resultado === "string") return resultado;
+      await this.gravarPagamento(tx, tenantId, atual, resultado.lista, pedido.date);
+      return { paymentId, cents: pagamento.cents, paidOn: pedido.date };
+    });
+  }
+
+  async desfazerPagamento(tenantId: string, id: string, paymentId: string, calendario: CalendarioDeDiasUteis) {
+    return this.alterar(tenantId, id, "desfazer-pagamento", async (tx, atual) => {
+      const lista = await this.materializar(tx, tenantId, atual);
+      const data = lista.find((item) => item.paymentId === paymentId)?.paidOn ?? null;
+      const resultado = desfazerPagamento(contratoDoPagamento(atual), lista, paymentId, datarDe(atual, calendario));
+      if (resultado === "ausente") return "ausente" as const;
+      if (resultado === "bloqueada") return "bloqueada" as const;
+      await this.substituir(tx, tenantId, id, resultado.lista);
+      await this.resumir(tx, tenantId, atual, resultado.lista);
+      await this.alinharAjustes(tx, tenantId, atual, resultado.lista);
+      if (data) await this.marcarCompromissos(tx, tenantId, id, data, "undone");
+      return { paymentId };
+    });
+  }
+
+  private async gravarPagamento(tx: Prisma.TransactionClient, tenantId: string, atual: Linha, lista: Ocorrencia[], date: string) {
+    await this.substituir(tx, tenantId, atual.id, lista);
+    await this.resumir(tx, tenantId, atual, lista);
+    await this.alinharAjustes(tx, tenantId, atual, lista);
+    await this.marcarCompromissos(tx, tenantId, atual.id, date, "done");
+  }
+
+  async reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number, calendario: CalendarioDeDiasUteis, paymentId?: string) {
     return this.alterar(tenantId, id, "reabrir-pelo-extrato", async (tx, atual) => {
       const lista = await this.materializar(tx, tenantId, atual);
+      // A linha que pagou pelo motor novo desfaz pelo id do pagamento: parcelas, parte e multa voltam juntas.
+      if (paymentId && lista.some((item) => item.paymentId === paymentId)) {
+        const resultado = desfazerPagamento(contratoDoPagamento(atual), lista, paymentId, datarDe(atual, calendario));
+        if (typeof resultado === "string") return "bloqueada" as const;
+        await this.substituir(tx, tenantId, id, resultado.lista);
+        await this.resumir(tx, tenantId, atual, resultado.lista);
+        await this.alinharAjustes(tx, tenantId, atual, resultado.lista);
+        await this.marcarCompromissos(tx, tenantId, id, date, "undone");
+        return { paymentId, status: "pending" as const };
+      }
       // O valor pago pode ser o do lançamento, quando a pessoa escolheu ele no cruzamento: vale a paga nessa data.
       const pagasNaData = lista.filter((item) => item.status === "completed" && item.paidOn === date);
       const paga = pagasNaData.filter((item) => item.paidCents === cents).at(-1) ?? pagasNaData.at(-1);
@@ -842,7 +910,7 @@ function mesmoLancamento(
   );
 }
 
-type FalhaCurta = "categoria" | "encerrada" | "concluida" | "bloqueada" | "ausente";
+type FalhaCurta = "categoria" | "encerrada" | "concluida" | "bloqueada" | "ausente" | "escolha-diferenca";
 
 type Linha = {
   id: string;
@@ -871,6 +939,8 @@ type Linha = {
   coveredById: string | null;
   accountId: string | null;
   transfer: boolean;
+  counterparty: string;
+  principalCents: number | null;
   recurrence: string | null;
   recurrenceInterval: number | null;
   dueRule: string;
@@ -891,7 +961,25 @@ type OcorrenciaGravada = {
   paidCents: number | null;
   paidOn: Date | null;
   status: string;
+  kind: string;
+  parcel: number | null;
+  paymentId: string | null;
 };
+
+function contratoDoPagamento(atual: Linha): ContratoDoPagamento {
+  return {
+    category: atual.category as CategoriaTransacao,
+    mode: atual.mode as ModoTransacao,
+    cents: atual.cents,
+    installments: atual.installments,
+    principalCents: atual.principalCents,
+  };
+}
+
+/** O vencimento de um mês para o lançamento, pela regra de dia útil dele. */
+function datarDe(atual: Linha, calendario: CalendarioDeDiasUteis) {
+  return (year: number, month: number) => dataPelaRegra(year, month, atual.day, regraDaLinha(atual), calendario);
+}
 
 function baseDaLinha(atual: Linha) {
   return {
@@ -926,6 +1014,8 @@ function atributos(pedido: Omit<NovoLancamento, "dueRule"> & { dueRule?: RegraDe
     nextDueOn: pedido.nextDueDate ? dataPrisma(pedido.nextDueDate) : null,
     recurrence: pedido.recurrence,
     recurrenceInterval: pedido.recurrenceInterval,
+    counterparty: pedido.counterparty ?? "",
+    principalCents: pedido.principalCents ?? null,
   };
 }
 
@@ -995,7 +1085,12 @@ function inclusaoDoLancamento(tenantId: string, mes?: { year: number; month: num
     },
     adjustments: { where: { tenantId, ...(mes ? { year: mes.year, month: mes.month } : {}) } },
     occurrences: {
-      where: { tenantId, ...(mes ? { dueOn: { gte: mes.inicio, lt: mes.fim } } : {}) },
+      where: {
+        tenantId,
+        ...(mes
+          ? { OR: [{ dueOn: { gte: mes.inicio, lt: mes.fim } }, { paidOn: { gte: mes.inicio, lt: mes.fim } }] }
+          : {}),
+      },
       orderBy: { number: "asc" as const },
     },
     session: { include: { group: true } },
@@ -1035,6 +1130,8 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
     coveredById: row.coveredById,
     accountId: row.accountId,
     transfer: row.transfer,
+    counterparty: row.counterparty,
+    principalCents: row.principalCents,
     recurrence: row.recurrence as Recorrencia | null,
     recurrenceInterval: row.recurrenceInterval,
     dueRule: regraDaLinha(row),
@@ -1045,8 +1142,12 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
       effect: ajuste.effect as EfeitoTransacao,
     })),
     // A fixa gravada num ano ganha, na leitura, as ocorrências do ano seguinte; o que já está gravado não muda.
+    // Só a fixa cresce com o tempo. Parcela e empréstimo têm a lista gravada como verdade: o pagamento livre
+    // muda a quantidade de ocorrências, e a grade de origem não pode voltar por cima.
     occurrences: (row.occurrences ?? []).length
-      ? estenderGrade((row.occurrences ?? []).map(ocorrenciaDe), gradeDoLancamento(contratoDaLinha(row)))
+      ? row.type === "fixo"
+        ? estenderGrade((row.occurrences ?? []).map(ocorrenciaDe), gradeDoLancamento(contratoDaLinha(row)))
+        : (row.occurrences ?? []).map(ocorrenciaDe)
       : opcoes?.semGrade
         ? []
         : gradeDoLancamento(contratoDaLinha(row)),
@@ -1150,6 +1251,9 @@ function dadosAninhados(item: Ocorrencia) {
     paidCents: item.paidCents,
     paidOn: item.paidOn ? dataPrisma(item.paidOn) : null,
     status: item.status,
+    kind: item.kind ?? "parcela",
+    parcel: item.parcel ?? null,
+    paymentId: item.paymentId ?? null,
   };
 }
 
@@ -1165,6 +1269,9 @@ function ocorrenciaDe(row: OcorrenciaGravada): Ocorrencia {
     paidCents: row.paidCents,
     paidOn: row.paidOn ? dataIso(row.paidOn) : null,
     status: row.status as StatusTransacao,
+    kind: row.kind === "multa" ? "multa" : "parcela",
+    parcel: row.parcel,
+    paymentId: row.paymentId,
   };
 }
 
@@ -1186,11 +1293,13 @@ async function recusaDaCobertura(
   return null;
 }
 
+/** O Fixo só olha o mês do pedido: a transação de outro mês não ocupa este. */
 async function recusaDaSessao(
   tx: Prisma.TransactionClient,
   tenantId: string,
   sessionId: string,
   category: CategoriaTransacao,
+  mes: { year: number; month: number },
   valor?: {
     id: string;
     cents: number;
@@ -1216,10 +1325,12 @@ async function recusaDaSessao(
     return kind === "valor" ? ("tipo-valor" as const) : ("tipo-acumulo" as const);
   }
   if (kind !== "valor") return null;
-  const irmas = await tx.entry.findMany({
-    where: { tenantId, sessionId, status: { not: "cancelled" } },
-    select: { id: true, position: true, status: true },
-  });
+  const irmas = (
+    await tx.entry.findMany({
+      where: { tenantId, sessionId, status: { not: "cancelled" }, startYear: mes.year, startMonth: mes.month },
+      select: { id: true, position: true, status: true, startYear: true, startMonth: true },
+    })
+  ).map((item) => ({ ...item, month: chaveDoMes(item.startYear, item.startMonth) }));
   const jaEsta = valor != null && irmas.some((item) => item.id === valor.id);
   if (!jaEsta && irmas.length > 0 && !emPartes) return "valor-lancada" as const;
   if (

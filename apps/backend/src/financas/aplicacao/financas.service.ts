@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import {
@@ -9,6 +10,7 @@ import {
   type FinancasVista,
   type GeralResposta,
   type Lancamento,
+  type PedidoDePagamento,
   type StatusTransacao,
 } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
@@ -36,11 +38,16 @@ import {
   FINANCAS_REPOSITORIO,
   type FinancasRepositorio,
   type NovoLancamento,
+  type OpcoesDoPagamento,
   type ValorFixo,
 } from "../portas/financas-repositorio.js";
 
 /** O lançamento ainda tem linha do extrato apontando para ele. Quem apaga solta as linhas antes. */
 export const MENSAGEM_DE_LANCAMENTO_SINCRONIZADO = "Esse lançamento foi sincronizado com o extrato e não pode ser apagado.";
+
+/** O pagamento passou da parcela e sobrou menos que outra: a pessoa diz o que é a sobra. */
+export const MENSAGEM_DA_DIFERENCA =
+  "O valor passa da parcela. Diga se a sobra é multa e juros desta parcela ou parte da próxima.";
 
 @Injectable()
 export class FinancasService {
@@ -83,12 +90,13 @@ export class FinancasService {
     return montarGeral(await this.listar(tenantId), year);
   }
 
-  async registrar(tenantId: string, pedido: PedidoLancamento) {
-    if (pedido.dueRule) return this.criar(tenantId, this.validado(pedido));
+  /** `emPartes` libera mais uma transação numa sessão Fixo já lançada (a Conferência usa). */
+  async registrar(tenantId: string, pedido: PedidoLancamento, emPartes = false) {
+    if (pedido.dueRule) return this.criar(tenantId, this.validado(pedido), emPartes);
     // Sem regra escolhida, vale o padrão da categoria nas configurações.
     const { vencimentos } = await this.configuracoes.obter(tenantId);
     const modo = ajustarTransacao(pedido).mode;
-    return this.criar(tenantId, this.validado({ ...pedido, dueRule: regraPadrao(vencimentos, pedido.category, modo) }));
+    return this.criar(tenantId, this.validado({ ...pedido, dueRule: regraPadrao(vencimentos, pedido.category, modo) }), emPartes);
   }
 
   /** Depois de mudar os feriados locais: as pendentes de quem tem regra ganham as datas novas. */
@@ -115,8 +123,8 @@ export class FinancasService {
     return novoLancamento(normal);
   }
 
-  lancamentoDaSessaoFixa(tenantId: string, sessionId: string) {
-    return this.financas.lancamentoDaSessaoFixa(tenantId, sessionId);
+  lancamentoDaSessaoFixa(tenantId: string, sessionId: string, year: number, month: number) {
+    return this.financas.lancamentoDaSessaoFixa(tenantId, sessionId, year, month);
   }
 
   async criar(tenantId: string, pedido: NovoLancamento, emPartes = false): Promise<Lancamento> {
@@ -199,12 +207,25 @@ export class FinancasService {
     return this.um(this.financas.associarCompromisso(tenantId, id, commitmentId));
   }
 
-  pagarPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
-    return this.um(this.financas.pagarPeloExtrato(tenantId, id, date, cents));
+  async pagarPeloExtrato(tenantId: string, id: string, date: string, cents: number, opcoes: OpcoesDoPagamento = {}) {
+    return this.um(this.financas.pagarPeloExtrato(tenantId, id, date, cents, await this.feriados.calendario(tenantId), opcoes));
   }
 
-  reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number) {
-    return this.um(this.financas.reabrirPeloExtrato(tenantId, id, date, cents));
+  async reabrirPeloExtrato(tenantId: string, id: string, date: string, cents: number, paymentId?: string) {
+    return this.um(this.financas.reabrirPeloExtrato(tenantId, id, date, cents, await this.feriados.calendario(tenantId), paymentId));
+  }
+
+  /** Um pagamento à mão numa parcela ou num empréstimo: data e valor reais. Devolve o lançamento e o id do pagamento. */
+  async registrarPagamento(tenantId: string, id: string, pedido: PedidoDePagamento) {
+    const paymentId = randomUUID();
+    const lancamento = await this.um(
+      this.financas.registrarPagamento(tenantId, id, pedido, paymentId, await this.feriados.calendario(tenantId)),
+    );
+    return { ...lancamento, paymentId };
+  }
+
+  async desfazerPagamento(tenantId: string, id: string, paymentId: string) {
+    return this.um(this.financas.desfazerPagamento(tenantId, id, paymentId, await this.feriados.calendario(tenantId)));
   }
 
   adiantar(tenantId: string, id: string, category: "installment" | "loan") {
@@ -251,6 +272,7 @@ export class FinancasService {
     if (codigo === "concluida") throw new Conflito("As parcelas já foram concluídas.");
     if (codigo === "sincronizado") throw new Conflito(MENSAGEM_DE_LANCAMENTO_SINCRONIZADO);
     if (codigo === "bloqueada") throw new Conflito("Essa ocorrência não pode receber essa alteração.");
+    if (codigo === "escolha-diferenca") throw new PedidoInvalido(MENSAGEM_DA_DIFERENCA);
     if (codigo === "ocorrencia") {
       throw new Conflito("O que já foi pago, cancelado ou estornado permanece. Ajuste o que ainda está pendente.");
     }

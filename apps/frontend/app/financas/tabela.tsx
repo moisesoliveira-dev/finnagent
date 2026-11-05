@@ -349,6 +349,7 @@ export function TabelaLancamentos({
                     <div className="flex min-w-0 flex-wrap gap-2">
                       <Chip tone={tomDaCategoria(linha.category)}>{ROTULO_CATEGORIA[linha.category]}</Chip>
                       {linha.transfer ? <Chip tone="info">Transferência</Chip> : null}
+                      {linha.fee ? <Chip tone="neg">Multa e juros</Chip> : null}
                       <Chip tone={tomDaSituacao(linha.situation)}>{rotuloDaSituacao(linha.situation)}</Chip>
                     </div>
                     {linha.description || linha.installment ? (

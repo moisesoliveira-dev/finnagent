@@ -43,6 +43,9 @@ export type PedidoLancamento = {
   coveredById?: string | null;
   accountId?: string | null;
   transfer?: boolean;
+  /** Empréstimo: de quem é e o total combinado. */
+  counterparty?: string;
+  principalCents?: number | null;
 };
 
 export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {
@@ -57,6 +60,8 @@ export function normalizarPedido<T extends PedidoLancamento>(pedido: T): T {
     nextDueDate: regra.recurrence ? pedido.nextDueDate : null,
     recurrence: regra.recurrence ? pedido.recurrence : null,
     recurrenceInterval: regra.recurrence ? pedido.recurrenceInterval : null,
+    counterparty: regra.loan ? (pedido.counterparty ?? "").trim() : "",
+    principalCents: regra.loan ? (pedido.principalCents ?? null) : null,
     dueRule: normalizarRegra(
       ajustado.category,
       regra.recurrence ? pedido.recurrence : null,
@@ -76,10 +81,10 @@ export function erroDoPedido(pedido: PedidoLancamento) {
     }
   }
   if (regra.loan) {
-    if (pedido.dueDate == null || pedido.interestRate == null) {
-      return "Informe o vencimento e a taxa de juros.";
-    }
-    if (!dataValida(pedido.dueDate)) return "Informe uma data válida.";
+    // O empréstimo é um contrato: quem, quanto ao todo e a parcela combinada. Vencimento e juros são opcionais.
+    if (!pedido.counterparty?.trim()) return "Informe de quem é o empréstimo.";
+    if (pedido.principalCents == null || pedido.principalCents <= 0) return "Informe o total combinado do empréstimo.";
+    if (pedido.dueDate != null && !dataValida(pedido.dueDate)) return "Informe uma data válida.";
   }
   if (regra.recurrence) {
     if (pedido.nextDueDate == null || !dataValida(pedido.nextDueDate)) {

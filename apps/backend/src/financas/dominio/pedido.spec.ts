@@ -70,9 +70,12 @@ describe("pedido de lançamento", () => {
     expect(erroDoPedido(pedido({ category: "installment", installmentNumber: 4 }))).toBe(
       "Informe a parcela atual.",
     );
-    expect(erroDoPedido(pedido({ category: "loan", interestRate: null }))).toBe(
-      "Informe o vencimento e a taxa de juros.",
-    );
+    // O empréstimo é um contrato: pede a pessoa e o total combinado; vencimento e juros são opcionais.
+    expect(erroDoPedido(pedido({ category: "loan", interestRate: null, dueDate: null }))).toBe("Informe de quem é o empréstimo.");
+    expect(erroDoPedido(pedido({ category: "loan", counterparty: "Tia Ana" }))).toBe("Informe o total combinado do empréstimo.");
+    expect(
+      erroDoPedido(pedido({ category: "loan", counterparty: "Tia Ana", principalCents: 120_000, interestRate: null, dueDate: null })),
+    ).toBeNull();
     expect(erroDoPedido(pedido({ category: "fixed", nextDueDate: null }))).toBe(
       "Informe o próximo vencimento.",
     );

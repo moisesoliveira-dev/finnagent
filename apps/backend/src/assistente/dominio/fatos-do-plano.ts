@@ -1,3 +1,4 @@
+import { dataContabil } from "@finnagent/contracts";
 import {
   aceitaRegraDeVencimento,
   ajustarTransacao,
@@ -306,11 +307,11 @@ function lancamentoDoPasso(args: Record<string, unknown>, base: BaseDaRealidade)
 function itensNoMes(entries: Lancamento[], chave: string): Item[] {
   return entries.flatMap((entry) =>
     ocorrenciasDoLancamento(entry)
-      .filter((item) => item.dueDate.startsWith(chave) && (item.status === "pending" || item.status === "completed"))
+      .filter((item) => dataContabil(item).startsWith(chave) && (item.status === "pending" || item.status === "completed"))
       .map((item) => ({
         entryId: entry.id,
         numero: item.number,
-        data: item.dueDate,
+        data: dataContabil(item),
         centavos: valorDaOcorrencia(item),
         fixa: entry.category === "fixed",
         nome: entry.name,

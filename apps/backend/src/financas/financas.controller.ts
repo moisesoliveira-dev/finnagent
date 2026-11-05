@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Headers,
   NotFoundException,
@@ -16,6 +17,7 @@ import {
   AJUSTES_DE_DIA_UTIL,
   CATEGORIAS_TRANSACAO,
   CONTAGENS_DE_DIA_UTIL,
+  DIFERENCAS_DO_PAGAMENTO,
   MODOS_TRANSACAO,
   PRIORIDADES_TRANSACAO,
   RECORRENCIAS,
@@ -65,6 +67,9 @@ const formularioLancamento = z.object({
   // Ausente na edição: a conta gravada permanece.
   accountId: z.uuid().nullable().optional(),
   transfer: z.boolean().optional(),
+  // Empréstimo: de quem é e o total combinado.
+  counterparty: z.string().trim().max(80).default(""),
+  principalCents: opcional(z.number().int().min(1).max(2_147_483_647)),
   // Sem regra, vale o padrão da categoria nas configurações.
   dueRule: z
     .object({
@@ -100,6 +105,11 @@ const compromissoPedido = z.object({ commitmentId: z.uuid() });
 const mesPedido = z.object({
   year: z.number().int().min(2000).max(2100),
   month: z.number().int().min(1).max(12),
+});
+const pagamentoPedido = z.object({
+  date: dataIso,
+  cents: z.number().int().min(1).max(2_147_483_647),
+  diferenca: z.enum(DIFERENCAS_DO_PAGAMENTO).optional(),
 });
 const valoresPedido = z.object({
   updates: z
@@ -209,6 +219,23 @@ export class FinancasController {
     return this.executar(() =>
       this.financas.associarCompromisso(this.tenant(tenant), this.id(id), parsed.data.commitmentId),
     );
+  }
+
+  @Post("lancamentos/:id/pagamentos")
+  registrarPagamento(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const parsed = pagamentoPedido.safeParse(body);
+    if (!parsed.success) throw new BadRequestException("Informe a data e o valor do pagamento.");
+    if (!dataValida(parsed.data.date)) throw new BadRequestException("Informe uma data válida.");
+    return this.executar(() => this.financas.registrarPagamento(this.tenant(tenant), this.id(id), parsed.data));
+  }
+
+  @Delete("lancamentos/:id/pagamentos/:paymentId")
+  desfazerPagamento(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Param("paymentId") paymentId: string,
+  ) {
+    return this.executar(() => this.financas.desfazerPagamento(this.tenant(tenant), this.id(id), this.id(paymentId)));
   }
 
   @Post("lancamentos/:id/parcelas/adiantar")
