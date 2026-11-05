@@ -69,6 +69,7 @@ export function DialogoDeDivisao({
   ocupado,
   onDividir,
   onFechar,
+  onCriarSessao,
 }: {
   linha: LinhaConferencia | null;
   sessoes: SessaoDaDivisao[];
@@ -76,6 +77,7 @@ export function DialogoDeDivisao({
   ocupado: boolean;
   onDividir: (partes: { cents: number; sessionId: string; nome?: string }[]) => void;
   onFechar: () => void;
+  onCriarSessao?: (termo: string, escolher: (id: string) => void) => void;
 }) {
   return (
     <Dialogo aberto={linha !== null} largura="larga" aria-labelledby="titulo-dividir" onClose={onFechar}>
@@ -88,6 +90,7 @@ export function DialogoDeDivisao({
           ocupado={ocupado}
           onDividir={onDividir}
           onFechar={onFechar}
+          onCriarSessao={onCriarSessao}
         />
       ) : null}
     </Dialogo>
@@ -101,6 +104,7 @@ function CorpoDaDivisao({
   ocupado,
   onDividir,
   onFechar,
+  onCriarSessao,
 }: {
   linha: LinhaConferencia;
   sessoes: SessaoDaDivisao[];
@@ -108,6 +112,7 @@ function CorpoDaDivisao({
   ocupado: boolean;
   onDividir: (partes: { cents: number; sessionId: string; nome?: string }[]) => void;
   onFechar: () => void;
+  onCriarSessao?: (termo: string, escolher: (id: string) => void) => void;
 }) {
   const { resultado } = useCalculadora();
   const [comCalculadora, setComCalculadora] = useState(false);
@@ -222,6 +227,7 @@ function CorpoDaDivisao({
                   valor={parte.sessionId}
                   rotulo={`Sessão da parte ${indice + 1}`}
                   onEscolher={(id) => mudar(indice, { sessionId: id })}
+                  onCriar={onCriarSessao}
                 />
               </div>
               {fixa ? (

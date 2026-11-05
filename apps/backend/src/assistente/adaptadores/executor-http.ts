@@ -56,7 +56,7 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
     } catch {
       // Resposta em texto puro: o modelo lê como veio.
     }
-    if (resposta.ok) return { ok: true, conteudo: resultadoParaOModelo(lido), detalhe: "" };
+    if (resposta.ok) return { ok: true, conteudo: resultadoParaOModelo(lido, chamada.nome), detalhe: "" };
     const mensagem =
       lido && typeof lido === "object" && "message" in lido ? String((lido as { message: unknown }).message) : `Erro ${resposta.status}.`;
     return falha(`Erro ${resposta.status}: ${mensagem}`, mensagem);

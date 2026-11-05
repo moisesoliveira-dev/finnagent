@@ -258,6 +258,12 @@ export default function Dashboard() {
                   <span className="font-display text-2xl font-bold tracking-titulo">
                     <Contador cents={painel.sobra} />
                   </span>
+                  {painel.sobraAcumulada !== painel.sobra ? (
+                    <span className="flex flex-wrap items-baseline gap-2 text-sm text-ink-2">
+                      Acumulada desde o início
+                      <Money cents={painel.sobraAcumulada} />
+                    </span>
+                  ) : null}
                 </div>
                 <FluxoDoDinheiro entradas={painel.entradas} saidas={painel.saidas} />
               </div>

@@ -525,6 +525,20 @@ export function totaisDoMes(
   return { entradas, saidas, sobra: entradas + saidas };
 }
 
+/**
+ * A sobra que passou de mês em mês desde o início do workflow até o mês pedido, inclusive: tudo o que entrou e
+ * não saiu. O que foi separado para uma meta é saída na sessão dela, então já não está aqui.
+ */
+export function sobraAcumulada(entries: Lancamento[], workflow: Workflow, year: number, monthIndex: number) {
+  let total = 0;
+  for (let ano = workflow.year; ano <= year; ano += 1) {
+    const inicio = ano === workflow.year ? workflow.month - 1 : 0;
+    const fim = ano === year ? monthIndex : 11;
+    for (let mes = inicio; mes <= fim; mes += 1) total += totaisDoMes(entries, workflow, ano, mes).sobra;
+  }
+  return total;
+}
+
 export function somaDosCentavos(valores: Array<number | undefined>) {
   return valores.reduce<number>((total, valor) => total + (valor ?? 0), 0);
 }
@@ -1255,8 +1269,12 @@ export type DivisaoDaMeta = {
 
 export type MetasResposta = {
   goals: Meta[];
-  /** A sobra do mês antes das metas: o que as metas disputam. */
+  /** O que as metas disputam: a sobra deste mês mais o que sobrou dos meses anteriores e não foi separado. */
   surplusCents: number;
+  /** Só a sobra deste mês, antes das metas. */
+  monthSurplusCents: number;
+  /** O que veio dos meses anteriores: a sobra acumulada até o mês passado, já sem o que foi separado neles. */
+  carriedCents: number;
   /** O que as metas já separaram neste mês (saída lançada nas sessões delas). */
   separatedCents: number;
   /** Quanto cada meta pede da sobra deste mês, pela prioridade. */
@@ -1452,6 +1470,8 @@ export type PainelResposta = {
   entradas: number;
   saidas: number;
   sobra: number;
+  /** A sobra que se acumulou desde o início do workflow até o fim do período: o que a pessoa tem livre de fato. */
+  sobraAcumulada: number;
   compromissos: number;
   lancamentos: number;
   items: ItemPainel[];
@@ -1620,6 +1640,7 @@ export function montarPainel(
     entradas,
     saidas,
     sobra: entradas + saidas,
+    sobraAcumulada: sobraAcumulada(entries, workflow, year, scope === "ano" ? 11 : (month ?? 1) - 1),
     compromissos,
     lancamentos,
     items,
@@ -1841,6 +1862,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ...grupo("agente", "Conversa", [
     "criar-conversa",
     "renomear-conversa",
+    "fixar-conversa",
     "definir-pendencia-da-conversa",
     "remover-conversa",
     "remover-conversas",
@@ -2362,7 +2384,10 @@ export type MensagemDoChat = {
 };
 
 /** `emAndamento`: o servidor está respondendo nesta conversa agora, mesmo que a pessoa tenha saído da tela. */
-export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean; emAndamento?: boolean };
+export type ConversaResumo = { id: string; title: string; updatedAt: string; pendente: boolean; pinned: boolean; emAndamento?: boolean };
+
+/** O que a pessoa muda numa conversa pela lista: o título e se ela fica fixada no alto. */
+export type AtualizacaoDaConversa = { title?: string; pinned?: boolean };
 
 /** `emAndamento`: o servidor ainda está respondendo, mesmo que a tela tenha perdido a conexão. */
 export type ConversaCompleta = ConversaResumo & { emAndamento: boolean; mensagens: MensagemDoChat[] };

@@ -371,6 +371,23 @@ export function Chat() {
     toast.sucesso("Conversa apagada");
   }
 
+  async function atualizarConversa(conversa: ConversaResumo, mudanca: { title?: string; pinned?: boolean }, sucesso: string) {
+    try {
+      const resposta = await fetch(`/api/assistente/conversas/${conversa.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(mudanca),
+      });
+      const corpo = (await resposta.json().catch(() => ({}))) as ConversaResumo & { message?: string };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível atualizar a conversa.");
+      setConversas((lista) => lista.map((item) => (item.id === corpo.id ? { ...item, ...corpo } : item)));
+      if (atual?.id === corpo.id) setAtual({ ...atual, ...corpo });
+      toast.sucesso(sucesso);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível atualizar a conversa.");
+    }
+  }
+
   const ultimaDoAssistente = [...mensagens].reverse().find((item) => item.role === "assistant");
   const listaDeConversas = (
     <Conversas
@@ -383,6 +400,10 @@ export function Chat() {
         setApagando(conversa);
         confirmarApagar.current?.showModal();
       }}
+      onRenomear={(conversa, titulo) => void atualizarConversa(conversa, { title: titulo }, "Conversa renomeada.")}
+      onFixar={(conversa) =>
+        void atualizarConversa(conversa, { pinned: !conversa.pinned }, conversa.pinned ? "Conversa solta da lista fixa." : "Conversa fixada no alto.")
+      }
     />
   );
 

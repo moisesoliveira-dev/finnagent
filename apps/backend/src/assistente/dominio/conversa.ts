@@ -5,6 +5,7 @@ import type {
   RetencaoDoChat,
 } from "@finnagent/contracts";
 import { anexosDasPartes, linhaDoAnexo } from "./anexos.js";
+import { limpar, textoDoResultado } from "./resultados.js";
 
 /** Mensagens anteriores que o modelo recebe. Mais que isso pesa no custo e pouco ajuda. */
 export const LIMITE_DO_HISTORICO = 20;
@@ -52,10 +53,13 @@ export function historicoParaOModelo(mensagens: MensagemDoChat[]): MensagemDoMod
   });
 }
 
-/** O resultado da API, em texto, cortado se for grande. */
-export function resultadoParaOModelo(corpo: unknown) {
+/** O resultado da API, em texto: compacto quando a ferramenta tem formato, JSON limpo quando não; cortado se for grande. */
+export function resultadoParaOModelo(corpo: unknown, ferramenta?: string) {
   if (corpo === null || corpo === undefined) return "Feito.";
-  const texto = typeof corpo === "string" ? corpo : JSON.stringify(corpo);
+  const texto =
+    typeof corpo === "string"
+      ? corpo
+      : (ferramenta ? textoDoResultado(ferramenta, corpo) : null) ?? JSON.stringify(limpar(corpo));
   if (texto.length <= LIMITE_DO_RESULTADO) return texto;
   return `${texto.slice(0, LIMITE_DO_RESULTADO)}\n(resultado cortado: peça um filtro mais estreito se precisar do resto)`;
 }

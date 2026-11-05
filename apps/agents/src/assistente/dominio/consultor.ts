@@ -30,6 +30,7 @@ export const CONVENCOES_FINANCEIRAS = [
 /** O que uma mudança puxa na outra. Espelha as regras do backend; o cartão confirma o número. */
 export const INTERFERENCIAS = [
   "Como uma mudança mexe na outra. Não invente efeito fora desta lista:",
+  "- O que sobra de um mês e não foi separado para metas passa para o mês seguinte: consultar_mes_financeiro traz a sobra do mês e a acumulada desde o início. Para 'quanto tenho livre' vale a acumulada; a divisão das metas também parte dela.",
   "- A sobra do mês soma pendente pelo valor planejado e pago pelo valor pago. Cancelado e estornado saem da conta. Lançamento marcado como já incluso em outro não entra de novo: só o que conta o valor entra na sobra.",
   "- Fixa, parcela e empréstimo são uma série. O que já foi pago, cancelado ou estornado permanece. Editar valor, data ou regra muda só o que ainda está pendente. Cancelar a fixa num mês, ou pagar pelo extrato, mexe só naquele mês: o planejado dos outros meses fica.",
   "- A taxa de juros do empréstimo fica no contrato. A prestação que entra na sobra é o valor em centavos; a taxa não é somada de novo.",

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { GRUPO_DAS_METAS, alocarSobra, totaisDoMes, type Meta, type MetasResposta } from "@finnagent/contracts";
+import { GRUPO_DAS_METAS, alocarSobra, sobraAcumulada, totaisDoMes, type Meta, type MetasResposta } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
@@ -23,7 +23,7 @@ export class MetasService {
 
   async listar(tenantId: string): Promise<MetasResposta> {
     const situacao = await this.situacao(tenantId);
-    const { goals, surplusCents, separatedCents, year, month } = situacao;
+    const { goals, surplusCents, monthSurplusCents, carriedCents, separatedCents, year, month } = situacao;
     const livre = Math.max(surplusCents, 0);
     const division: MetasResposta["division"] = {};
     for (const linha of await this.metas.divisoes(tenantId, year, month)) {
@@ -37,6 +37,8 @@ export class MetasService {
     return {
       goals,
       surplusCents,
+      monthSurplusCents,
+      carriedCents,
       separatedCents,
       suggested: alocarSobra(goals, { year, month }, surplusCents),
       division,
@@ -93,9 +95,20 @@ export class MetasService {
       sessoes.has(entry.sessionId) || entry.groupName.toLowerCase() === GRUPO_DAS_METAS.toLowerCase();
     const dasMetas = painel.entries.filter(ehDeMeta);
     const dasOutras = painel.entries.filter((entry) => !ehDeMeta(entry));
-    const surplusCents = totaisDoMes(dasOutras, painel.workflow, year, month - 1).sobra;
+    const monthSurplusCents = totaisDoMes(dasOutras, painel.workflow, year, month - 1).sobra;
     const separatedCents = -totaisDoMes(dasMetas, painel.workflow, year, month - 1).sobra;
-    return { goals, surplusCents, separatedCents: Math.max(separatedCents, 0), year, month };
+    // O que sobrou até o mês passado passa para este: o separado para metas lá já saiu como saída.
+    const anterior = month === 1 ? { year: year - 1, monthIndex: 11 } : { year, monthIndex: month - 2 };
+    const carriedCents = sobraAcumulada(painel.entries, painel.workflow, anterior.year, anterior.monthIndex);
+    return {
+      goals,
+      surplusCents: carriedCents + monthSurplusCents,
+      monthSurplusCents,
+      carriedCents,
+      separatedCents: Math.max(separatedCents, 0),
+      year,
+      month,
+    };
   }
 
   async criar(tenantId: string, pedido: PedidoDaMeta) {

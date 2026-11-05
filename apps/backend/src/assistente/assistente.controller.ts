@@ -52,13 +52,13 @@ export class AssistenteController {
   }
 
   @Patch("conversas/:id")
-  renomear(
+  atualizar(
     @Headers("x-tenant-id") tenant: string | undefined,
     @Req() pedido: PedidoAutenticado,
     @Param("id") id: string,
     @Body() body: unknown,
   ) {
-    return this.executar(() => this.assistente.renomear(this.tenant(tenant), this.usuario(pedido), this.conversa(id), body));
+    return this.executar(() => this.assistente.atualizar(this.tenant(tenant), this.usuario(pedido), this.conversa(id), body));
   }
 
   @Delete("conversas/:id")

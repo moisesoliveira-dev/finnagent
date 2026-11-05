@@ -79,3 +79,23 @@ Motivo: a pedido, revisar o sistema inteiro e corrigir inconsistências de layou
 Verificação: `tsc` limpo em frontend, backend, agents, mobile e contracts; lint limpo no frontend e no backend; testes de backend (410), agents (56), chat e mobile passando; Docker reconstruído com os cinco serviços de pé; em 375 px, nenhuma tela rola na horizontal e sobraram só as caixas de marcar da Conferência (o toque delas é o do `label` de 40 px). Não verificado: envio real ao Sentry e ao Grafana (sem DSN nem endpoint locais) e o modo escuro das tags.
 
 Arquivos: `apps/frontend/components/ui/chip.tsx`, `cn.ts`, `rotulo.tsx`; telas de `agenda`, `financas`, `grupos`, `metas`, `configuracoes`, `perfil`, `assistente`, `extratos`; `apps/backend/src/google/`, `instrumentar.ts`, `app.module.ts`; `apps/frontend/instrumentation*.ts`; `apps/agents/src/instrumentar.ts`; `compose.yaml`; `.claude/rules/interface.md` e `hospedagem.md`.
+
+## Menu lateral com ícones, logo e recolhimento
+
+- Cada item do menu ganhou um ícone (Dashboard, Assistente, Agenda, Finanças, Metas, Relatórios, Eventos, Extratos com Importações e Conferência, Grupos, Configurações), no `Icone` de `components/ui`.
+- A logo do Prumo (o fio e o peso amarelo, em miniatura, `components/ui/logo.tsx`) está no alto do menu, como link para o início, e substitui o quadrado solto na marca do login também.
+- A partir do tablet o menu recolhe para só ícones (64 px) e volta a 200 px pelo item "Recolher"/"Expandir" no fim da lista, com a seta que gira (ao lado da logo ele não cabia em 200 px). O menu não rola na horizontal no tablet. Recolhido, o nome de cada item vai para o `title` e para o leitor de tela, a conta mostra só o avatar, e "Sair" vira ícone. A escolha fica no `localStorage` (`prumo-menu-recolhido`), por navegador; sem armazenamento, o menu abre aberto. No servidor e na hidratação vale "aberto", para o HTML não divergir. No celular o menu segue na horizontal, com ícone e nome.
+- O estado chega às peças do menu por `MenuContext` (`components/ui/menu-lateral.ts`). As larguras das colunas continuam as únicas exceções a valores arbitrários, dentro do `AppShell`.
+
+Motivo: o menu era só texto, sem a marca, e não dava para ganhar espaço na tela.
+
+Verificação: tsc e lint limpos; Docker reconstruído; no Chrome headless, em 1280 px, os dez links têm ícone, a logo aparece, recolher leva o menu a 64 px, a escolha sobrevive ao recarregar e expandir volta a 200 px; em 375 px a página não rola na horizontal. Não verificado: o tema escuro da logo e o app mobile, que não tem esse menu.
+
+Arquivos:
+
+- `apps/frontend/components/ui/app-shell.tsx`
+- `apps/frontend/components/ui/menu-lateral.ts` (novo)
+- `apps/frontend/components/ui/logo.tsx` (novo)
+- `apps/frontend/components/ui/icone.tsx`
+- `apps/frontend/components/auth/conta-do-menu.tsx`
+- `apps/frontend/components/auth/painel-da-marca.tsx`

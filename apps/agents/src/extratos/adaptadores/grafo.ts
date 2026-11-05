@@ -34,7 +34,7 @@ export function criarGrafo(leitor: LeitorDeExtrato, modelo: ModeloDeExtrato): Or
       }),
     }))
     .addNode("organizar", async (estado) => {
-      const { linhas, cortada } = await modelo.organizarTexto(estado.texto, estado.observacao);
+      const { linhas, cortada } = await modelo.organizarTexto(estado.texto, estado.observacao, { filename: estado.filename, hoje: new Date().toISOString().slice(0, 10) });
       const lidas = normalizarLinhas(linhas);
       if (!cortada) return { linhas: lidas };
       // Resposta cortada: sem linha inteira, diz o que fazer; com algumas, guarda o que chegou e marca onde parou.

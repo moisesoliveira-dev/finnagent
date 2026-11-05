@@ -15,7 +15,7 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
   async listar(tenantId: string, userId: string) {
     const linhas = await this.banco().aiConversation.findMany({
       where: { tenantId, userId },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
       take: 100,
     });
     return linhas.map(resumoDe);
@@ -101,6 +101,16 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
     });
   }
 
+  async fixar(tenantId: string, userId: string, id: string, pinned: boolean) {
+    return this.banco().$transaction(async (tx) => {
+      const atualizadas = await tx.aiConversation.updateMany({ where: { id, tenantId, userId }, data: { pinned } });
+      if (atualizadas.count === 0) return null;
+      await gravarOutbox(tx, tenantId, "fixar-conversa", id, { id, pinned }, String(pinned));
+      const linha = await tx.aiConversation.findFirstOrThrow({ where: { id, tenantId, userId } });
+      return resumoDe(linha);
+    });
+  }
+
   async remover(tenantId: string, userId: string, id: string) {
     return this.banco().$transaction(async (tx) => {
       const apagadas = await tx.aiConversation.deleteMany({ where: { id, tenantId, userId } });
@@ -122,7 +132,7 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
 
   async limparAntigas(tenantId: string, antesDe: Date) {
     return this.banco().$transaction(async (tx) => {
-      const apagadas = await tx.aiConversation.deleteMany({ where: { tenantId, updatedAt: { lt: antesDe } } });
+      const apagadas = await tx.aiConversation.deleteMany({ where: { tenantId, pinned: false, updatedAt: { lt: antesDe } } });
       if (apagadas.count > 0) {
         await gravarOutbox(tx, tenantId, "expirar-conversas", tenantId, { total: apagadas.count }, antesDe.toISOString().slice(0, 10));
       }
@@ -149,7 +159,7 @@ export class PrismaConversasRepositorio implements ConversasRepositorio {
 }
 
 function resumoDe(linha: AiConversation): ConversaResumo {
-  return { id: linha.id, title: linha.title, updatedAt: linha.updatedAt.toISOString(), pendente: linha.pending !== null };
+  return { id: linha.id, title: linha.title, updatedAt: linha.updatedAt.toISOString(), pendente: linha.pending !== null, pinned: linha.pinned };
 }
 
 function mensagemDe(linha: AiMessage): MensagemDoChat {

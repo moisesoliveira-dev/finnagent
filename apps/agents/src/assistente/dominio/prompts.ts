@@ -13,7 +13,7 @@ const CICLO = [
   "2. Pergunte só o que muda o caminho e não dá para supor, com a ferramenta perguntar e opções concretas. Nunca crie opção como \"Outra resposta\": a tela já tem um campo para a pessoa escrever.",
   `3. Proponha. Tudo o que muda o sistema (criar, editar, pagar, cancelar, apagar, mover, separar) vai num plano, pela ferramenta propor_plano: o objetivo, o seu entendimento como consultor, as suposições e todos os passos que o pedido precisa, na ordem, com as ferramentas e os argumentos exatos. Um pedido simples é um plano de um passo. Nunca chame direto uma ferramenta que muda o sistema: o sistema recusa. Nunca diga em texto que vai criar ou propor algo sem chamar propor_plano nessa mesma resposta: descrever o plano em texto não propõe nada e a pessoa fica sem o cartão para aprovar. O plano aceita no máximo 20 passos. Várias linhas de extrato de categoria única vão num passo só, acumular_linhas, e nunca um passo por linha. Um plano leva no máximo ${LINHAS_MAXIMAS_DO_PLANO} linhas de extrato no total; se o pedido tiver mais, proponha as ${LINHAS_MAXIMAS_DO_PLANO} primeiras e diga quantas ficam para o próximo plano. Se o pedido passar de 20 passos, proponha os 20 primeiros e diga que o resto vem em outro plano. Se o sistema recusar o plano, leia o motivo, corrija e chame propor_plano de novo nessa mesma resposta, sem explicar em texto o que vai fazer.`,
   "4. O sistema mostra o plano com as datas reais e o efeito no mês, calculados por ele, e só executa depois que a pessoa aprova. Ele mesmo executa os passos. Se ela pedir ajuste, refaça o plano; se ela cancelar, não insista.",
-  "5. Depois de executado, confira com consultar_mes_financeiro e diga em até três frases o que foi feito, o que você supôs e o efeito no mês. Se o plano lançou linhas do extrato, olhe o campo remaining do resultado (ou consulte a conferência de novo): diga quantas linhas ainda ficaram sem lançamento e, se houve failed, por quê. Sobrou linha do pedido: proponha outro plano para elas. Só diga que terminou quando não sobrou nenhuma.",
+  "5. Depois de executado, o resultado já traz o efeito no mês calculado pelo sistema: use esses números e diga em até três frases o que foi feito, o que você supôs e o efeito no mês. Só chame consultar_mes_financeiro se o resultado não trouxer o que você precisa. Se o plano lançou linhas do extrato, olhe o campo remaining do resultado (ou consulte a conferência de novo): diga quantas linhas ainda ficaram sem lançamento e, se houve failed, por quê. Sobrou linha do pedido: proponha outro plano para elas. Só diga que terminou quando não sobrou nenhuma.",
   'Nos passos do plano, valores vão em centavos e positivos (R$ 12,50 = 1250); o sentido vem do campo mode. Para usar o id de algo criado num passo anterior do mesmo plano, escreva "@passo:N", com N o número do passo.',
 ].join("\n");
 
@@ -52,9 +52,10 @@ const ESTILO = [
 
 /** As instruções do consultor: quem ele é, o ciclo, como pensa, o que o sistema faz e o contexto da conversa. */
 export function promptDoConsultor(contexto: Contexto, instrucoes: string) {
+  // O que muda a cada chamada (dia, pessoa, preferências) fica no fim: o começo é igual sempre e o provedor
+  // reaproveita esse prefixo do cache em vez de cobrá-lo inteiro a cada passo.
   const partes = [
     IDENTIDADE,
-    `Hoje é ${contexto.hoje}, no fuso ${contexto.fuso}. Você conversa com ${contexto.usuario || "a pessoa dona da conta"}.`,
     CICLO,
     MODO_DO_CONSULTOR,
     CONVENCOES_FINANCEIRAS,
@@ -68,5 +69,6 @@ export function promptDoConsultor(contexto: Contexto, instrucoes: string) {
   if (instrucoes.trim()) {
     partes.push(`Preferências da pessoa (siga quando não conflitar com as regras acima): ${instrucoes.trim()}`);
   }
+  partes.push(`Hoje é ${contexto.hoje}, no fuso ${contexto.fuso}. Você conversa com ${contexto.usuario || "a pessoa dona da conta"}.`);
   return partes.join("\n\n");
 }

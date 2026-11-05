@@ -6,6 +6,7 @@ import {
   tipoDaCategoria,
   type AcumuloEmLote,
   type ConferenciaResposta,
+  type Grupo,
   type GruposResposta,
   type LinhaConferencia,
   type ValorDoMes,
@@ -23,6 +24,7 @@ import { PageHeader } from "../../../components/ui/page-header";
 import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
 import { DialogoDeDivisao, NomesLembrados } from "./divisao";
+import { DialogoDeNovaSessao, type PedidoDeNovaSessao } from "./nova-sessao";
 
 const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
@@ -114,6 +116,9 @@ export default function Conferencia() {
   const [divisao, setDivisao] = useState<LinhaConferencia | null>(null);
   // Sobe depois de cada lançamento: uma sessão Fixo vira "já lançada" assim que recebe a primeira parte.
   const [versaoDasSessoes, setVersaoDasSessoes] = useState(0);
+  const [grupos, setGrupos] = useState<Grupo[]>([]);
+  // A linha (ou a parte) que pediu uma sessão nova, com o que foi digitado na busca.
+  const [novaSessao, setNovaSessao] = useState<PedidoDeNovaSessao | null>(null);
   const [busca, setBusca] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("todas");
   const [movimento, setMovimento] = useState<Movimento>("todos");
@@ -179,6 +184,7 @@ export default function Conferencia() {
       .then((resposta) => {
         if (!ativo) return;
         const nomes = new Map(resposta.groups.map((grupo) => [grupo.id, grupo.name]));
+        setGrupos(resposta.groups);
         setSessoes(
           resposta.sessions
             .filter((sessao) => !sessao.endedAt)
@@ -798,16 +804,15 @@ export default function Conferencia() {
                                 <span className="col-start-2 row-start-2 min-w-0 text-sm text-ink-2">
                                   Ignorada: não entra na conferência nem nas finanças. Continua guardada.
                                 </span>
-                              ) : sessoes.length ? (
+                              ) : (
                                 <BuscaSessao
                                   className="col-start-2 row-start-2 min-w-0"
                                   sessoes={sessoes}
                                   valor={sessaoDa(linha)}
                                   rotulo={`Sessão para ${linha.description || "a linha"}`}
                                   onEscolher={(id) => setEscolha((atual) => ({ ...atual, [chave]: id }))}
+                                  onCriar={(termo, escolher) => setNovaSessao({ nome: termo || linha.description, escolher })}
                                 />
-                              ) : (
-                                <span className="col-start-2 row-start-2 text-sm text-ink-2">Crie uma sessão em Grupos.</span>
                               )}
                               {linha.link ? (
                                 <Button
@@ -955,6 +960,19 @@ export default function Conferencia() {
         ocupado={ocupado === "dividir"}
         onDividir={(partes) => divisao && void dividir(divisao, partes)}
         onFechar={() => setDivisao(null)}
+        onCriarSessao={(termo, escolher) => setNovaSessao({ nome: termo || divisao?.description || "", escolher })}
+      />
+      <DialogoDeNovaSessao
+        pedido={novaSessao}
+        grupos={grupos}
+        onFechar={() => setNovaSessao(null)}
+        onCriada={(sessao, grupo) => {
+          // Entra na lista na hora, para a linha já mostrar a escolha; a lista completa vem em seguida.
+          setGrupos((atual) => (atual.some((item) => item.id === grupo.id) ? atual : [...atual, grupo]));
+          setSessoes((atual) => [...atual, { id: sessao.id, rotulo: `${grupo.name} / ${sessao.name}`, fixa: null }]);
+          setVersaoDasSessoes((atual) => atual + 1);
+          setNovaSessao(null);
+        }}
       />
       <DialogoDaFixa
         linha={decisaoFixa}

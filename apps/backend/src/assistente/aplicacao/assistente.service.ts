@@ -16,6 +16,7 @@ import {
   type ChamadaDeFerramenta,
   type ComportamentoDoAssistente,
   type ConversaCompleta,
+  type ConversaResumo,
   type FatosDoPlano,
   type EspecialistaIa,
   type EventoDoChat,
@@ -42,7 +43,7 @@ import { fatosDoPlano, type CruzamentoMedido } from "../dominio/fatos-do-plano.j
 import { preparoDoCruzamento, valorContado } from "../../extratos/dominio/cruzar.js";
 import { validarPlano, type PlanoValidado } from "../dominio/plano.js";
 import { lerAnexos, mensagemComAnexos } from "../dominio/anexos.js";
-import { interpretarMensagem, interpretarTitulo } from "../dominio/pedido.js";
+import { interpretarAtualizacao, interpretarMensagem } from "../dominio/pedido.js";
 import { CONTEXTO_DO_ASSISTENTE, type Contexto, type ContextoDoAssistente } from "../portas/contexto-do-assistente.js";
 import {
   CONVERSAS_REPOSITORIO,
@@ -193,12 +194,15 @@ export class AssistenteService {
     return { ...conversa.resumo, emAndamento: this.emCurso.has(id), mensagens };
   }
 
-  async renomear(tenantId: string, userId: string, id: string, corpo: unknown) {
-    const titulo = interpretarTitulo(corpo);
-    if (titulo.startsWith("Dê um título")) throw new PedidoInvalido(titulo);
-    const resumo = await this.conversas.renomear(tenantId, userId, id, titulo);
+  /** Renomeia e/ou fixa a conversa. Devolve o resumo como ficou. */
+  async atualizar(tenantId: string, userId: string, id: string, corpo: unknown) {
+    const pedido = interpretarAtualizacao(corpo);
+    if (typeof pedido === "string") throw new PedidoInvalido(pedido);
+    let resumo: ConversaResumo | null = null;
+    if (pedido.title !== undefined) resumo = await this.conversas.renomear(tenantId, userId, id, pedido.title);
+    if (pedido.pinned !== undefined) resumo = await this.conversas.fixar(tenantId, userId, id, pedido.pinned);
     if (!resumo) throw new NaoEncontrado("Conversa não encontrada.");
-    return resumo;
+    return { ...resumo, emAndamento: this.emCurso.has(id) };
   }
 
   async remover(tenantId: string, userId: string, id: string) {
@@ -586,7 +590,14 @@ export class AssistenteService {
   }
 
   /** Executa o plano aprovado, passo a passo. Para no primeiro que falha; os seguintes ficam como não feitos. */
-  private async executarPlano(turno: Turno, origem: ChamadaDeFerramenta, plano: PlanoValidado, quem: Quem, contexto: Contexto) {
+  private async executarPlano(
+    turno: Turno,
+    origem: ChamadaDeFerramenta,
+    plano: PlanoValidado,
+    quem: Quem,
+    contexto: Contexto,
+    fatos: FatosDoPlano | null,
+  ) {
     const relato: string[] = [];
     let falhou = 0;
     for (const [indice, passo] of plano.passos.entries()) {
@@ -626,7 +637,14 @@ export class AssistenteService {
     const cabeca = falhou
       ? `A pessoa aprovou o plano, mas o passo ${falhou} falhou e os seguintes não foram feitos. Explique o que faltou e, se der para corrigir, proponha um plano novo só com o que falta.`
       : "A pessoa aprovou o plano e todos os passos foram feitos.";
-    return `${cabeca}\n${relato.join("\n")}\nConfira o mês com consultar_mes_financeiro e diga em até três frases o que foi feito, o que você supôs e o efeito no mês.`;
+    // O efeito no mês já foi calculado pelo sistema ao validar o plano: vai junto, e o modelo não precisa consultar de novo.
+    const efeito = !falhou && fatos?.mes
+      ? `Efeito no mês ${fatos.mes.mes}/${fatos.mes.ano}, calculado pelo sistema: sobra antes ${reais(fatos.mes.sobraAntesCents)}, depois ${reais(fatos.mes.sobraDepoisCents)}.${fatos.alertas.length ? ` Alertas: ${fatos.alertas.join(" ")}` : ""}`
+      : "";
+    const fecho = falhou
+      ? "Explique o que faltou."
+      : "Diga em até três frases o que foi feito, o que você supôs e o efeito no mês; só consulte de novo se precisar de outro detalhe.";
+    return [cabeca, ...relato, efeito, fecho].filter(Boolean).join("\n");
   }
 
   private async aplicarResposta(
@@ -641,7 +659,7 @@ export class AssistenteService {
     turno.responder(aguardando.chamada.id, escolha);
     if (aguardando.tipo === "plano") {
       if (escolha === APROVAR_PLANO && aguardando.plano) {
-        this.resultado(turno, aguardando.chamada, await this.executarPlano(turno, aguardando.chamada, aguardando.plano, quem, contexto));
+        this.resultado(turno, aguardando.chamada, await this.executarPlano(turno, aguardando.chamada, aguardando.plano, quem, contexto, fatosDaPergunta(turno, aguardando.chamada.id)));
       } else if (escolha === CANCELAR_PLANO) {
         this.resultado(turno, aguardando.chamada, "A pessoa não aprovou o plano e nada foi feito. Não faça isso sem um novo pedido.");
       } else {
@@ -713,6 +731,18 @@ export class AssistenteService {
   private resultado(turno: Turno, chamada: ChamadaDeFerramenta, conteudo: string) {
     turno.transcricao.push({ role: "tool", toolCallId: chamada.id, nome: chamada.nome, content: conteudo, agente: turno.agenteAtivo });
   }
+}
+
+/** Os fatos que o sistema calculou quando propôs o plano, guardados no cartão da pergunta. */
+function fatosDaPergunta(turno: Turno, perguntaId: string): FatosDoPlano | null {
+  for (const parte of turno.partes) {
+    if (parte.tipo === "pergunta" && parte.pergunta.id === perguntaId) return parte.pergunta.plano?.fatos ?? null;
+  }
+  return null;
+}
+
+function reais(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 /** A causa de baixo de um erro de fetch (timeout, conexão recusada), que a mensagem sozinha esconde. */

@@ -92,6 +92,8 @@ function metas(parcial: Partial<MetasResposta> = {}): MetasResposta {
   return {
     goals: [],
     surplusCents: 100_000,
+    monthSurplusCents: 100_000,
+    carriedCents: 0,
     separatedCents: 0,
     suggested: {},
     division: {},

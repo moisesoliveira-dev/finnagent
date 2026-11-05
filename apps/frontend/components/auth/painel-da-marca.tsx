@@ -12,6 +12,7 @@ import {
 import { useEffect, useState } from "react";
 import { Chip } from "../ui/chip";
 import { cn } from "../ui/cn";
+import { LogoDoPrumo } from "../ui/logo";
 import { Money } from "../ui/money";
 import { Cascata, ItemAnimado, ListaAnimada, Passo, curvaCheia, curvaSaida, mola } from "../ui/movimento";
 import { PendingAction } from "../ui/pending-action";
@@ -33,11 +34,13 @@ export function Marca({ className }: { className?: string }) {
       <motion.span
         aria-hidden
         suppressHydrationWarning
-        className="size-3 shrink-0 bg-cta"
+        className="flex"
         initial={{ y: -16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ ...mola, delay: 0.1 }}
-      />
+      >
+        <LogoDoPrumo />
+      </motion.span>
       Prumo
     </div>
   );

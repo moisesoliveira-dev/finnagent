@@ -47,6 +47,8 @@ export interface ConversasRepositorio {
   obterAnexo(tenantId: string, id: string): Promise<AnexoGravado | null>;
   definirPendencia(tenantId: string, conversationId: string, pendencia: Pendencia | null): Promise<void>;
   renomear(tenantId: string, userId: string, id: string, title: string): Promise<ConversaResumo | null>;
+  /** Fixa ou solta a conversa no alto da lista. */
+  fixar(tenantId: string, userId: string, id: string, pinned: boolean): Promise<ConversaResumo | null>;
   remover(tenantId: string, userId: string, id: string): Promise<boolean>;
   removerTodas(tenantId: string, userId: string): Promise<number>;
   /** Apaga as conversas paradas desde antes da data, de todos os usuários do tenant. */
