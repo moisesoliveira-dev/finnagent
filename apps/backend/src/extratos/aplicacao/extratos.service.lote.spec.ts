@@ -1,3 +1,4 @@
+import type { TipoDaLinha } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import { ExtratosService } from "./extratos.service.js";
 
@@ -89,7 +90,12 @@ function montar(
   };
   const criadas: { emPartes: boolean }[] = [];
   const pagas: { entryId: string; cents: number }[] = [];
+  const registrados: Record<string, unknown>[] = [];
   const financas = {
+    registrar: async (tenant: string, pedido: Record<string, unknown>, emPartes = false) => {
+      registrados.push(pedido);
+      return financas.criar(tenant, pedido as { name: string; cents: number }, emPartes);
+    },
     lancamentoDaSessaoFixa: async (_tenant: string, sessionId: string) =>
       fixa && (!fixa.sessionId || fixa.sessionId === sessionId) ? { entryId: fixa.entryId } : null,
     criar: async (_tenant: string, pedido: { name: string; cents: number }, emPartes = false) => {
@@ -118,7 +124,7 @@ function montar(
     null as never,
     { obter: async (_tenant: string, id: string) => anexos.get(id) ?? null } as never,
   );
-  return { servico, lancadas, criadas, pagas, ignoradas, divididas, nomes, excluidas, reabertas, lembrados, criadosPelaLinha, soltos, extratosExcluidos, anexos, gravados };
+  return { servico, lancadas, criadas, pagas, ignoradas, divididas, nomes, excluidas, reabertas, lembrados, criadosPelaLinha, soltos, extratosExcluidos, anexos, gravados, registrados };
 }
 
 const linha = (date: string | null, cents = -5000, entryId: string | null = null): Linha => ({ date, cents, description: "MERCADO", entryId });
@@ -153,6 +159,76 @@ describe("lançar linhas do extrato em lote", () => {
     expect(resultado.launched).toBe(1);
     expect(resultado.failed).toEqual([{ statementId: EXTRATO, line: 9, message: "Linha não encontrada." }]);
     expect(resultado.remaining).toEqual([{ year: 2026, month: 10, lines: 2 }]);
+  });
+
+  describe("o tipo do lançamento que nasce da linha", () => {
+    const item = (tipo?: TipoDaLinha) => [{ statementId: EXTRATO, line: 1, sessionId: SESSAO, ...(tipo ? { tipo } : {}) }];
+
+    it("sem tipo, a linha vira uma única paga na data do extrato", async () => {
+      const { servico, registrados, pagas } = montar({ 1: linha("2026-10-05", -5000) }, () => 0);
+      await servico.acumularVarias(TENANT, item());
+      expect(registrados[0]).toMatchObject({ category: "unique", status: "completed", cents: 5000, mode: "outflows", date: "2026-10-05" });
+      expect(pagas).toEqual([{ entryId: "00000000-0000-4000-8000-0000000000f1", cents: -5000 }]);
+    });
+
+    it("recorrente nasce pendente, mensal por padrão, a partir da data da linha, e a ocorrência da linha é paga", async () => {
+      const { servico, registrados, pagas } = montar({ 1: linha("2026-10-05", -5000) }, () => 0);
+      const resultado = await servico.acumularVarias(TENANT, item({ category: "fixed" }));
+      expect(resultado.launched).toBe(1);
+      expect(registrados[0]).toMatchObject({
+        category: "fixed",
+        status: "pending",
+        recurrence: "monthly",
+        recurrenceInterval: 1,
+        nextDueDate: "2026-10-05",
+        // Sem regra: o padrão de vencimento das configurações, como na tela.
+        dueRule: null,
+      });
+      expect(pagas).toHaveLength(1);
+    });
+
+    it("parcela leva as parcelas e a atual; empréstimo leva também os juros e o vencimento na data da linha", async () => {
+      const { servico, registrados } = montar({ 1: linha("2026-10-05", -5000), 2: linha("2026-10-06", -30000) }, () => 0);
+      await servico.acumularVarias(TENANT, [
+        { statementId: EXTRATO, line: 1, sessionId: SESSAO, tipo: { category: "installment", installments: 10, installmentNumber: 3 } },
+        { statementId: EXTRATO, line: 2, sessionId: SESSAO, tipo: { category: "loan", installments: 12, counterparty: "Tia Ana", principalCents: 360_000 } },
+      ]);
+      expect(registrados[0]).toMatchObject({ category: "installment", installments: 10, installmentNumber: 3, status: "pending" });
+      expect(registrados[1]).toMatchObject({ category: "loan", installments: 12, installmentNumber: 1, counterparty: "Tia Ana", principalCents: 360_000 });
+    });
+
+    it("recusa o tipo que não combina com a linha, sem criar nada", async () => {
+      const { servico, registrados, pagas } = montar({ 1: linha("2026-10-05", -5000), 2: linha("2026-10-06", 8000) }, () => 2);
+      const resultado = await servico.acumularVarias(TENANT, [
+        { statementId: EXTRATO, line: 1, sessionId: SESSAO, tipo: { category: "additional" } },
+        { statementId: EXTRATO, line: 2, sessionId: SESSAO, tipo: { category: "installment", installments: 3 } },
+      ]);
+      expect(resultado.launched).toBe(0);
+      expect(resultado.failed.map((falha) => falha.message)).toEqual([
+        "Extra é sempre entrada, e esta linha é uma saída.",
+        "Parcela é sempre saída, e esta linha é uma entrada.",
+      ]);
+      expect([registrados, pagas]).toEqual([[], []]);
+    });
+
+    it("parcela sem as parcelas é recusada", async () => {
+      const { servico } = montar({ 1: linha("2026-10-05", -5000) }, () => 1);
+      const resultado = await servico.acumularVarias(TENANT, item({ category: "installment" }));
+      expect(resultado.failed[0]?.message).toContain("Informe as parcelas");
+    });
+
+    it("cada parte da divisão pode ter o próprio tipo", async () => {
+      const { servico, registrados } = montar({ 1: linha("2026-10-05", -9000) }, () => 0);
+      servico.conferencia = async () => ({}) as never;
+      await servico.dividir(TENANT, EXTRATO, 1, [
+        { cents: -6000, sessionId: SESSAO, tipo: { category: "fixed", recurrence: "weekly" } },
+        { cents: -3000, sessionId: SESSAO },
+      ]);
+      expect(registrados.map((pedido) => [pedido.category, pedido.recurrence, pedido.cents])).toEqual([
+        ["fixed", "weekly", 6000],
+        ["unique", null, 3000],
+      ]);
+    });
   });
 
   describe("sessão Fixo que já tem a transação", () => {

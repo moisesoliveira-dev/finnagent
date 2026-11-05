@@ -10,7 +10,7 @@ export type Grupo = {
 
 export const TIPOS_SESSAO = ["valor", "acumulo"] as const;
 
-/** Como a pessoa vê o tipo da sessão. Fixo guarda uma transação só; Acúmulo junta várias. */
+/** Como a pessoa vê o tipo da sessão. Fixo guarda uma transação por mês; Acúmulo junta várias no mês. */
 export const ROTULO_DO_TIPO_DE_SESSAO: Record<(typeof TIPOS_SESSAO)[number], string> = {
   valor: "Fixo",
   acumulo: "Acúmulo",
@@ -33,11 +33,30 @@ export type Sessao = {
   endedAt: string | null;
   kind: TipoSessao;
   categories: CategoriaTransacao[];
-  available: boolean;
+  /** Fixo: os meses em que a sessão já tem a transação dela. Acúmulo: sempre vazio. */
+  occupiedMonths: MesOcupado[];
   cents: number;
   additions: Acrescimo[];
   totalCents: number;
 };
+
+/** Um mês ("AAAA-MM") em que a sessão Fixo já tem a transação: o valor dela e o total com as partes. */
+export type MesOcupado = { month: string; cents: number; totalCents: number };
+
+export function chaveDoMes(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/** A transação que a sessão Fixo já tem nesse mês, ou null. Acúmulo nunca está ocupado. */
+export function mesOcupado(sessao: Pick<Sessao, "kind" | "occupiedMonths">, year: number, month: number) {
+  if (sessao.kind !== "valor") return null;
+  return sessao.occupiedMonths.find((item) => item.month === chaveDoMes(year, month)) ?? null;
+}
+
+/** A sessão recebe um lançamento novo nesse mês: Acúmulo sempre; Fixo só quando o mês ainda está livre. */
+export function sessaoAceitaNoMes(sessao: Pick<Sessao, "kind" | "occupiedMonths">, year: number, month: number) {
+  return mesOcupado(sessao, year, month) === null;
+}
 
 export type GruposResposta = {
   groups: Grupo[];
@@ -70,6 +89,10 @@ export type ModoTransacao = (typeof MODOS_TRANSACAO)[number];
 export const STATUS_TRANSACAO = ["pending", "completed", "cancelled", "refunded"] as const;
 export type StatusTransacao = (typeof STATUS_TRANSACAO)[number];
 
+/** Parcela é a ocorrência normal; multa é o que foi pago a mais numa parcela atrasada (multa e juros). */
+export const TIPOS_DE_OCORRENCIA = ["parcela", "multa"] as const;
+export type TipoDeOcorrencia = (typeof TIPOS_DE_OCORRENCIA)[number];
+
 export type Ocorrencia = {
   number: number;
   dueDate: string;
@@ -77,7 +100,43 @@ export type Ocorrencia = {
   paidCents: number | null;
   paidOn: string | null;
   status: StatusTransacao;
+  /** Ausente vale "parcela". */
+  kind?: TipoDeOcorrencia;
+  /** Na parcela e no empréstimo: qual parcela do contrato esta ocorrência é (o restante de uma parcela paga em parte repete o número). */
+  parcel?: number | null;
+  /** O pagamento que resolveu esta ocorrência: uma linha do extrato ou um pagamento registrado à mão. Serve para desfazer. */
+  paymentId?: string | null;
 };
+
+/** Quando o pagamento passa da parcela: a sobra é multa e juros, ou parte da próxima parcela. */
+export const DIFERENCAS_DO_PAGAMENTO = ["multa", "proxima"] as const;
+export type DiferencaDoPagamento = (typeof DIFERENCAS_DO_PAGAMENTO)[number];
+
+/** Um pagamento registrado numa parcela ou num empréstimo: data e valor reais, sem sinal. */
+export type PedidoDePagamento = { date: string; cents: number; diferenca?: DiferencaDoPagamento };
+
+/** Parcela e empréstimo: o pagamento não segue o mês, segue o que ainda falta. */
+export function ehSerie(category: CategoriaTransacao) {
+  return category === "installment" || category === "loan";
+}
+
+/** O mês em que a ocorrência conta: o do pagamento, quando paga; o do vencimento, enquanto pendente. */
+export function dataContabil(item: Ocorrencia) {
+  return item.status === "completed" && item.paidOn ? item.paidOn : item.dueDate;
+}
+
+export function ehMulta(item: Ocorrencia) {
+  return item.kind === "multa";
+}
+
+/** O empréstimo como contrato: o total combinado, o que já foi pago e o que falta. Multa e juros não abatem. */
+export function saldoDoEmprestimo(entry: Pick<Lancamento, "cents" | "installments" | "principalCents" | "occurrences" | "type" | "months">) {
+  const principal = Math.abs(entry.principalCents ?? Math.abs(entry.cents) * (entry.installments ?? 1));
+  const pago = ocorrenciasDoLancamento(entry as Lancamento)
+    .filter((item) => item.status === "completed" && !ehMulta(item))
+    .reduce((soma, item) => soma + Math.abs(item.paidCents ?? item.plannedCents), 0);
+  return { principal, pago, saldo: Math.max(principal - pago, 0) };
+}
 
 export type SituacaoOcorrencia = StatusTransacao | "late";
 
@@ -333,6 +392,10 @@ export type Lancamento = {
   recurrence: Recorrencia | null;
   recurrenceInterval: number | null;
   synced: boolean;
+  /** Empréstimo: de quem é (quem emprestou ou quem recebeu). */
+  counterparty?: string;
+  /** Empréstimo: o total combinado. O saldo é ele menos o que já foi pago. */
+  principalCents?: number | null;
   /** Preenchido: este valor já entra em outro lançamento e não soma de novo na sobra. */
   coveredById?: string | null;
   /** A conta de onde sai ou em que entra. Sem conta, o lançamento só conta na sobra. */
@@ -399,6 +462,8 @@ export type LinhaBase = {
   situation: SituacaoOcorrencia;
   cents: number;
   installment: { number: number; total: number } | null;
+  /** Multa e juros pagos numa parcela atrasada. */
+  fee: boolean;
   remove: "entry" | "occurrence" | null;
   synced: boolean;
   /** Transferência entre contas próprias: aparece na lista, mas não soma na sobra. */
@@ -560,7 +625,7 @@ export function ocorreNoMes(
 function centavosAgendados(entry: Lancamento, year: number, monthIndex: number) {
   const contaveis = ocorrenciasDoLancamento(entry).filter(
     (item) =>
-      noMes(item.dueDate, year, monthIndex) &&
+      noMes(dataContabil(item), year, monthIndex) &&
       (item.status === "pending" || item.status === "completed"),
   );
   if (contaveis.length === 0) return undefined;
@@ -709,15 +774,17 @@ export function gradeDoLancamento(
     const absoluto = indice(entry.startYear, entry.startMonth - 1) + parcela;
     const year = Math.floor(absoluto / 12);
     const month = (absoluto % 12) + 1;
-    lista.push(
-      montarOcorrencia(
+    lista.push({
+      ...montarOcorrencia(
         parcela + 1,
         dataPelaRegra(year, month, entry.day, entry.dueRule ?? REGRA_SEM_AJUSTE, calendario),
         entry.type === "empréstimo" ? centavosDaPrestacao(entry.cents) : entry.cents,
         entry,
         entry.status,
       ),
-    );
+      kind: "parcela",
+      parcel: parcela + 1,
+    });
   }
   return lista;
 }
@@ -1216,6 +1283,70 @@ export type LinhaConferencia = {
 export type OrigemDaProposta = "nome" | "valor";
 
 export type OrigemDaSessao = "nome" | "compromisso";
+
+/**
+ * O tipo do lançamento que nasce de uma linha da Conferência (ou de uma parte dela). Sem ele, a linha vira uma
+ * única paga. Parcela e empréstimo pedem as parcelas, o empréstimo pede os juros e a recorrente diz como se repete.
+ * O lançamento segue as mesmas regras do que é criado nas Finanças: a recorrente aparece nos meses seguintes, a
+ * parcela vira compromisso, o extra é sempre entrada.
+ */
+export type TipoDaLinha = {
+  category: CategoriaTransacao;
+  installments?: number | null;
+  installmentNumber?: number | null;
+  /** Empréstimo: de quem é e o total combinado. A linha é o primeiro pagamento. */
+  counterparty?: string | null;
+  principalCents?: number | null;
+  recurrence?: Recorrencia | null;
+  recurrenceInterval?: number | null;
+};
+
+export const TIPO_UNICO_DA_LINHA: TipoDaLinha = { category: "unique" };
+
+export const PARCELAS_MAXIMAS = 360;
+
+/** O que impede a linha de virar esse tipo, ou null. `cents` é o valor da linha (ou da parte), com sinal. */
+export function erroDoTipoDaLinha(tipo: TipoDaLinha, cents: number): string | null {
+  if (tipo.category === "additional" && cents < 0) return "Extra é sempre entrada, e esta linha é uma saída.";
+  if (tipo.category === "installment" && cents > 0) return "Parcela é sempre saída, e esta linha é uma entrada.";
+  if (tipo.category === "installment") {
+    const total = tipo.installments ?? null;
+    const atual = tipo.installmentNumber ?? 1;
+    if (total === null || !Number.isInteger(total) || total < 1 || total > PARCELAS_MAXIMAS) {
+      return `Informe as parcelas, de 1 a ${PARCELAS_MAXIMAS}.`;
+    }
+    if (!Number.isInteger(atual) || atual < 1 || atual > total) return "Informe a parcela atual, até o total de parcelas.";
+  }
+  if (tipo.category === "loan") {
+    if (!tipo.counterparty?.trim()) return "Informe de quem é o empréstimo.";
+    const total = tipo.principalCents ?? null;
+    if (total === null || !Number.isInteger(total) || total <= 0) return "Informe o total combinado do empréstimo.";
+    if (total < Math.abs(cents)) return "O total do empréstimo é menor que esta linha.";
+    const parcelas = tipo.installments ?? 1;
+    if (!Number.isInteger(parcelas) || parcelas < 1 || parcelas > PARCELAS_MAXIMAS) return `Informe as parcelas, de 1 a ${PARCELAS_MAXIMAS}.`;
+  }
+  if (tipo.category === "fixed") {
+    if (!tipo.recurrence) return "Informe como a recorrente se repete.";
+    const intervalo = tipo.recurrenceInterval ?? 1;
+    if (!Number.isInteger(intervalo) || intervalo < 1) return "Informe o intervalo da recorrência.";
+  }
+  return null;
+}
+
+/** O `TipoDaLinha` como o backend e o assistente recebem. */
+export const ESQUEMA_DO_TIPO_DA_LINHA = z
+  .object({
+    category: z.enum(CATEGORIAS_TRANSACAO),
+    installments: z.number().int().min(1).max(PARCELAS_MAXIMAS).optional(),
+    installmentNumber: z.number().int().min(1).max(PARCELAS_MAXIMAS).optional(),
+    counterparty: z.string().trim().min(1).max(80).optional(),
+    principalCents: z.number().int().min(1).optional(),
+    recurrence: z.enum(RECORRENCIAS).optional(),
+    recurrenceInterval: z.number().int().min(1).optional(),
+  })
+  .describe(
+    "O tipo do lançamento que nasce da linha. Sem ele, única. additional (extra) só em entrada; installment (parcela) só em saída e pede installments; loan (empréstimo) pede counterparty (a pessoa), principalCents (o total combinado) e installments (quantas parcelas combinadas); fixed (recorrente) pede recurrence (mensal se a pessoa não disser) e aparece nos meses seguintes.",
+  );
 
 /** Linhas sem lançamento que a conferência entrega por página ao consultor. A tela pede o mês inteiro. */
 export const LINHAS_DA_CONFERENCIA_POR_PAGINA = 10;
@@ -2484,7 +2615,7 @@ const camposDoLancamento = z.object({
   category: z
     .enum(CATEGORIAS_TRANSACAO)
     .describe(
-      "unique = única (avulsa); additional = extra (sempre entrada); installment = parcela (sempre saída, exige installments e installmentNumber); loan = empréstimo (exige installments, installmentNumber, dueDate e interestRate); fixed = fixa (recorrente, exige recurrence, recurrenceInterval e nextDueDate). Sessão do tipo 'valor' só aceita unique.",
+      "unique = única (avulsa); additional = extra (sempre entrada); installment = parcela (sempre saída, exige installments e installmentNumber); loan = empréstimo, um contrato com saldo (exige counterparty, a pessoa; principalCents, o total combinado; installments, as parcelas combinadas; cents é a parcela combinada; mode diz se a pessoa deve ou se devem a ela); fixed = fixa (recorrente, exige recurrence, recurrenceInterval e nextDueDate). Sessão do tipo 'valor' só aceita unique, e uma por mês; no mês seguinte ela está livre de novo.",
     ),
   cents: centavosPositivos,
   status: z
@@ -2494,8 +2625,10 @@ const camposDoLancamento = z.object({
   priority: z.enum(PRIORIDADES_TRANSACAO).optional().describe("low, normal, high ou nopriority. Padrão: nopriority."),
   installments: z.number().int().min(1).max(360).optional().describe("Total de parcelas."),
   installmentNumber: z.number().int().min(1).max(360).optional().describe("Parcela atual."),
-  dueDate: dataDoSistema.optional().describe("Vencimento do empréstimo."),
-  interestRate: z.number().min(0).max(1000).optional().describe("Taxa de juros do empréstimo, em % ao mês."),
+  dueDate: dataDoSistema.optional().describe("Vencimento, se a pessoa disser."),
+  interestRate: z.number().min(0).max(1000).optional().describe("Taxa de juros, em % ao mês, só como anotação."),
+  counterparty: z.string().trim().min(1).max(80).optional().describe("Empréstimo: de quem é (quem emprestou ou quem recebeu)."),
+  principalCents: z.number().int().min(1).optional().describe("Empréstimo: o total combinado, em centavos. O saldo é ele menos o que já foi pago."),
   nextDueDate: dataDoSistema.optional().describe("Próximo vencimento da fixa."),
   recurrence: z
     .enum(RECORRENCIAS)
@@ -2711,6 +2844,19 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Cancelou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "registrar_pagamento",
+    agentes: ["financas"],
+    descricao:
+      "Registra um pagamento numa parcela ou num empréstimo, com a data e o valor reais, sem sinal. Na parcela, o valor vai para a primeira pendente, em qualquer mês; o que passar paga as seguintes, e a sobra menor que uma parcela pede diferenca: 'multa' (multa e juros da parcela) ou 'proxima' (parte da próxima). Menos que a parcela paga parte dela. No empréstimo, abate o saldo e o que falta é previsto de novo. Mexe com dinheiro: a pessoa confirma.",
+    esquema: z.object({
+      id: idDoSistema,
+      date: dataDoSistema,
+      cents: centavosPositivos,
+      diferenca: z.enum(DIFERENCAS_DO_PAGAMENTO).optional(),
+    }),
+    rotulo: (args) => `Registrou o pagamento de ${args.cents} centavos`,
   }),
   ferramenta({
     nome: "cancelar_fixo_no_mes",
@@ -2987,12 +3133,13 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "cruzar_linha",
     agentes: ["extratos"],
     descricao:
-      "Liga uma linha a um lançamento. Única: o extrato vale no mês. Fixa, parcela e empréstimo com valor diferente: mande valor extrato ou lancamento, o que a pessoa escolheu. Extra só em linha positiva.",
+      "Liga uma linha a um lançamento. Única: o extrato vale no mês. Fixa com valor diferente: mande valor extrato ou lancamento, o que a pessoa escolheu. Parcela e empréstimo: a linha paga o que falta, em qualquer mês; se o valor passar da parcela e sobrar menos que outra, mande diferenca 'multa' ou 'proxima', o que a pessoa escolheu. Extra só em linha positiva.",
     esquema: z.object({
       statementId: idDoSistema,
       line: z.number().int().min(1),
       entryId: idDoSistema,
-      valor: z.enum(["extrato", "lancamento"]).optional().describe("Qual valor vale no mês, quando fixa, parcela ou empréstimo divergem."),
+      valor: z.enum(["extrato", "lancamento"]).optional().describe("Qual valor vale no mês, quando a fixa diverge."),
+      diferenca: z.enum(DIFERENCAS_DO_PAGAMENTO).optional().describe("Parcela: a sobra é multa e juros ('multa') ou parte da próxima ('proxima')."),
     }),
     rotulo: (args) => `Cruzou a linha ${args.line}`,
   }),
@@ -3006,17 +3153,31 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "acumular_linha",
     agentes: ["extratos"],
-    descricao: "Cria uma única com o valor do extrato numa sessão. Não use para fixa, parcela ou empréstimo que já existem: cruze.",
-    esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }),
+    descricao:
+      "Lança a linha numa sessão, com o valor do extrato e já paga. Sem tipo, vira uma única. Com tipo, vira parcela, empréstimo, recorrente ou extra, como nas Finanças. Não use para fixa, parcela ou empréstimo que já existem: cruze.",
+    esquema: z.object({
+      statementId: idDoSistema,
+      line: z.number().int().min(1),
+      sessionId: idDoSistema,
+      tipo: ESQUEMA_DO_TIPO_DA_LINHA.optional(),
+    }),
     rotulo: (args) => `Lançou a linha ${args.line}`,
   }),
   ferramenta({
     nome: "acumular_linhas",
     agentes: ["extratos"],
-    descricao: "Cria uma única por linha, com o valor do extrato, cada uma na sua sessão. Não use para fixa, parcela ou empréstimo que já existem.",
+    descricao:
+      "Lança várias linhas, cada uma na sua sessão, com o valor do extrato e já pagas. Sem tipo, cada uma vira uma única; com tipo, segue o tipo. Não use para fixa, parcela ou empréstimo que já existem.",
     esquema: z.object({
       items: z
-        .array(z.object({ statementId: idDoSistema, line: z.number().int().min(1), sessionId: idDoSistema }))
+        .array(
+          z.object({
+            statementId: idDoSistema,
+            line: z.number().int().min(1),
+            sessionId: idDoSistema,
+            tipo: ESQUEMA_DO_TIPO_DA_LINHA.optional(),
+          }),
+        )
         .min(1)
         .max(500),
     }),

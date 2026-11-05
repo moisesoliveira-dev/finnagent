@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { REGRA_SEM_AJUSTE } from "@finnagent/contracts";
+import { REGRA_SEM_AJUSTE, ehSerie, erroDoTipoDaLinha } from "@finnagent/contracts";
 import {
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
+  type DiferencaDoPagamento,
+  type TipoDaLinha,
   type ConferenciaResposta,
   type ExtratosResposta,
   type Lancamento,
@@ -16,6 +18,7 @@ import {
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { IaService } from "../../assistente/aplicacao/ia.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
+import type { PedidoLancamento } from "../../financas/dominio/pedido.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import {
   CONFIGURACOES_REPOSITORIO,
@@ -29,6 +32,7 @@ import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
 import { chaveDoNome, ehTransferenciaDePessoa } from "../dominio/nome-extrato.js";
 import { erroDaDivisao, JUSTIFICATIVA_DO_EXTRATO, nomeDaLinha } from "../dominio/divisao.js";
+import { idDoPagamentoDaLinha } from "../dominio/pagamento-da-linha.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
 import {
@@ -45,16 +49,19 @@ import {
 
 type LinhaGravada = Exclude<Awaited<ReturnType<ExtratosRepositorio["obterLinha"]>>, "ausente"> & { date: string };
 
-/** Como o lançamento da linha trata a sessão: `valor` decide a divergência na Fixo, `emPartes` libera mais uma. */
-export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean; nome?: string };
+/**
+ * Como o lançamento da linha trata a sessão: `valor` decide a divergência na Fixo, `emPartes` libera mais uma.
+ * `tipo` é o tipo do lançamento que nasce (sem ele, única).
+ */
+export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean; nome?: string; tipo?: TipoDaLinha };
 
-/** Uma parte da linha dividida: o valor, a sessão e, se a pessoa deu, o nome do lançamento. */
-export type ParteDaLinha = { cents: number; sessionId: string; nome?: string };
+/** Uma parte da linha dividida: o valor, a sessão, o nome (se a pessoa deu) e o tipo do lançamento. */
+export type ParteDaLinha = { cents: number; sessionId: string; nome?: string; tipo?: TipoDaLinha };
 
 const MENSAGEM_DA_LINHA_IGNORADA = "Essa linha está ignorada. Reative-a para lançar.";
 
 const MENSAGEM_DA_SESSAO_FIXA_LANCADA =
-  'Esta sessão fixa já tem a transação dela e ela não cabe nesta linha (outro mês, outro sinal ou já conciliada). Se o pagamento veio em partes, marque "Paga em partes" nesta linha.';
+  'Esta sessão fixa já tem a transação deste mês e ela não cabe nesta linha (outro sinal ou já conciliada). Se o pagamento veio em partes, marque "Paga em partes" nesta linha.';
 
 type Pedido = {
   id: string;
@@ -291,12 +298,19 @@ export class ExtratosService {
     };
   }
 
-  async confirmar(tenantId: string, statementId: string, line: number, entryId: string, valor?: ValorDoMes) {
+  async confirmar(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    entryId: string,
+    valor?: ValorDoMes,
+    diferenca?: DiferencaDoPagamento,
+  ) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
     const [year, month] = gravada.date.split("-").map(Number);
     if (gravada.entryId === entryId) return this.conferencia(tenantId, year, month);
-    await this.cruzarELiquidar(tenantId, statementId, line, { ...gravada, date: gravada.date }, entryId, valor);
+    await this.cruzarELiquidar(tenantId, statementId, line, { ...gravada, date: gravada.date }, entryId, valor, false, diferenca);
     return this.conferencia(tenantId, year, month);
   }
 
@@ -310,6 +324,7 @@ export class ExtratosService {
       (item) => item.dueDate.startsWith(mes) && (item.status === "pending" || item.status === "completed"),
     );
     const usadas = entry ? await this.extratos.contarLinhasDoLancamento(tenantId, entryId, year, month) : 0;
+    const pendentesDaSerie = (entry?.occurrences ?? []).filter((item) => item.status === "pending").length;
     const livre =
       entry && planejado !== null
         ? cabeNaLinha(
@@ -323,7 +338,7 @@ export class ExtratosService {
               day: Number(date.slice(8, 10)),
               cents: planejado,
               category: entry.category,
-              vagas: doMes.length - usadas,
+              vagas: ehSerie(entry.category) ? pendentesDaSerie : doMes.length - usadas,
             },
           )
         : false;
@@ -347,20 +362,27 @@ export class ExtratosService {
     entryId: string,
     valor?: ValorDoMes,
     daSessaoFixa = false,
+    diferenca?: DiferencaDoPagamento,
   ) {
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
     if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
     const { entry, planejado } = await this.livreNoMes(tenantId, gravada.date, gravada.cents, entryId, daSessaoFixa);
-    const centavos = daSessaoFixa
-      ? valorDaSessaoFixa(planejado, gravada.cents, valor)
-      : valorDoMes(entry.category, planejado, gravada.cents, valor);
+    // Parcela e empréstimo: a linha paga o que falta, no valor dela; a sobra é multa ou parte da próxima.
+    const centavos = ehSerie(entry.category)
+      ? gravada.cents
+      : daSessaoFixa
+        ? valorDaSessaoFixa(planejado, gravada.cents, valor)
+        : valorDoMes(entry.category, planejado, gravada.cents, valor);
     if (centavos === "extra") throw new PedidoInvalido("Adicional só cruza com entrada.");
     if (centavos === "escolha") {
       throw new PedidoInvalido("Escolha o valor deste mês: o do extrato ou o do lançamento.");
     }
     await this.cruzar(tenantId, statementId, line, entryId, gravada.description);
     try {
-      await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, centavos);
+      await this.financas.pagarPeloExtrato(tenantId, entryId, gravada.date, centavos, {
+        paymentId: idDoPagamentoDaLinha(statementId, line),
+        ...(diferenca ? { diferenca } : {}),
+      });
     } catch (error) {
       await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
       throw error;
@@ -408,7 +430,8 @@ export class ExtratosService {
         if (parte.created || (await this.extratos.lancamentoSoltoDoExtrato(tenantId, parte.entryId))) {
           await tentar(() => this.financas.excluir(tenantId, parte.entryId));
         } else {
-          await tentar(() => this.financas.reabrirPeloExtrato(tenantId, parte.entryId, data, parte.cents));
+          const indice = partes.indexOf(parte);
+          await tentar(() => this.financas.reabrirPeloExtrato(tenantId, parte.entryId, data, parte.cents, idDoPagamentoDaLinha(statementId, line, indice)));
         }
       }
       return { year, month };
@@ -430,7 +453,7 @@ export class ExtratosService {
       return { year, month };
     }
     try {
-      await this.financas.reabrirPeloExtrato(tenantId, entryId, data, gravada.cents);
+      await this.financas.reabrirPeloExtrato(tenantId, entryId, data, gravada.cents, idDoPagamentoDaLinha(statementId, line));
     } catch (error) {
       if (tolerante) return { year, month };
       await this.cruzar(tenantId, statementId, line, entryId, gravada.description).catch(() => undefined);
@@ -482,14 +505,15 @@ export class ExtratosService {
     if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
     if (!gravada.cents) throw new PedidoInvalido("A linha não tem valor para acumular.");
     if (!opcoes.emPartes) {
-      const fixa = await this.financas.lancamentoDaSessaoFixa(tenantId, sessionId);
+      const [ano, mes] = gravada.date.split("-").map(Number);
+      const fixa = await this.financas.lancamentoDaSessaoFixa(tenantId, sessionId, ano, mes);
       if (fixa) {
         await this.cruzarELiquidar(tenantId, statementId, line, gravada, fixa.entryId, opcoes.valor, true);
         return;
       }
     }
     const nome = nomeDaLinha(opcoes.nome, gravada.description);
-    const criado = await this.criarDaLinha(tenantId, gravada, sessionId, gravada.cents, nome, opcoes.emPartes === true);
+    const criado = await this.criarDaLinha(tenantId, gravada, sessionId, gravada.cents, nome, opcoes.emPartes === true, opcoes.tipo);
     try {
       await this.cruzar(tenantId, statementId, line, criado.id, gravada.description, nome, true);
     } catch (error) {
@@ -497,7 +521,7 @@ export class ExtratosService {
       throw error;
     }
     try {
-      await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, gravada.cents);
+      await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, gravada.cents, { paymentId: idDoPagamentoDaLinha(statementId, line) });
     } catch (error) {
       await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
       await this.financas.excluir(tenantId, criado.id).catch(() => undefined);
@@ -505,40 +529,59 @@ export class ExtratosService {
     }
   }
 
-  /** O lançamento único e pago que nasce de uma linha (ou de uma parte dela), na data do extrato. */
-  private criarDaLinha(tenantId: string, gravada: LinhaGravada, sessionId: string, cents: number, nome: string, emPartes: boolean) {
-    const [year, month, day] = gravada.date.split("-").map(Number);
-    return this.financas.criar(
-      tenantId,
-      {
-        id: randomUUID(),
-        sessionId,
-        accountId: gravada.accountId,
-        type: "variável",
-        description: nome,
-        justification: JUSTIFICATIVA_DO_EXTRATO,
-        day,
-        cents,
-        startYear: year,
-        startMonth: month,
-        installments: null,
-        name: nome,
-        date: gravada.date,
-        mode: cents < 0 ? "outflows" : "inflows",
-        status: "completed",
-        transactionType: "unusual",
-        category: "unique",
-        priority: "nopriority",
-        installmentNumber: null,
-        dueDate: null,
-        interestRate: null,
-        nextDueDate: null,
-        recurrence: null,
-        recurrenceInterval: null,
-        dueRule: REGRA_SEM_AJUSTE,
-      },
-      emPartes,
-    );
+  /**
+   * O lançamento que nasce de uma linha (ou de uma parte dela), na data do extrato, do tipo que a pessoa escolheu.
+   * Única e extra nascem pagas: só têm esta ocorrência. Parcela, empréstimo e recorrente nascem pendentes, com as
+   * mesmas regras das Finanças (prioridade, compromisso, regra de vencimento), e a ocorrência desta linha é paga em
+   * seguida. A única fica na data exata do extrato; as outras seguem o padrão de vencimento das configurações.
+   */
+  private criarDaLinha(
+    tenantId: string,
+    gravada: LinhaGravada,
+    sessionId: string,
+    cents: number,
+    nome: string,
+    emPartes: boolean,
+    pedidoDoTipo: TipoDaLinha = { category: "unique" },
+  ) {
+    // Os padrões entram antes da conferência: recorrente é mensal e a parcela atual é a primeira, se não disserem.
+    const tipo: TipoDaLinha = {
+      ...pedidoDoTipo,
+      installmentNumber: pedidoDoTipo.installmentNumber ?? 1,
+      recurrence: pedidoDoTipo.recurrence ?? "monthly",
+      recurrenceInterval: pedidoDoTipo.recurrenceInterval ?? 1,
+    };
+    const erro = erroDoTipoDaLinha(tipo, cents);
+    if (erro) throw new PedidoInvalido(erro);
+    const category = tipo.category;
+    const unica = category === "unique" || category === "additional";
+    const parcelada = category === "installment" || category === "loan";
+    const pedido: PedidoLancamento = {
+      id: randomUUID(),
+      sessionId,
+      accountId: gravada.accountId,
+      name: nome,
+      description: nome,
+      justification: JUSTIFICATIVA_DO_EXTRATO,
+      date: gravada.date,
+      mode: cents < 0 ? "outflows" : "inflows",
+      status: unica ? "completed" : "pending",
+      transactionType: "unusual",
+      category,
+      priority: "nopriority",
+      cents: Math.abs(cents),
+      installments: parcelada ? (tipo.installments ?? (category === "loan" ? 1 : null)) : null,
+      installmentNumber: parcelada ? (tipo.installmentNumber ?? null) : null,
+      dueDate: null,
+      interestRate: null,
+      counterparty: category === "loan" ? (tipo.counterparty ?? "") : "",
+      principalCents: category === "loan" ? (tipo.principalCents ?? null) : null,
+      nextDueDate: category === "fixed" ? gravada.date : null,
+      recurrence: category === "fixed" ? (tipo.recurrence ?? null) : null,
+      recurrenceInterval: category === "fixed" ? (tipo.recurrenceInterval ?? null) : null,
+      dueRule: unica ? REGRA_SEM_AJUSTE : null,
+    };
+    return this.financas.registrar(tenantId, pedido, emPartes);
   }
 
   /**
@@ -555,7 +598,7 @@ export class ExtratosService {
     const erro = erroDaDivisao(gravada.cents, partes.map((parte) => parte.cents));
     if (erro) throw new PedidoInvalido(erro);
     const [year, month] = gravada.date.split("-").map(Number);
-    const fixas = await Promise.all(partes.map((parte) => this.financas.lancamentoDaSessaoFixa(tenantId, parte.sessionId)));
+    const fixas = await Promise.all(partes.map((parte) => this.financas.lancamentoDaSessaoFixa(tenantId, parte.sessionId, year, month)));
     const pagas = fixas.flatMap((fixa) => (fixa ? [fixa.entryId] : []));
     if (new Set(pagas).size !== pagas.length) throw new PedidoInvalido("Duas partes não podem ir para a mesma sessão fixa.");
     const feitas: ParteGravada[] = [];
@@ -569,14 +612,14 @@ export class ExtratosService {
               `A sessão fixa da parte ${indice + 1} já foi paga neste mês ou não cabe nesta linha. Escolha outra sessão para ela.`,
             );
           });
-          await this.financas.pagarPeloExtrato(tenantId, fixa.entryId, gravada.date, parte.cents);
+          await this.financas.pagarPeloExtrato(tenantId, fixa.entryId, gravada.date, parte.cents, { paymentId: idDoPagamentoDaLinha(statementId, line, indice) });
           feitas.push({ entryId: fixa.entryId, cents: parte.cents, created: false });
           continue;
         }
         const nome = nomeDaLinha(parte.nome, gravada.description);
-        const criado = await this.criarDaLinha(tenantId, gravada, parte.sessionId, parte.cents, nome, false);
+        const criado = await this.criarDaLinha(tenantId, gravada, parte.sessionId, parte.cents, nome, false, parte.tipo);
         feitas.push({ entryId: criado.id, cents: parte.cents, created: true });
-        await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, parte.cents);
+        await this.financas.pagarPeloExtrato(tenantId, criado.id, gravada.date, parte.cents, { paymentId: idDoPagamentoDaLinha(statementId, line, indice) });
       }
       // A parte que pagou a fixa fica com o nome da transação dela: só as criadas deixam nome lembrado.
       const nomes = this.nomesParaLembrar(gravada.description, partes.filter((_, indice) => !fixas[indice]));
@@ -625,6 +668,7 @@ export class ExtratosService {
           ...(item.valor ? { valor: item.valor } : {}),
           ...(item.emPartes ? { emPartes: true } : {}),
           ...(item.nome ? { nome: item.nome } : {}),
+          ...(item.tipo ? { tipo: item.tipo } : {}),
         });
         launched += 1;
       } catch (error) {

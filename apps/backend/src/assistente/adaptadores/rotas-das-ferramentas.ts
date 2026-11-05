@@ -102,6 +102,11 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   },
   excluir_ocorrencia: { metodo: "DELETE", caminho: (a) => `lancamentos/${id(a.id)}/ocorrencias/${id(a.number)}` },
   excluir_lancamento: { metodo: "DELETE", caminho: (a) => `lancamentos/${id(a.id)}` },
+  registrar_pagamento: {
+    metodo: "POST",
+    caminho: (a) => `lancamentos/${id(a.id)}/pagamentos`,
+    corpo: (a) => ({ date: a.date, cents: a.cents, ...(a.diferenca ? { diferenca: a.diferenca } : {}) }),
+  },
   adiantar_parcelas: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/parcelas/adiantar` },
   cancelar_parcelas: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/parcelas/cancelar` },
   adiantar_emprestimo: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/emprestimo/adiantar` },
@@ -213,7 +218,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   cruzar_linha: {
     metodo: "POST",
     caminho: () => "extratos/cruzamentos",
-    corpo: (a) => ({ statementId: a.statementId, line: a.line, entryId: a.entryId, valor: a.valor }),
+    corpo: (a) => ({ statementId: a.statementId, line: a.line, entryId: a.entryId, valor: a.valor, ...(a.diferenca ? { diferenca: a.diferenca } : {}) }),
   },
   desfazer_cruzamento: {
     metodo: "POST",
@@ -223,7 +228,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   acumular_linha: {
     metodo: "POST",
     caminho: () => "extratos/acumular",
-    corpo: (a) => ({ statementId: a.statementId, line: a.line, sessionId: a.sessionId }),
+    corpo: (a) => ({ statementId: a.statementId, line: a.line, sessionId: a.sessionId, ...(a.tipo ? { tipo: a.tipo } : {}) }),
   },
   acumular_linhas: { metodo: "POST", caminho: () => "extratos/acumular-lote", corpo: (a) => ({ items: a.items }) },
   importar_extrato: {

@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  categoriaDeCompromisso,
+  ehSerie,
+  erroDoTipoDaLinha,
+  mesOcupado,
   tipoDaCategoria,
   type AcumuloEmLote,
   type ConferenciaResposta,
+  type DiferencaDoPagamento,
   type Grupo,
   type GruposResposta,
   type LinhaConferencia,
+  type Sessao,
+  type TipoDaLinha,
   type ValorDoMes,
 } from "@finnagent/contracts";
 import { Button } from "../../../components/ui/button";
@@ -25,6 +30,8 @@ import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
 import { DialogoDeDivisao, NomesLembrados } from "./divisao";
 import { DialogoDeNovaSessao, type PedidoDeNovaSessao } from "./nova-sessao";
+import { RASCUNHO_UNICO, TipoDaLinhaCampos, rascunhoAceito, tipoDoRascunho, type RascunhoDoTipo } from "./tipo-da-linha";
+import { ROTULO_CATEGORIA, tomDaCategoria } from "../../financas/rotulos";
 
 const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
@@ -82,8 +89,14 @@ function rotuloDoCandidato(vinculo: NonNullable<LinhaConferencia["link"]>) {
   return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${formatarReais(vinculo.cents)}`;
 }
 
+/** Só a fixa pergunta qual valor vale no mês. Parcela e empréstimo pagam o que falta, no valor da linha. */
 function pedeValorDoMes(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
-  return categoriaDeCompromisso(candidato.category) && candidato.cents !== cents;
+  return candidato.category === "fixed" && candidato.cents !== cents;
+}
+
+/** Parcela ou empréstimo com a linha maior que a próxima parcela: a sobra é multa e juros ou parte da próxima. */
+function pedeDiferenca(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
+  return ehSerie(candidato.category) && Math.abs(cents) > Math.abs(candidato.cents);
 }
 
 function chaveDa(linha: LinhaConferencia) {
@@ -101,17 +114,19 @@ export default function Conferencia() {
   const [falha, setFalha] = useState("");
   const [ocupado, setOcupado] = useState("");
   const [buscando, setBuscando] = useState(false);
-  // `fixa` marca a sessão Fixo que já tem a transação dela: `cents` é o valor base e `total` o que a sessão soma.
-  const [sessoes, setSessoes] = useState<
-    Array<{ id: string; rotulo: string; fixa: { cents: number; total: number } | null }>
-  >([]);
+  // As sessões abertas, com o nome do grupo. O que depende do mês (a Fixo já lançada) é derivado abaixo.
+  const [sessoesAbertas, setSessoesAbertas] = useState<Array<Sessao & { grupo: string }>>([]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
+  // Na parcela e no empréstimo, o que é a sobra quando a linha passa da próxima parcela.
+  const [diferencas, setDiferencas] = useState<Record<string, DiferencaDoPagamento | "">>({});
   // A linha que espera a decisão da pessoa: a sessão Fixo escolhida já tem transação.
   const [decisaoFixa, setDecisaoFixa] = useState<LinhaConferencia | null>(null);
   // O nome que a pessoa deu à linha. Sem escolha, vale o último nome lembrado para essa descrição.
   const [nomes, setNomes] = useState<Record<string, string>>({});
+  // O tipo do lançamento que a linha vai virar. Sem escolha, única.
+  const [tipos, setTipos] = useState<Record<string, RascunhoDoTipo>>({});
   // A linha aberta no modal de dividir.
   const [divisao, setDivisao] = useState<LinhaConferencia | null>(null);
   // Sobe depois de cada lançamento: uma sessão Fixo vira "já lançada" assim que recebe a primeira parte.
@@ -185,26 +200,33 @@ export default function Conferencia() {
         if (!ativo) return;
         const nomes = new Map(resposta.groups.map((grupo) => [grupo.id, grupo.name]));
         setGrupos(resposta.groups);
-        setSessoes(
-          resposta.sessions
-            .filter((sessao) => !sessao.endedAt)
-            .map((sessao) => {
-              const lancada = sessao.kind === "valor" && !sessao.available;
-              return {
-                id: sessao.id,
-                rotulo: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}${lancada ? " · Fixo já lançado" : ""}`,
-                fixa: lancada ? { cents: sessao.cents, total: sessao.totalCents } : null,
-              };
-            }),
+        setSessoesAbertas(
+          resposta.sessions.filter((sessao) => !sessao.endedAt).map((sessao) => ({ ...sessao, grupo: nomes.get(sessao.groupId) ?? "Grupo" })),
         );
       })
       .catch(() => {
-        if (ativo) setSessoes([]);
+        if (ativo) setSessoesAbertas([]);
       });
     return () => {
       ativo = false;
     };
   }, [versaoDasSessoes]);
+
+  // A lista do mês: a sessão Fixo que já tem a transação neste mês vem marcada, com o valor dela (`fixa`).
+  // As linhas da Conferência são todas deste mês, então a marca vale para todas.
+  const sessoes = useMemo(
+    () =>
+      sessoesAbertas.map((sessao) => {
+        const ocupado = mesOcupado(sessao, year, month);
+        return {
+          id: sessao.id,
+          rotulo: `${sessao.grupo} / ${sessao.name}${ocupado ? " · Fixo já lançado neste mês" : ""}`,
+          fixa: ocupado ? { cents: ocupado.cents, total: ocupado.totalCents } : null,
+          categories: sessao.categories,
+        };
+      }),
+    [sessoesAbertas, year, month],
+  );
 
   function mudar(delta: number) {
     manual.current = true;
@@ -243,6 +265,11 @@ export default function Conferencia() {
       toast.erro("Escolha o valor deste mês: o do extrato ou o do lançamento.");
       return;
     }
+    const diferenca = diferencas[chave];
+    if (candidato && pedeDiferenca(candidato, linha.cents) && !diferenca) {
+      toast.erro("Diga se a sobra é multa e juros ou parte da próxima parcela.");
+      return;
+    }
     setOcupado(chave);
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/cruzamentos", {
@@ -252,11 +279,13 @@ export default function Conferencia() {
           line: linha.line,
           entryId,
           ...(valor ? { valor } : {}),
+          ...(diferenca ? { diferenca } : {}),
         }),
       });
-      toast.sucesso("Cruzamento confirmado. A ocorrência do mês ficou paga.");
+      toast.sucesso("Cruzamento confirmado. O lançamento ficou pago com esta linha.");
       setPar({});
       setValorMes({});
+      setDiferencas({});
       setDados(resposta);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível confirmar o cruzamento.");
@@ -293,7 +322,24 @@ export default function Conferencia() {
     return nome && nome !== linha.description.trim() ? { nome } : {};
   }
 
-  async function dividir(linha: LinhaConferencia, partes: { cents: number; sessionId: string; nome?: string }[]) {
+  /** As categorias que a sessão escolhida para a linha aceita. Sem sessão, todas. */
+  function categoriasDa(linha: LinhaConferencia) {
+    return sessoes.find((sessao) => sessao.id === sessaoDa(linha))?.categories;
+  }
+
+  function tipoDa(linha: LinhaConferencia) {
+    return rascunhoAceito(tipos[chaveDa(linha)] ?? RASCUNHO_UNICO, linha.cents, categoriasDa(linha));
+  }
+
+  /** O tipo que vai para o lançamento, ou o motivo de ele não poder ir. Única não manda nada. */
+  function tipoParaEnviar(linha: LinhaConferencia): { tipo?: TipoDaLinha } | { erro: string } {
+    const tipo = tipoDoRascunho(tipoDa(linha));
+    const erro = erroDoTipoDaLinha(tipo, linha.cents);
+    if (erro) return { erro };
+    return tipo.category === "unique" ? {} : { tipo };
+  }
+
+  async function dividir(linha: LinhaConferencia, partes: { cents: number; sessionId: string; nome?: string; tipo?: TipoDaLinha }[]) {
     setOcupado("dividir");
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/dividir", {
@@ -323,11 +369,16 @@ export default function Conferencia() {
       setDecisaoFixa(linha);
       return;
     }
+    const tipo = tipoParaEnviar(linha);
+    if ("erro" in tipo) {
+      toast.erro(tipo.erro);
+      return;
+    }
     setOcupado(chave);
     try {
       const resposta = await api<ConferenciaResposta>("/api/extratos/acumular", {
         method: "POST",
-        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...decisao, ...nomeParaEnviar(linha) }),
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, ...decisao, ...nomeParaEnviar(linha), ...tipo }),
       });
       toast.sucesso(
         fixaDa(linha) && !decisao?.emPartes
@@ -336,6 +387,11 @@ export default function Conferencia() {
       );
       setDecisaoFixa(null);
       setPar({});
+      setTipos((atual) => {
+        const proximo = { ...atual };
+        delete proximo[chave];
+        return proximo;
+      });
       setVersaoDasSessoes((versao) => versao + 1);
       setDados(resposta);
     } catch (error) {
@@ -359,7 +415,7 @@ export default function Conferencia() {
     toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram.`);
   }
 
-  type ItemDoLote = { statementId: string; line: number; sessionId: string; nome?: string };
+  type ItemDoLote = { statementId: string; line: number; sessionId: string; nome?: string; tipo?: TipoDaLinha };
 
   function itensDoLote(origem: LinhaConferencia[]) {
     const itens: ItemDoLote[] = [];
@@ -371,7 +427,12 @@ export default function Conferencia() {
         aguardando += 1;
         continue;
       }
-      itens.push({ statementId: linha.statementId, line: linha.line, sessionId, ...nomeParaEnviar(linha) });
+      const tipo = tipoParaEnviar(linha);
+      if ("erro" in tipo) {
+        toast.erro(`${linha.description || "Linha"}: ${tipo.erro}`);
+        return [];
+      }
+      itens.push({ statementId: linha.statementId, line: linha.line, sessionId, ...nomeParaEnviar(linha), ...tipo });
     }
     if (aguardando > 0) {
       toast.alerta(
@@ -409,6 +470,13 @@ export default function Conferencia() {
       }
       const falhas = new Set(resultado.failed.map((falha) => `${falha.statementId}:${falha.line}`));
       setEscolha((atual) => {
+        const proximo = { ...atual };
+        for (const item of preenchidos) {
+          if (!falhas.has(`${item.statementId}:${item.line}`)) delete proximo[`${item.statementId}:${item.line}`];
+        }
+        return proximo;
+      });
+      setTipos((atual) => {
         const proximo = { ...atual };
         for (const item of preenchidos) {
           if (!falhas.has(`${item.statementId}:${item.line}`)) delete proximo[`${item.statementId}:${item.line}`];
@@ -781,6 +849,9 @@ export default function Conferencia() {
                                   {linha.description || "—"}
                                 </span>
                                 {linha.link ? <Chip tone="ok">Cruzado</Chip> : null}
+                                {linha.link && linha.link.category !== "unique" ? (
+                                  <Chip tone={tomDaCategoria(linha.link.category)}>{ROTULO_CATEGORIA[linha.link.category]}</Chip>
+                                ) : null}
                                 {linha.ignored ? <Chip>Ignorada</Chip> : null}
                                 {!linha.link && linha.suggestion ? (
                                   <Chip tone="ai">{linha.suggestionSource === "nome" ? "Nome" : "Valor"}</Chip>
@@ -860,6 +931,14 @@ export default function Conferencia() {
                                       Dividir
                                     </Button>
                                   </div>
+                                  <TipoDaLinhaCampos
+                                    rotulo={`Tipo do lançamento de ${linha.description || "a linha"}`}
+                                    cents={linha.cents}
+                                    aceitas={categoriasDa(linha)}
+                                    valor={tipoDa(linha)}
+                                    disabled={ocupado !== ""}
+                                    onChange={(valor) => setTipos((atual) => ({ ...atual, [chave]: valor }))}
+                                  />
                                   {linha.names.length ? (
                                     <NomesLembrados
                                       descricao={linha.description}
@@ -879,6 +958,7 @@ export default function Conferencia() {
                                     onChange={(event) => {
                                       setPar((atual) => ({ ...atual, [chave]: event.target.value }));
                                       setValorMes((atual) => ({ ...atual, [chave]: "" }));
+                                      setDiferencas((atual) => ({ ...atual, [chave]: "" }));
                                     }}
                                   >
                                     <option value="">Escolha o lançamento</option>
@@ -915,6 +995,34 @@ export default function Conferencia() {
                                       </motion.span>
                                     );
                                   })()}
+                                  {(() => {
+                                    const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
+                                    if (!candidato || !pedeDiferenca(candidato, linha.cents)) return null;
+                                    return (
+                                      <motion.span
+                                        initial={{ opacity: 0, y: -4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={curva}
+                                        className="flex w-full flex-wrap items-center gap-2 border border-pending-line bg-pending-soft p-3"
+                                      >
+                                        <span className="text-sm text-pending">
+                                          A linha passa da parcela de {formatarReais(Math.abs(candidato.cents))}. Paga as seguintes; se sobrar, a sobra é:
+                                        </span>
+                                        <Segmentado<"" | DiferencaDoPagamento>
+                                          aria-label="A sobra do pagamento"
+                                          opcoes={[
+                                            { id: "multa", label: "Multa e juros" },
+                                            { id: "proxima", label: "Parte da próxima" },
+                                          ]}
+                                          valor={diferencas[chave] || ""}
+                                          onEscolher={(id) => {
+                                            if (!id) return;
+                                            setDiferencas((atual) => ({ ...atual, [chave]: id }));
+                                          }}
+                                        />
+                                      </motion.span>
+                                    );
+                                  })()}
                                   <Button
                                     variant="default"
                                     carregando={ocupado === chave}
@@ -924,8 +1032,8 @@ export default function Conferencia() {
                                       linha.candidates.some(
                                         (item) =>
                                           item.entryId === lancamentoDa(linha) &&
-                                          pedeValorDoMes(item, linha.cents) &&
-                                          !valorMes[chave],
+                                          ((pedeValorDoMes(item, linha.cents) && !valorMes[chave]) ||
+                                            (pedeDiferenca(item, linha.cents) && !diferencas[chave])),
                                       )
                                     }
                                     onClick={() => void confirmar(linha, lancamentoDa(linha))}
@@ -969,7 +1077,7 @@ export default function Conferencia() {
         onCriada={(sessao, grupo) => {
           // Entra na lista na hora, para a linha já mostrar a escolha; a lista completa vem em seguida.
           setGrupos((atual) => (atual.some((item) => item.id === grupo.id) ? atual : [...atual, grupo]));
-          setSessoes((atual) => [...atual, { id: sessao.id, rotulo: `${grupo.name} / ${sessao.name}`, fixa: null }]);
+          setSessoesAbertas((atual) => [...atual, { ...sessao, grupo: grupo.name }]);
           setVersaoDasSessoes((atual) => atual + 1);
           setNovaSessao(null);
         }}
