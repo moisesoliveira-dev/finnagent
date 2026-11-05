@@ -33,11 +33,15 @@ describe("leitura do extrato pela IA", () => {
   });
   it("o que a pessoa escreveu sobre o extrato chega ao leitor e ao organizador", async () => {
     const vistas: Array<string | undefined> = [];
+    let contexto: { filename?: string; hoje?: string } | undefined;
     const grafo = criarGrafo(
       { ler: async (arquivo) => (vistas.push(arquivo.observacao), "texto do extrato") },
-      { organizarTexto: async (_texto, observacao) => (vistas.push(observacao), { linhas: [], cortada: false }) },
+      { organizarTexto: async (_texto, observacao, ctx) => (vistas.push(observacao), (contexto = ctx), { linhas: [], cortada: false }) },
     );
     await grafo.organizar({ ...pedido, observacao: "conta da empresa" });
     expect(vistas).toEqual(["conta da empresa", "conta da empresa"]);
+    // O organizador recebe o nome do arquivo e o dia de hoje, para acertar o ano das datas sem ano.
+    expect(contexto?.filename).toBe("extrato.pdf");
+    expect(contexto?.hoje).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
