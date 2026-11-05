@@ -10,7 +10,9 @@ describe("prompt do consultor", () => {
     expect(prompt).toContain("pela ferramenta propor_plano");
     expect(prompt).toContain("Nunca chame direto uma ferramenta que muda o sistema: o sistema recusa");
     expect(prompt).toContain('escreva "@passo:N"');
-    expect(prompt).toContain("Depois de executado, confira com consultar_mes_financeiro");
+    expect(prompt).toContain("Depois de executado, o resultado já traz o efeito no mês");
+    // O que muda a cada chamada fica no fim, para o prefixo fixo entrar no cache do provedor.
+    expect(prompt.indexOf("Hoje é 2026-10-28")).toBeGreaterThan(prompt.indexOf("Responda sempre em português"));
     expect(prompt).toContain("Hoje é 2026-10-28, no fuso America/Sao_Paulo. Você conversa com Ana.");
   });
 
@@ -53,7 +55,10 @@ describe("prompt do consultor", () => {
     expect(prompt).toContain("quem aprova cada parte é a pessoa, na tela de Metas, e você não tem como aprovar");
     expect(prompt).toContain("ofereça ajuda para organizar o financeiro");
     expect(prompt).not.toContain("Preferências da pessoa");
-    expect(promptDoConsultor(contexto, "  fale com emojis ").endsWith("Preferências da pessoa (siga quando não conflitar com as regras acima): fale com emojis")).toBe(true);
+    // As preferências entram depois das regras; só a linha do dia (que muda sempre) vem depois delas, pelo cache.
+    const comPreferencias = promptDoConsultor(contexto, "  fale com emojis ");
+    expect(comPreferencias).toContain("Preferências da pessoa (siga quando não conflitar com as regras acima): fale com emojis\n\nHoje é 2026-10-28");
+    expect(comPreferencias.indexOf("Preferências da pessoa")).toBeGreaterThan(comPreferencias.indexOf("Responda sempre em português"));
   });
 
   it("lê todas as páginas da conferência antes de propor e conta o que sobrou depois de lançar", () => {
