@@ -1,6 +1,7 @@
 import { IonButton, IonIcon, IonRadio, IonRadioGroup, useIonToast } from "@ionic/react";
 import {
   categoriaDeCompromisso,
+  sessaoAceitaNoMes,
   tipoDaCategoria,
   type AcumuloEmLote,
   type ConferenciaResposta,
@@ -60,9 +61,10 @@ export function Conferencia() {
   const sessoes = useMemo(() => {
     const nomes = new Map((grupos.dados?.groups ?? []).map((grupo) => [grupo.id, grupo.name]));
     return (grupos.dados?.sessions ?? [])
-      .filter((sessao) => !sessao.endedAt && (sessao.kind !== "valor" || sessao.available))
+      // A Fixo some só no mês em que já tem a transação dela.
+      .filter((sessao) => !sessao.endedAt && sessaoAceitaNoMes(sessao, mes.ano, mes.mes))
       .map((sessao) => ({ id: sessao.id, texto: `${nomes.get(sessao.groupId) ?? "Grupo"} / ${sessao.name}` }));
-  }, [grupos.dados]);
+  }, [grupos.dados, mes.ano, mes.mes]);
 
   const dizer = (mensagem: string, erroNoAviso = false) =>
     void avisar({ message: mensagem, duration: 3200, position: "top", cssClass: erroNoAviso ? "aviso-de-erro" : undefined });

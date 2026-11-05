@@ -5,6 +5,7 @@ import {
   fimDaSessao,
   inicioDaSessao,
   aceitaLancamento,
+  mesesOcupados,
   pedidoDaSessao,
   podeTrocarDeTipo,
   protegeValorBase,
@@ -31,11 +32,28 @@ describe("tipos da sessão", () => {
     expect(pedidoDaSessao("acumulo")).toEqual({ kind: "acumulo", cents: 0 });
   });
 
-  it("tira o valor único da lista depois do lançamento", () => {
-    expect(aceitaLancamento("valor", [])).toBe(true);
-    expect(aceitaLancamento("valor", [{ status: "cancelled" }])).toBe(true);
-    expect(aceitaLancamento("valor", [{ status: "pending" }])).toBe(false);
-    expect(aceitaLancamento("acumulo", [{ status: "pending" }, { status: "pending" }])).toBe(true);
+  it("o Fixo fecha só o mês em que já tem a transação", () => {
+    expect(aceitaLancamento("valor", [], "2026-10")).toBe(true);
+    expect(aceitaLancamento("valor", [{ status: "cancelled", month: "2026-10" }], "2026-10")).toBe(true);
+    expect(aceitaLancamento("valor", [{ status: "pending", month: "2026-10" }], "2026-10")).toBe(false);
+    // Outubro lançado não fecha setembro nem novembro.
+    expect(aceitaLancamento("valor", [{ status: "completed", month: "2026-10" }], "2026-09")).toBe(true);
+    expect(aceitaLancamento("valor", [{ status: "completed", month: "2026-10" }], "2026-11")).toBe(true);
+    expect(aceitaLancamento("acumulo", [{ status: "pending", month: "2026-10" }, { status: "pending", month: "2026-10" }], "2026-10")).toBe(true);
+  });
+
+  it("lista os meses ocupados do Fixo, com a base e o total de cada um", () => {
+    const lancamentos = [
+      { id: "out", position: 1, status: "completed", cents: -397, months: [], month: "2026-10" },
+      { id: "nov-parte", position: 3, status: "pending", cents: -100, months: [], month: "2026-11" },
+      { id: "nov", position: 2, status: "pending", cents: -397, months: [], month: "2026-11" },
+      { id: "set", position: 0, status: "cancelled", cents: -397, months: [], month: "2026-09" },
+    ];
+    expect(mesesOcupados("valor", lancamentos)).toEqual([
+      { month: "2026-10", cents: -397, totalCents: -397 },
+      { month: "2026-11", cents: -397, totalCents: -497 },
+    ]);
+    expect(mesesOcupados("acumulo", lancamentos)).toEqual([]);
   });
 
   it("libera só a única no valor e todas no acúmulo", () => {
@@ -45,9 +63,9 @@ describe("tipos da sessão", () => {
 
   it("separa a base do acréscimo pela ordem da transação", () => {
     const lancamentos = [
-      { id: "b", position: 2, status: "pending", cents: -200, months: [] },
-      { id: "a", position: 1, status: "pending", cents: -1_800, months: [] },
-      { id: "c", position: 0, status: "cancelled", cents: -9_000, months: [] },
+      { id: "b", position: 2, status: "pending", cents: -200, months: [], month: "2026-10" },
+      { id: "a", position: 1, status: "pending", cents: -1_800, months: [], month: "2026-10" },
+      { id: "c", position: 0, status: "cancelled", cents: -9_000, months: [], month: "2026-10" },
     ];
     expect(resumoDaSessao("valor", lancamentos)).toEqual({
       cents: -1_800,
@@ -58,20 +76,22 @@ describe("tipos da sessão", () => {
 
   it("não deixa o acréscimo reescrever a base", () => {
     const lancamentos = [
-      { id: "base", position: 1, status: "pending" },
-      { id: "extra", position: 2, status: "pending" },
+      { id: "base", position: 1, status: "pending", month: "2026-10" },
+      { id: "extra", position: 2, status: "pending", month: "2026-10" },
     ];
     expect(protegeValorBase("valor", "base", lancamentos, true)).toBe(true);
     expect(protegeValorBase("valor", "extra", lancamentos, true)).toBe(false);
     expect(protegeValorBase("valor", "base", lancamentos, false)).toBe(false);
     expect(protegeValorBase("valor", "base", [lancamentos[0]!], true)).toBe(false);
+    // A transação de outro mês não é parte desta: a base de outubro continua livre para mudar.
+    expect(protegeValorBase("valor", "base", [lancamentos[0]!, { id: "nov", position: 2, status: "pending", month: "2026-11" }], true)).toBe(false);
   });
 
   it("soma as transações do acúmulo e ignora a cancelada", () => {
     const lancamentos = [
-      { id: "a", position: 1, status: "pending", cents: -4_000, months: [] },
-      { id: "b", position: 2, status: "cancelled", cents: -9_000, months: [] },
-      { id: "c", position: 3, status: "pending", cents: 0, months: [-1_000, -2_000] },
+      { id: "a", position: 1, status: "pending", cents: -4_000, months: [], month: "2026-10" },
+      { id: "b", position: 2, status: "cancelled", cents: -9_000, months: [], month: "2026-10" },
+      { id: "c", position: 3, status: "pending", cents: 0, months: [-1_000, -2_000], month: "2026-10" },
     ];
     expect(centavosDoLancamento(lancamentos[2]!)).toBe(-3_000);
     expect(resumoDaSessao("acumulo", lancamentos)).toEqual({
@@ -83,7 +103,7 @@ describe("tipos da sessão", () => {
 });
 
 describe("trocar o tipo da sessão", () => {
-  const unica = { status: "pending", category: "unique" };
+  const unica = { status: "pending", category: "unique", month: "2026-10" };
 
   it("virar Acúmulo é sempre seguro, com o que a sessão tiver", () => {
     expect(podeTrocarDeTipo("valor", "acumulo", [unica])).toBe(true);
@@ -93,23 +113,25 @@ describe("trocar o tipo da sessão", () => {
   it("virar Fixo cabe sem lançamento ou com uma única transação ativa", () => {
     expect(podeTrocarDeTipo("acumulo", "valor", [])).toBe(true);
     expect(podeTrocarDeTipo("acumulo", "valor", [unica])).toBe(true);
-    expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "completed", category: "unique" }])).toBe(true);
+    expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "completed", category: "unique", month: "2026-10" }])).toBe(true);
+    // Uma única em cada mês cabe no Fixo.
+    expect(podeTrocarDeTipo("acumulo", "valor", [unica, { ...unica, month: "2026-11" }])).toBe(true);
   });
 
   it("a transação cancelada não conta para virar Fixo", () => {
-    const cancelada = { status: "cancelled", category: "fixed" };
+    const cancelada = { status: "cancelled", category: "fixed", month: "2026-10" };
     expect(podeTrocarDeTipo("acumulo", "valor", [cancelada, unica, cancelada])).toBe(true);
   });
 
-  it("não vira Fixo com mais de uma transação ativa nem com categoria que o Fixo não aceita", () => {
+  it("não vira Fixo com duas transações ativas no mesmo mês nem com categoria que o Fixo não aceita", () => {
     expect(podeTrocarDeTipo("acumulo", "valor", [unica, unica])).toBe(false);
     for (const category of ["fixed", "installment", "loan", "additional"]) {
-      expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "pending", category }]), category).toBe(false);
+      expect(podeTrocarDeTipo("acumulo", "valor", [{ status: "pending", category, month: "2026-10" }]), category).toBe(false);
     }
   });
 
   it("manter o tipo não pede nada", () => {
     expect(podeTrocarDeTipo("valor", "valor", [unica, unica])).toBe(true);
-    expect(podeTrocarDeTipo("acumulo", "acumulo", [{ status: "pending", category: "fixed" }])).toBe(true);
+    expect(podeTrocarDeTipo("acumulo", "acumulo", [{ status: "pending", category: "fixed", month: "2026-10" }])).toBe(true);
   });
 });
