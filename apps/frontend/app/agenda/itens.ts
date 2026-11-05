@@ -115,6 +115,11 @@ export function rotuloDoDia(year: number, month: number, day: number) {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
+/** "qua", "sáb": o dia da semana que cabe na coluna do dia na lista. */
+export function diaDaSemanaCurto(year: number, month: number, day: number) {
+  return new Intl.DateTimeFormat("pt-BR", { weekday: "short" }).format(new Date(year, month - 1, day)).replace(".", "");
+}
+
 export function ehHoje(year: number, month: number, day: number) {
   const hoje = new Date();
   return hoje.getFullYear() === year && hoje.getMonth() === month - 1 && hoje.getDate() === day;

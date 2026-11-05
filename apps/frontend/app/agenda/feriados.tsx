@@ -31,6 +31,21 @@ export function SelosDoFeriado({ feriados }: { feriados: Feriado[] }) {
   ));
 }
 
+/** O feriado como uma linha da lista do mês, na coluna da hora: "Feriado", o nome e o tipo. */
+export function LinhaDoFeriado({ feriado }: { feriado: Feriado }) {
+  return (
+    <li className="flex min-w-0 items-start gap-3 border-b border-line py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <span className="etiqueta w-16 shrink-0 leading-6 text-event">Feriado</span>
+      <span className="grid min-w-0 flex-1 gap-1">
+        <span className={cn("truncate font-medium", fechaTudo(feriado) ? "text-ink" : "text-ink-2")} title={descricaoDoFeriado(feriado)}>
+          {feriado.nome}
+        </span>
+        <span className="text-sm text-ink-2">{TIPO_CURTO[feriado.tipo]}</span>
+      </span>
+    </li>
+  );
+}
+
 /** Nome do feriado dentro da célula da grade. */
 export function NomeDoFeriado({ feriado }: { feriado: Feriado }) {
   return (
