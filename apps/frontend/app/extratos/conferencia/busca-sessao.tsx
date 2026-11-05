@@ -22,12 +22,15 @@ export function BuscaSessao({
   sessoes,
   valor,
   onEscolher,
+  onCriar,
   rotulo,
   className,
 }: {
   sessoes: SessaoOpcao[];
   valor: string;
   onEscolher: (id: string) => void;
+  /** Com isto, a lista termina em "Nova sessão": recebe o que foi digitado e quem deve ficar com a sessão criada. */
+  onCriar?: (termo: string, escolher: (id: string) => void) => void;
   rotulo: string;
   className?: string;
 }) {
@@ -45,6 +48,9 @@ export function BuscaSessao({
   const termo = normalizar(texto.trim());
   const pesquisando = termo !== "" && termo !== normalizar(escolhida?.rotulo ?? "");
   const encontradas = sessoes.filter((sessao) => !pesquisando || normalizar(sessao.rotulo).includes(termo));
+  // A última opção cria: o índice do teclado anda até ela.
+  const ultimoIndice = encontradas.length - 1 + (onCriar ? 1 : 0);
+  const termoNovo = pesquisando ? texto.trim() : "";
 
   function fechar() {
     setAberto(false);
@@ -102,6 +108,14 @@ export function BuscaSessao({
     if (aberto) lista.current?.children[indice]?.scrollIntoView({ block: "nearest" });
   }, [aberto, indice]);
 
+  function criar() {
+    if (!onCriar) return;
+    const termo = termoNovo;
+    setRascunho(null);
+    setAberto(false);
+    onCriar(termo, onEscolher);
+  }
+
   function escolher(id: string) {
     onEscolher(id);
     setRascunho(null);
@@ -138,15 +152,16 @@ export function BuscaSessao({
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setAberto(true);
-            setIndice((atual) => Math.min(atual + 1, Math.max(encontradas.length - 1, 0)));
+            setIndice((atual) => Math.min(atual + 1, Math.max(ultimoIndice, 0)));
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             setIndice((atual) => Math.max(atual - 1, 0));
           }
-          if (event.key === "Enter" && aberto && encontradas[indice]) {
+          if (event.key === "Enter" && aberto) {
             event.preventDefault();
-            escolher(encontradas[indice].id);
+            if (encontradas[indice]) escolher(encontradas[indice].id);
+            else if (onCriar && indice === encontradas.length) criar();
           }
           if (event.key === "Escape" && aberto) {
             // Fecha só a lista: sem isso, o Escape fecharia também o modal em volta.
@@ -164,7 +179,7 @@ export function BuscaSessao({
               aria-label={rotulo}
               className="fixed z-50 overflow-auto rounded-sm border border-line bg-surface"
             >
-              {encontradas.length ? (
+              {encontradas.length || onCriar ? (
                 encontradas.map((sessao, posicao) => (
                   <li key={sessao.id} role="option" aria-selected={sessao.id === valor}>
                     <button
@@ -185,6 +200,23 @@ export function BuscaSessao({
               ) : (
                 <li className="px-3 py-2 text-sm text-ink-2">Nenhuma sessão encontrada.</li>
               )}
+              {onCriar ? (
+                <li role="option" aria-selected={false}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full border-t border-line px-3 py-2 text-left text-sm text-brand hover:bg-surface-2",
+                      indice === encontradas.length && "bg-brand-soft",
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      criar();
+                    }}
+                  >
+                    {termoNovo ? `Nova sessão "${termoNovo}"` : "Nova sessão"}
+                  </button>
+                </li>
+              ) : null}
             </ul>,
             destino,
           )
