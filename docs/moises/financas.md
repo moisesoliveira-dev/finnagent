@@ -115,3 +115,49 @@ Arquivos:
 - `apps/backend/src/assistente/dominio/resultados.ts`
 - `apps/agents/src/assistente/dominio/consultor.ts`
 - `apps/frontend/app/page.tsx` e `app/metas/page.tsx`
+
+## Campos de dinheiro só com número e a lista da Agenda
+
+- **Campos de valor:** todo campo que pede dinheiro usa o `CampoValor`: só aceita dígitos e mostra o valor já em reais ("1.234,56"), com os centavos entrando pela direita. Entraram nele o saldo inicial da conta, o valor da ocorrência na lista de ocorrências e o valor de cada parte na divisão da Conferência. O `CampoValor` passou a aceitar os atributos comuns de input (`aria-label`, `disabled`, `onBlur`). O campo de juros (%) do lançamento aceita só dígitos e uma vírgula.
+- Na divisão da Conferência, o valor da parte deixou de aceitar uma conta digitada ("120,50 / 2"); a calculadora continua no diálogo e o botão "Calculadora" leva o resultado para a parte.
+- **Agenda, visão em lista:** virou uma lista única, um bloco por dia. O dia fica à esquerda, com o número grande e o dia da semana (em azul quando é hoje, com o chip "Hoje"); à direita, uma linha por feriado e por item: a hora numa coluna fixa, o ponto colorido da legenda de camadas, o título, os detalhes em texto (grupo › sessão, agenda, repetição, lugar) e, à direita, o valor com a situação. Só a situação vira chip. Antes, cada dia era um título solto com chips colados, e o item repetia três chips que empilhavam no celular.
+
+Motivo: valor digitado com letra ou formato livre dava erro só ao salvar, e a lista da Agenda não tinha estrutura de lista.
+
+Verificação: tsc e lint limpos no frontend; no navegador, o saldo inicial digitado como "abc12x3456" virou "1.234,56"; a Agenda em lista em 1280 px claro e 375 px escuro, sem rolagem horizontal, com feriado, lançamento atrasado, compromisso com hora e lugar e o dia de hoje. Não verificado: o mobile (não tem campo de valor).
+
+Arquivos:
+
+- `apps/frontend/app/financas/campo-valor.tsx`, `contas.tsx`, `ocorrencias.tsx` e `page.tsx`
+- `apps/frontend/app/extratos/conferencia/divisao.tsx`
+- `apps/frontend/app/agenda/lista.tsx`, `feriados.tsx` e `itens.ts`
+
+## Parcela com pagamento livre e empréstimo como contrato
+
+O que foi feito:
+
+- **Pagamento como ato real.** Parcela e empréstimo deixam de ser pagos "pela ocorrência do mês": o pagamento tem data e valor reais e vai para o que ainda falta. O motor é `financas/dominio/pagamento.ts` (`aplicarPagamento`, `desfazerPagamento`, `replanejarEmprestimo`). A ocorrência ganhou `kind` (parcela ou multa), `parcel` (o número da parcela do contrato) e `paymentId` (quem a pagou), na migração `20261105160000_pagamentos_de_serie`.
+- **Parcela:** o valor vai para a primeira pendente, em qualquer mês (adiantado ou atrasado). O que passar paga as seguintes. Sobra menor que uma parcela é multa e juros (ocorrência "multa", na mesma sessão) ou parte da próxima, conforme a pessoa escolher; menos que a parcela paga parte dela e o restante fica pendente com o mesmo vencimento e número. Duas no mesmo mês, pagas juntas ou separadas, funcionam.
+- **Empréstimo:** virou contrato, com pessoa (`counterparty`) e total combinado (`principalCents`); o valor do lançamento é a parcela combinada, só como previsão. Cada pagamento vira uma ocorrência paga na data e o que falta é previsto de novo a partir do mês seguinte, até o saldo zerar. Mês sem pagamento empurra a previsão no pagamento seguinte. Vencimento e juros deixaram de ser obrigatórios. Os empréstimos antigos viraram contratos na migração (total = prestação × parcelas).
+- **Mês contábil:** a ocorrência paga conta no mês do pagamento; a pendente, no do vencimento (`dataContabil`). Vale no painel, na sobra, na agenda, na Base, nos fatos do plano e na leitura por mês do repositório.
+- **Conferência:** parcela e empréstimo aparecem como candidatos em qualquer mês enquanto têm parcela pendente, então a linha do mês seguinte, lembrada pelo nome, já propõe o cruzamento com a série. A linha paga o que falta no valor dela; quando passa da parcela, a tela pergunta se a sobra é multa e juros ou parte da próxima (`diferenca`). Só a fixa continua perguntando "extrato ou lançamento". Desfazer a linha desfaz exatamente o que ela pagou, pelo id do pagamento da linha (`idDoPagamentoDaLinha`). O tipo "Empréstimo" na linha pede a pessoa e o total.
+- **Finanças:** bloco "Empréstimos" (Devo / Me devem) com total, pago, falta e próximo previsto, e os botões Pagar, Quitar e Desfazer último pagamento. Nas parcelas, "Adiantar" virou "Pagar" (data e valor) e "Quitar". A Base marca "Multa e juros". O formulário do empréstimo pede Pessoa e Total combinado no lugar de Vencimento e Juros.
+- **API:** `POST lancamentos/:id/pagamentos` e `DELETE lancamentos/:id/pagamentos/:paymentId`; `cruzamentos` aceita `diferenca`. **Assistente:** `registrar_pagamento`, `cruzar_linha` com `diferenca`, e o prompt explica parcela e empréstimo.
+- O recorrente não mudou: a regra de vencimento (manter, antecipar, adiar, adiar no mês) já cobre o dia útil.
+
+Motivo: o empréstimo informal e a parcela da vida real não seguem um cronograma rígido: pagam duas num mês, atrasam com multa, quitam de uma vez.
+
+Verificação: 460 testes no backend (14 novos do motor de pagamentos: adiantar, duas num mês, parte, multa ou próxima, quitar e sobrar, desfazer, e o empréstimo com saldo, mês sem pagamento e quitação), 60 no agents; tsc e lint limpos nos quatro apps; a migração aplicada no Postgres local e o diff contra o schema vazio. Pela API local: parcela de 4 paga duas de uma vez em novembro, a terceira com multa pede a escolha e grava a multa, a agenda e a Base mostram no mês do pagamento, desfazer volta a multa junto; empréstimo de 1.000 sem pagamento em outubro, 50 em novembro empurra a previsão, quitação em dezembro deixa só os dois pagamentos; a linha de janeiro do extrato propõe a parcela de dezembro, cruza e desfaz. No navegador, em 1280 e 375 px: o bloco Empréstimos e o diálogo de pagamento, sem rolagem horizontal. Não verificado: o assistente usando registrar_pagamento com o modelo real; o mobile na Conferência com a sobra da parcela (ele mostra a mensagem do backend).
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma` e `migrations/20261105160000_pagamentos_de_serie/`
+- `apps/backend/src/financas/dominio/pagamento.ts` (reescrito) e `pagamento.spec.ts` (novo), `pedido.ts`, `pedido.spec.ts`, `vista.ts`
+- `apps/backend/src/financas/adaptadores/prisma-financas-repositorio.ts`, `portas/financas-repositorio.ts`, `aplicacao/financas.service.ts`, `financas.controller.ts`
+- `apps/backend/src/extratos/dominio/cruzar.ts`, `pagamento-da-linha.ts` (novo), `aplicacao/extratos.service.ts`, `extratos.controller.ts`, specs
+- `apps/backend/src/agenda/dominio/lancamentos-do-mes.ts`, `assistente/dominio/fatos-do-plano.ts`, `assistente/adaptadores/rotas-das-ferramentas.ts`, `dados/dominio/pacote.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts`
+- `apps/frontend/app/financas/pagamento.tsx` (novo), `emprestimos.tsx` (novo), `page.tsx`, `acoes.tsx`, `tabela.tsx`
+- `apps/frontend/app/extratos/conferencia/page.tsx` e `tipo-da-linha.tsx`
+- `apps/frontend/app/api/lancamentos/[id]/pagamentos/` (novo)

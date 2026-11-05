@@ -352,3 +352,26 @@ Arquivos:
 - `apps/frontend/app/extratos/conferencia/busca-sessao.tsx`
 - `apps/frontend/app/extratos/conferencia/divisao.tsx`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## O tipo do lançamento que nasce da Conferência
+
+- Tudo o que a Conferência lançava nascia como única. Agora cada linha (e cada parte da divisão) tem um seletor de tipo: Única, Extra, Parcela, Empréstimo ou Recorrente, com os campos que o tipo pede ao lado (parcela atual e total; juros; recorrência e intervalo). Extra só aparece em entrada e Parcela só em saída. Sem escolha, continua única.
+- **Backend:** `acumular`, `acumular-lote` e `dividir` aceitam `tipo` (`TipoDaLinha`, em contracts, com `erroDoTipoDaLinha` e o esquema zod compartilhados). A linha passa a nascer por `financas.registrar`, a mesma porta da tela de Finanças: ganha as regras da categoria (prioridade, compromisso, padrão de vencimento das configurações). Única e extra nascem pagas na data do extrato; parcela, empréstimo e recorrente nascem pendentes a partir da data da linha, e a ocorrência da linha é paga em seguida. A recorrente aparece nos meses seguintes como pendente. Ao desfazer, o lançamento que nasceu da linha some qualquer que seja o tipo (o filtro de "única" saiu de `lancamentoSoltoDoExtrato`).
+- **Assistente:** `acumular_linha` e `acumular_linhas` aceitam `tipo` com a mesma forma.
+- O mobile não mudou: continua mandando sem tipo, e a linha vira única.
+
+Motivo: um gasto recorrente ou parcelado lançado pelo extrato precisa se comportar como tal no resto do sistema (meses seguintes, agenda, avisos), e não como uma única.
+
+Verificação: 448 testes no backend (novos: tipo por linha e por parte, recusa de tipo que não combina com o sinal, parcela sem parcelas, validação do `TipoDaLinha`), 60 no agents; tsc e lint limpos nos três apps.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/extratos/aplicacao/extratos.service.ts` e `extratos.service.lote.spec.ts`
+- `apps/backend/src/extratos/extratos.controller.ts`
+- `apps/backend/src/extratos/adaptadores/prisma-extratos-repositorio.ts`
+- `apps/backend/src/extratos/dominio/tipo-da-linha.spec.ts` (novo)
+- `apps/backend/src/financas/aplicacao/financas.service.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/frontend/app/extratos/conferencia/tipo-da-linha.tsx` (novo), `page.tsx` e `divisao.tsx`
+- `apps/frontend/app/financas/reais.ts` e `page.tsx`
