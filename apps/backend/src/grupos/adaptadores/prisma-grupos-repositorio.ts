@@ -5,8 +5,14 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
-import { chaveDoMes } from "@finnagent/contracts";
-import { categoriasDaSessao, hojeNoFuso, mesesOcupados, podeTrocarDeTipo, resumoDaSessao } from "../dominio/sessao.js";
+import {
+  categoriasDaSessao,
+  hojeNoFuso,
+  mesesDoLancamento,
+  mesesOcupados,
+  podeTrocarDeTipo,
+  resumoDaSessao,
+} from "../dominio/sessao.js";
 import { montarVirada, sessoesEncerradas } from "../dominio/virada.js";
 import type { DadosDaSessao, GruposRepositorio } from "../portas/grupos-repositorio.js";
 
@@ -27,12 +33,51 @@ const sessaoCompleta = {
       position: true,
       status: true,
       cents: true,
+      category: true,
+      installments: true,
       startYear: true,
       startMonth: true,
       amounts: { select: { cents: true } },
+      occurrences: { select: { dueOn: true, status: true, kind: true, plannedCents: true, paidCents: true } },
     },
   },
 };
+
+type LinhaDaSessao = {
+  id: string;
+  position: number;
+  status: string;
+  cents: number;
+  category: string;
+  installments: number | null;
+  startYear: number;
+  startMonth: number;
+  amounts: { cents: number }[];
+  occurrences: { dueOn: Date; status: string; kind: string; plannedCents: number; paidCents: number | null }[];
+};
+
+/** A transação como a sessão vê: o valor e os meses que ela ocupa (no Fixo, um mês guarda uma só). */
+function lancamentoDaSessao(item: LinhaDaSessao) {
+  const months = item.amounts.map((mes) => mes.cents);
+  return {
+    id: item.id,
+    position: item.position,
+    status: item.status,
+    category: item.category,
+    cents: item.cents,
+    months,
+    meses: mesesDoLancamento({
+      ...item,
+      months,
+      vencimentos: item.occurrences.map((venc) => ({
+        dueDate: venc.dueOn.toISOString().slice(0, 10),
+        status: venc.status,
+        kind: venc.kind,
+        cents: venc.status === "completed" && venc.paidCents != null ? venc.paidCents : venc.plannedCents,
+      })),
+    }),
+  };
+}
 
 class DecisaoConcorrente extends Error {}
 
@@ -193,10 +238,13 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       if (trocou) {
         const lancamentos = await tx.entry.findMany({
           where: { sessionId: id, tenantId },
-          select: { status: true, category: true, startYear: true, startMonth: true },
+          select: sessaoCompleta.entries.select,
         });
-        const comMes = lancamentos.map((item) => ({ ...item, month: chaveDoMes(item.startYear, item.startMonth) }));
-        if (!podeTrocarDeTipo(tipoAtual, kind, comMes)) return "tipo" as const;
+        const comMeses = lancamentos.map((item) => {
+          const lancamento = lancamentoDaSessao(item);
+          return { ...lancamento, meses: lancamento.meses.map((mes) => mes.month) };
+        });
+        if (!podeTrocarDeTipo(tipoAtual, kind, comMeses)) return "tipo" as const;
       }
       const gravadas = await tx.session.updateMany({
         where: { id, tenantId },
@@ -341,25 +389,10 @@ function sessaoDe(row: {
   cents: number;
   kind: string;
   limitCents: number | null;
-  entries: {
-    id: string;
-    position: number;
-    status: string;
-    cents: number;
-    startYear: number;
-    startMonth: number;
-    amounts: { cents: number }[];
-  }[];
+  entries: LinhaDaSessao[];
 }): Sessao {
   const kind: TipoSessao = row.kind === "valor" ? "valor" : "acumulo";
-  const lancamentos = row.entries.map((item) => ({
-    id: item.id,
-    position: item.position,
-    status: item.status,
-    cents: item.cents,
-    months: item.amounts.map((mes) => mes.cents),
-    month: chaveDoMes(item.startYear, item.startMonth),
-  }));
+  const lancamentos = row.entries.map(lancamentoDaSessao);
   const resumo = resumoDaSessao(kind, lancamentos);
   return {
     id: row.id,

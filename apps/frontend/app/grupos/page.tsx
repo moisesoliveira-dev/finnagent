@@ -547,10 +547,10 @@ export default function Grupos() {
             />
             <p className="text-xs text-ink-2">
               {sessionDraft?.kind === "valor"
-                ? "Aceita uma transação única. Ela define a entrada ou a saída e o valor. Depois de lançada, sai das opções."
+                ? "Guarda uma transação por mês: única, parcela, empréstimo ou fixa. A parcela e a fixa ocupam cada mês em que vencem. No mês ocupado, a sessão sai das opções."
                 : "Aceita única, extra, parcela, empréstimo e fixa. Cada lançamento soma no mês indicado, na mesma linha da sessão."}
               {sessionDraft?.id
-                ? " Para virar Fixo, a sessão não pode ter mais de uma transação ativa, e a que tiver precisa ser única."
+                ? " Para virar Fixo, nenhum mês pode ter mais de uma transação ativa, e a sessão não pode ter extra."
                 : ""}
             </p>
           </div>

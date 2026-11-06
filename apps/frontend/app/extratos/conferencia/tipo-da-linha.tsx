@@ -104,7 +104,7 @@ export function TipoDaLinhaCampos({
   className?: string;
 }) {
   const opcoes = categoriasDaLinha(cents, aceitas);
-  // Sessão que só aceita única (a Fixo): não há o que escolher.
+  // Sessão que só aceita um tipo: não há o que escolher.
   if (opcoes.length <= 1) return null;
   const parcelada = valor.category === "installment";
   const curto = cn(campo, "w-16 text-right");

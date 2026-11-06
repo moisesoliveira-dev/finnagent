@@ -83,7 +83,10 @@ export function usoDosLimites(sessions: Sessao[], entries: Lancamento[], workflo
   return lista.sort((a, b) => b.percent - a.percent || a.sessionName.localeCompare(b.sessionName, "pt-BR"));
 }
 
-/** Um mês ("AAAA-MM") em que a sessão Fixo já tem a transação: o valor dela e o total com as partes. */
+/**
+ * Um mês ("AAAA-MM") em que a sessão Fixo já tem a transação: o valor dela e o total com as partes. A parcela, o
+ * empréstimo e a fixa ocupam cada mês em que vencem.
+ */
 export type MesOcupado = { month: string; cents: number; totalCents: number };
 
 export function chaveDoMes(year: number, month: number) {
@@ -2798,7 +2801,7 @@ const camposDoLancamento = z.object({
   category: z
     .enum(CATEGORIAS_TRANSACAO)
     .describe(
-      "unique = única (avulsa); additional = extra (sempre entrada); installment = parcela (sempre saída, exige installments e installmentNumber); loan = empréstimo, um contrato com saldo (exige counterparty, a pessoa; principalCents, o total combinado; installments, as parcelas combinadas; cents é a parcela combinada; mode diz se a pessoa deve ou se devem a ela); fixed = fixa (recorrente, exige recurrence, recurrenceInterval e nextDueDate). Sessão do tipo 'valor' só aceita unique, e uma por mês; no mês seguinte ela está livre de novo.",
+      "unique = única (avulsa); additional = extra (sempre entrada); installment = parcela (sempre saída, exige installments e installmentNumber); loan = empréstimo, um contrato com saldo (exige counterparty, a pessoa; principalCents, o total combinado; installments, as parcelas combinadas; cents é a parcela combinada; mode diz se a pessoa deve ou se devem a ela); fixed = fixa (recorrente, exige recurrence, recurrenceInterval e nextDueDate). Sessão do tipo 'valor' (Fixo) aceita unique, installment, loan e fixed, uma transação por mês: a única ocupa o mês dela, e parcela, empréstimo e fixa ocupam cada mês em que vencem. Mês já ocupado recusa outra; additional só entra em sessão de acúmulo.",
     ),
   cents: centavosPositivos,
   status: z
