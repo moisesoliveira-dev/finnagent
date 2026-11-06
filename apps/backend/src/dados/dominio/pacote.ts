@@ -233,7 +233,7 @@ function referenciasConsistentes(dados: DadosDoPacote) {
   return (
     dados.sessions.every((item) => grupos.has(item.groupId)) &&
     dados.sessionAdditions.every((item) => sessoes.has(item.sessionId)) &&
-    dados.entries.every((item) => sessoes.has(item.sessionId)) &&
+    dados.entries.every((item) => sessoes.has(item.sessionId) && (!item.accountId || contas.has(item.accountId))) &&
     dados.entryOccurrences.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAdjustments.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAmounts.every((item) => lancamentos.has(item.entryId)) &&
@@ -283,6 +283,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       ...item,
       id: para(lancamentos, item.id),
       sessionId: para(sessoes, item.sessionId),
+      accountId: de(contas, item.accountId),
       commitmentId: de(compromissos, item.commitmentId),
     })),
     entryOccurrences: dados.entryOccurrences.map((item) => ({
@@ -301,6 +302,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       ...item,
       id: para(compromissos, item.id),
       entryId: de(lancamentos, item.entryId),
+      sessionId: de(sessoes, item.sessionId),
     })),
     calendars: dados.calendars.map((item) => ({ ...item, id: randomUUID() })),
     accounts: dados.accounts.map((item) => ({ ...item, id: para(contas, item.id) })),
