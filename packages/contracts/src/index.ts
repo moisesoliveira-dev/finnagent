@@ -958,6 +958,65 @@ export type CategoriaCompromisso = (typeof CATEGORIAS_COMPROMISSO)[number];
 
 export const STATUS_COMPROMISSO = ["done", "undone"] as const;
 
+/** Uma tarefa escrita pela pessoa na aba Hoje. A que não foi feita segue para os dias seguintes. */
+export type Tarefa = {
+  id: string;
+  title: string;
+  /** O dia para o qual ela foi escrita. */
+  date: string;
+  /** O dia em que foi feita; null enquanto aberta. */
+  doneOn: string | null;
+  position: number;
+};
+
+export type PedidoDeTarefa = { title: string; date: string };
+
+export type CompromissoDoDia = {
+  id: string;
+  title: string;
+  time: string | null;
+  endTime: string | null;
+  allDay: boolean;
+  location: string;
+  calendar: NomeAgenda;
+  status: StatusCompromisso;
+};
+
+/** Um vencimento que conta no dia: pendente no vencimento, ou pago nesse dia. */
+export type VencimentoDoDia = {
+  entryId: string;
+  number: number;
+  description: string;
+  groupName: string;
+  sessionName: string;
+  category: CategoriaTransacao;
+  cents: number;
+  situation: SituacaoOcorrencia;
+  dueDate: string;
+  /** Parcela ou empréstimo: marcar registra um pagamento na data; desmarcar desfaz esse pagamento. */
+  series: boolean;
+  paymentId: string | null;
+  counterparty: string;
+};
+
+export type PendenciaDoDia = {
+  id: string;
+  kind: "conferencia" | "sobra";
+  title: string;
+  detail: string;
+  href: string;
+};
+
+/** O dia inteiro numa lista: tarefas, compromissos, vencimentos e, quando é hoje, as pendências do sistema. */
+export type HojeResposta = {
+  date: string;
+  today: string;
+  tarefas: Tarefa[];
+  compromissos: CompromissoDoDia[];
+  vencimentos: VencimentoDoDia[];
+  pendencias: PendenciaDoDia[];
+};
+
 export type StatusCompromisso = (typeof STATUS_COMPROMISSO)[number];
 
 export const FUSOS_AGENDA = [
@@ -1359,6 +1418,18 @@ export type ConferenciaResposta = {
   checked: boolean;
   lines: LinhaConferencia[];
   page?: { number: number; size: number; total: number };
+};
+
+/** O que "desfazer toda a conferência" fez: as linhas voltam a sem lançamento, como no dia da importação. */
+export type ConferenciaDesfeita = {
+  /** Linhas cruzadas ou divididas que voltaram a pendentes. */
+  lines: number;
+  /** Linhas ignoradas que voltaram à conferência. */
+  reactivated: number;
+  /** Nomes lembrados e associações de descrição que foram esquecidos. */
+  names: number;
+  /** Lançamentos do extrato que já estavam sem linha nenhuma e foram apagados. */
+  orphans: number;
 };
 
 export type FalhaDeAcumulo = {
@@ -1985,9 +2056,10 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "atualizar-status-compromisso",
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
+  ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "excluir-tarefa"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
   ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta"]),
-  ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato"]),
+  ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato", "desfazer-conferencia"]),
   ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas", "dividir-linha", "desfazer-divisao"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
   ...grupo("agente", "Conversa", [
@@ -3017,6 +3089,39 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "excluir_compromisso",
     agentes: ["agenda"],
     descricao: "Apaga um compromisso.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "consultar_hoje",
+    agentes: ["agenda", "analise"],
+    descricao:
+      "O dia da pessoa numa lista: as tarefas dela (abertas e as de dias anteriores que ficaram), os compromissos, os vencimentos do dia e, se for hoje, as pendências do sistema. Sem date, é hoje.",
+    esquema: z.object({ date: dataDoSistema.optional() }),
+    rotulo: (args) => (args.date ? `Consultou o dia ${args.date}` : "Consultou o dia de hoje"),
+  }),
+  ferramenta({
+    nome: "criar_tarefa",
+    agentes: ["agenda"],
+    descricao: "Escreve uma tarefa na aba Hoje da pessoa. Sem date, é para hoje. Tarefa não guarda valor: dinheiro é lançamento.",
+    esquema: z.object({
+      title: z.string().trim().min(1).max(160).describe("A tarefa, curta, como a pessoa falaria."),
+      date: dataDoSistema.optional(),
+    }),
+    rotulo: (args) => `Anotou a tarefa ${entreAspas(args.title)}`,
+  }),
+  ferramenta({
+    nome: "concluir_tarefa",
+    agentes: ["agenda"],
+    descricao: "Marca uma tarefa da aba Hoje como feita (done true) ou reabre (done false). O id vem de consultar_hoje.",
+    esquema: z.object({ id: idDoSistema, done: z.boolean() }),
+    rotulo: (args) => (args.done ? "Marcou a tarefa como feita" : "Reabriu a tarefa"),
+  }),
+  ferramenta({
+    nome: "excluir_tarefa",
+    agentes: ["agenda"],
+    descricao: "Apaga uma tarefa da aba Hoje.",
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,

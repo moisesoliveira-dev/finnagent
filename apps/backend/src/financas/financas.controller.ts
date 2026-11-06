@@ -97,6 +97,8 @@ const ocorrenciaPedido = z
     status: z.enum(STATUS_TRANSACAO).optional(),
     dueDate: dataIso.optional(),
     plannedCents: z.number().int().gte(-2_147_483_647).lte(2_147_483_647).optional(),
+    // Com status completed: o dia em que foi paga. Sem ele, a data do vencimento.
+    paidOn: dataIso.optional(),
   })
   .refine(
     (pedido) => pedido.status != null || pedido.dueDate != null || pedido.plannedCents != null,
@@ -199,7 +201,7 @@ export class FinancasController {
     if (!parsed.success || !Number.isInteger(number) || number < 1 || number > 3660) {
       throw new BadRequestException("Não foi possível atualizar a ocorrência.");
     }
-    if (parsed.data.dueDate && !dataValida(parsed.data.dueDate)) {
+    if ((parsed.data.dueDate && !dataValida(parsed.data.dueDate)) || (parsed.data.paidOn && !dataValida(parsed.data.paidOn))) {
       throw new BadRequestException("Informe uma data válida.");
     }
     if (parsed.data.plannedCents === 0) throw new BadRequestException("Informe o valor.");

@@ -198,7 +198,7 @@ export class FinancasService {
     tenantId: string,
     id: string,
     number: number,
-    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number; paidOn?: string },
   ) {
     return this.um(this.financas.atualizarOcorrencia(tenantId, id, number, pedido));
   }

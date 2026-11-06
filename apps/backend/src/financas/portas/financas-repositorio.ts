@@ -126,7 +126,7 @@ export interface FinancasRepositorio {
     tenantId: string,
     id: string,
     number: number,
-    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number; paidOn?: string },
   ): Promise<Lancamento | FalhaDeLancamento>;
   associarCompromisso(
     tenantId: string,
