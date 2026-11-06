@@ -1,8 +1,9 @@
 import { IonButton, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonViewWillEnter } from "@ionic/react";
 import type { ItemPainel, PainelResposta } from "@finnagent/contracts";
-import { documentTextOutline, walletOutline } from "ionicons/icons";
+import { chevronForward, documentTextOutline, walletOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { diaDaSemana, reais, rotuloDoMes } from "../api/formato";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
@@ -22,6 +23,8 @@ function porDia(items: ItemPainel[]) {
 
 const passa = (item: ItemPainel, filtro: Filtro) =>
   filtro === "todos" || (item.cents !== null && (filtro === "entradas" ? item.cents > 0 : item.cents < 0));
+
+const LinhaComMovimento = motion.create(Link);
 
 export function Financas() {
   const { mes, direcao, mudar } = useMes();
@@ -47,6 +50,17 @@ export function Financas() {
       }
     >
       <div className="pagina">
+        <div className="lista">
+          <LinhaComMovimento to="/financas/contas" className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
+            <IonIcon icon={walletOutline} aria-hidden />
+            <span className="texto" style={{ flex: 1 }}>
+              <strong>Contas</strong>
+              <span className="etiqueta">Saldo de cada conta e fatura do cartão</span>
+            </span>
+            <IonIcon icon={chevronForward} aria-hidden />
+          </LinhaComMovimento>
+        </div>
+
         <SeletorDeMes mes={mes} direcao={direcao} aoMudar={mudar} />
 
         <Troca chave={rotuloDoMes(mes)} direcao={direcao}>

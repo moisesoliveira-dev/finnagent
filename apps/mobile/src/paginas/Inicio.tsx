@@ -1,5 +1,5 @@
 import { IonIcon, useIonViewWillEnter } from "@ionic/react";
-import type { ItemPainel, PainelResposta } from "@finnagent/contracts";
+import type { HojeResposta, ItemPainel, PainelResposta } from "@finnagent/contracts";
 import { chatbubbleEllipsesOutline, chevronForward } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo } from "react";
@@ -11,6 +11,7 @@ import { Dinheiro, Estado } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
 import { Bloco, Cascata, Contagem, Preenchimento, toqueDoDedo } from "../movimento";
 import { useDados } from "../useDados";
+import { andamento, resumoDoDia } from "./hoje/dia";
 
 const AtalhoComMovimento = motion.create(Link);
 
@@ -36,7 +37,7 @@ export function Inicio() {
     return { ano: agora.getFullYear(), mes: agora.getMonth() + 1, dia: agora.getDate() };
   }, []);
   const doMes = useDados<PainelResposta>(`/api/painel?scope=mes&year=${hoje.ano}&month=${hoje.mes}`);
-  const doDia = useDados<PainelResposta>(`/api/painel?scope=dia&year=${hoje.ano}&month=${hoje.mes}&day=${hoje.dia}`);
+  const doDia = useDados<HojeResposta>("/api/hoje");
   const doAno = useDados<PainelResposta>(`/api/painel?scope=ano&year=${hoje.ano}`);
   const nome = sessaoAtual()?.user.name.split(" ")[0] ?? "";
 
@@ -48,6 +49,9 @@ export function Inicio() {
   const painel = doMes.dados;
   const usoDasEntradas = painel && painel.entradas > 0 ? Math.round((Math.abs(painel.saidas) / painel.entradas) * 100) : null;
   const vindouras = painel ? proximas(painel.items, hoje.dia) : [];
+  const dia = doDia.dados;
+  const doDiaResumo = dia ? resumoDoDia(dia, 4) : [];
+  const andamentoDoDia = dia ? andamento(dia) : null;
 
   return (
     <Pagina titulo={nome ? `${saudacao()}, ${nome}` : saudacao()} etiqueta={`${MESES[hoje.mes - 1]} de ${hoje.ano}`} aoAtualizar={recarregarTudo}>
@@ -151,25 +155,33 @@ export function Inicio() {
           </Bloco>
 
           <Bloco className="secao">
-            <span className="etiqueta">Hoje</span>
-            {doDia.dados && doDia.dados.items.length === 0 ? <p className="fraco">Nada marcado para hoje.</p> : null}
-            {doDia.dados?.items.length ? (
+            <div className="titulo-do-dia">
+              <span className="etiqueta">Hoje</span>
+              {andamentoDoDia && andamentoDoDia.total > 0 ? (
+                <span className="etiqueta">
+                  {andamentoDoDia.feitas === andamentoDoDia.total ? "Tudo feito · " : ""}
+                  {andamentoDoDia.feitas} de {andamentoDoDia.total}
+                </span>
+              ) : null}
+            </div>
+            {dia && doDiaResumo.length === 0 ? <p className="fraco">Nada marcado para hoje.</p> : null}
+            {doDiaResumo.length > 0 ? (
               <div className="lista">
-                {doDia.dados.items.map((item) => (
-                  <motion.div
-                    key={`${item.kind}-${item.id}`}
-                    className={`linha${item.kind === "compromisso" ? " evento" : ""}`}
-                    whileTap={{ backgroundColor: "var(--surface-2)" }}
-                  >
-                    <div className="texto">
-                      <span>{item.title}</span>
-                      <span className="etiqueta">{item.time ?? item.detail}</span>
+                {doDiaResumo.map((item) => (
+                  <motion.div key={item.chave} className={`linha${item.evento ? " evento" : ""}${item.feito ? " prevista" : ""}`} whileTap={{ backgroundColor: "var(--surface-2)" }}>
+                    <div className="texto" style={{ flex: 1 }}>
+                      <span style={item.feito ? { textDecoration: "line-through" } : undefined}>{item.titulo}</span>
+                      <span className="etiqueta">{item.detalhe}</span>
                     </div>
-                    {item.cents === null ? <span className="etiqueta">Compromisso</span> : <Dinheiro cents={item.cents} />}
+                    {item.cents === null ? <span className="etiqueta">{item.evento ? "Compromisso" : ""}</span> : <Dinheiro cents={item.cents} />}
                   </motion.div>
                 ))}
               </div>
             ) : null}
+            <AtalhoComMovimento to="/inicio/hoje" className="link-de-secao" whileTap={toqueDoDedo}>
+              Ver o dia
+              <IonIcon icon={chevronForward} aria-hidden />
+            </AtalhoComMovimento>
           </Bloco>
 
           {doAno.dados ? (
