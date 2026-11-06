@@ -445,6 +445,51 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
     });
   }
 
+  async linhasCruzadas(tenantId: string) {
+    return this.banco().statementLine.findMany({
+      where: { tenantId, OR: [{ entryId: { not: null } }, { parts: { some: { tenantId } } }] },
+      orderBy: [{ statementId: "asc" }, { line: "asc" }],
+      select: { statementId: true, line: true },
+    });
+  }
+
+  async reativarTodas(tenantId: string) {
+    return this.banco().$transaction(async (tx) => {
+      const { count } = await tx.statementLine.updateMany({ where: { tenantId, ignoredAt: { not: null } }, data: { ignoredAt: null } });
+      if (count > 0) {
+        const payload = { reactivated: count };
+        await gravarOutbox(tx, tenantId, "desfazer-conferencia", `${tenantId}:reativar`, payload, String(Date.now()));
+      }
+      return count;
+    });
+  }
+
+  async lancamentosSoltosDoExtrato(tenantId: string) {
+    const rows = await this.banco().entry.findMany({
+      where: {
+        tenantId,
+        justification: JUSTIFICATIVA_DO_EXTRATO,
+        statementLines: { none: { tenantId } },
+        statementLineParts: { none: { tenantId } },
+      },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async esquecerTudo(tenantId: string) {
+    return this.banco().$transaction(async (tx) => {
+      const nomes = await tx.statementName.deleteMany({ where: { tenantId } });
+      const associacoes = await tx.statementAlias.deleteMany({ where: { tenantId } });
+      const total = nomes.count + associacoes.count;
+      if (total > 0) {
+        const payload = { names: nomes.count, aliases: associacoes.count };
+        await gravarOutbox(tx, tenantId, "desfazer-conferencia", `${tenantId}:esquecer`, payload, String(Date.now()));
+      }
+      return total;
+    });
+  }
+
   async linhasDosLancamentos(tenantId: string, onde: OndeEstaoOsLancamentos) {
     const lancamento: Prisma.EntryWhereInput = {
       tenantId,

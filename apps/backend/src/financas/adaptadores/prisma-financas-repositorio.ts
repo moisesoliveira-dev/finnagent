@@ -353,7 +353,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
     tenantId: string,
     id: string,
     number: number,
-    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number },
+    pedido: { status?: StatusTransacao; dueDate?: string; plannedCents?: number; paidOn?: string },
   ) {
     return this.alterar(tenantId, id, "atualizar-ocorrencia", async (tx, atual) => {
       const lista = await this.materializar(tx, tenantId, atual);
@@ -379,7 +379,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         proxima = transicao;
       }
       if (proxima.status === "completed") {
-        proxima = { ...proxima, paidCents: proxima.plannedCents, paidOn: proxima.paidOn ?? proxima.dueDate };
+        // Pago hoje, quando a tela diz; senão, na data do vencimento.
+        proxima = { ...proxima, paidCents: proxima.plannedCents, paidOn: pedido.paidOn ?? proxima.paidOn ?? proxima.dueDate };
       }
       lista[indice] = proxima;
       await this.substituir(tx, tenantId, id, lista);

@@ -87,6 +87,13 @@ function montar(
       ignoradas.push({ quantas: itens.length, ignorar });
       return itens.length;
     },
+    linhasCruzadas: async () =>
+      Object.entries(linhas)
+        .filter(([, gravada]) => gravada.entryId || (gravada.parts ?? []).length > 0)
+        .map(([numero]) => ({ statementId: EXTRATO, line: Number(numero) })),
+    reativarTodas: async () => Object.values(linhas).filter((gravada) => gravada.ignored).length,
+    esquecerTudo: async () => 3,
+    lancamentosSoltosDoExtrato: async () => ["orfao"],
   };
   const criadas: { emPartes: boolean }[] = [];
   const pagas: { entryId: string; cents: number }[] = [];
@@ -279,6 +286,25 @@ describe("lançar linhas do extrato em lote", () => {
       const resultado = await servico.acumularVarias(TENANT, pedido({ emPartes: true }));
       expect(resultado.launched).toBe(1);
       expect(criadas).toEqual([{ emPartes: true }]);
+    });
+  });
+
+  describe("desfazer toda a conferência", () => {
+    it("volta cada linha a pendente, reativa as ignoradas e esquece os nomes, sem apagar os extratos", async () => {
+      const { servico, excluidas, reabertas, extratosExcluidos } = montar(
+        {
+          1: { ...linha("2026-10-05", -5000, "criado-pela-linha"), entryCreated: true },
+          2: linha("2026-10-06", -3000, "ja-existia"),
+          3: { ...linha("2026-10-07", -1000), ignored: true },
+          4: linha("2026-10-08", -2000),
+        },
+        () => 0,
+      );
+      const resultado = await servico.desfazerConferencia(TENANT);
+      expect(resultado).toEqual({ lines: 2, reactivated: 1, names: 3, orphans: 1 });
+      expect(excluidas).toEqual(["criado-pela-linha", "orfao"]);
+      expect(reabertas).toEqual([{ entryId: "ja-existia", cents: -3000 }]);
+      expect(extratosExcluidos).toEqual([]);
     });
   });
 

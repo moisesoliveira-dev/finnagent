@@ -50,6 +50,7 @@ import { ViradaDoAno } from "./virada";
 import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
+import { useCelular } from "../../components/ui/tela";
 import { Contas } from "./contas";
 import { Emprestimos } from "./emprestimos";
 import { RegraDoVencimento } from "./regra-do-vencimento";
@@ -111,6 +112,9 @@ export default function Financas() {
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
   const [visao, setVisao] = useState<Visao>("geral");
+  // No celular só existe a Base: a Geral é uma tabela de meses, para o tablet em diante.
+  const celular = useCelular();
+  const visaoEfetiva: Visao = celular ? "base" : visao;
   const [deslize, setDeslize] = useState(0);
   const [year, setYear] = useState<number | null>(null);
   const [draft, setDraft] = useState<Rascunho | null>(null);
@@ -406,6 +410,7 @@ export default function Financas() {
           <>
             <Segmentado
               aria-label="Visão"
+              className="hidden tab:inline-flex"
               opcoes={[
                 { id: "base", label: "Base" },
                 { id: "geral", label: "Geral" },
@@ -448,8 +453,8 @@ export default function Financas() {
             />
           ) : null}
           {ready && workflow && data ? (
-            <Troca id={`${visao}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">
-              {visao === "geral" ? (
+            <Troca id={`${visaoEfetiva}-${ano}`} direcao={deslize} className="grid min-w-0 gap-4">
+              {visaoEfetiva === "geral" ? (
                 <>
                   <Ano
                     year={ano}

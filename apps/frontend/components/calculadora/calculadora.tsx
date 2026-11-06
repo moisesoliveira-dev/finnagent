@@ -2,12 +2,13 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useId, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn, focusRing } from "../ui/cn";
 import { Icone } from "../ui/icone";
 import { useCurva } from "../ui/movimento";
 import { Segmentado } from "../ui/segmentado";
 import { avaliar, formatarNumero } from "./expressao";
+import { guardarPosicaoDaCalculadora, limitesDaTela, usePosicaoDaCalculadora } from "./posicao";
 
 type Modo = "basica" | "avancada";
 type Canto = "inferior-direito" | "inferior-esquerdo" | "superior-direito" | "superior-esquerdo";
@@ -125,11 +126,20 @@ export function useCalculadora() {
 }
 
 /** O botão do menu que abre e fecha a calculadora. */
+const TAMANHO_DO_BOTAO = 48;
+const FOLGA_DO_BOTAO = 16;
+
+/**
+ * O botão flutuante da calculadora. Começa no canto de baixo à direita e a pessoa arrasta para onde quiser; a
+ * posição fica neste navegador. Some enquanto a janela está aberta no mesmo canto.
+ */
 export function BotaoDaCalculadora() {
   const { aberta, alternar, interno } = useCalculadora();
   const curva = useCurva();
-  // O ícone fica fixo no canto de baixo e some enquanto a janela está aberta nesse mesmo canto.
-  const embaixo = interno.canto === "inferior-direito";
+  const posicao = usePosicaoDaCalculadora();
+  const arrastou = useRef(false);
+  const [limites, setLimites] = useState({ left: 0, top: 0, right: 0, bottom: 0 });
+  const embaixo = interno.canto === "inferior-direito" && posicao.x === 0 && posicao.y === 0;
   return (
     <AnimatePresence>
       {aberta && embaixo ? null : (
@@ -138,15 +148,37 @@ export function BotaoDaCalculadora() {
           type="button"
           aria-label={aberta ? "Fechar a calculadora" : "Abrir a calculadora"}
           aria-pressed={aberta}
-          title="Calculadora"
-          onClick={alternar}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
+          title="Calculadora. Arraste para mover"
+          drag
+          dragMomentum={false}
+          dragElastic={0}
+          dragConstraints={limites}
+          onDragStart={() => {
+            arrastou.current = true;
+            setLimites(limitesDaTela(TAMANHO_DO_BOTAO, FOLGA_DO_BOTAO));
+          }}
+          onDragEnd={(_evento, info) => {
+            const limite = limitesDaTela(TAMANHO_DO_BOTAO, FOLGA_DO_BOTAO);
+            guardarPosicaoDaCalculadora({
+              x: Math.min(Math.max(posicao.x + info.offset.x, limite.left), 0),
+              y: Math.min(Math.max(posicao.y + info.offset.y, limite.top), 0),
+            });
+          }}
+          onClick={() => {
+            // O clique que fecha um arrasto não abre a calculadora.
+            if (arrastou.current) {
+              arrastou.current = false;
+              return;
+            }
+            alternar();
+          }}
+          initial={{ opacity: 0, scale: 0.9, x: posicao.x, y: posicao.y }}
+          animate={{ opacity: 1, scale: 1, x: posicao.x, y: posicao.y }}
           exit={{ opacity: 0, scale: 0.9 }}
           whileTap={{ scale: 0.92 }}
           transition={curva}
           className={cn(
-            "fixed right-4 bottom-4 z-30 inline-flex size-12 items-center justify-center border border-line bg-surface text-ink transition-colors hover:text-brand",
+            "fixed right-4 bottom-4 z-30 inline-flex size-12 cursor-grab touch-none items-center justify-center border border-line bg-surface text-ink transition-colors hover:text-brand active:cursor-grabbing",
             aberta && "border-brand bg-brand-soft text-brand",
             focusRing,
           )}

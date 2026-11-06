@@ -131,6 +131,14 @@ export type ExtratosRepositorio = {
   ): Promise<{ entryId: string; created: boolean } | "ausente" | "livre">;
   /** As linhas cruzadas de um extrato, na ordem. */
   linhasCruzadasDoExtrato(tenantId: string, id: string): Promise<LinhaDoExtrato[]>;
+  /** Todas as linhas da conta que estão cruzadas ou divididas. */
+  linhasCruzadas(tenantId: string): Promise<LinhaDoExtrato[]>;
+  /** Volta todas as linhas ignoradas para a conferência. Devolve quantas. */
+  reativarTodas(tenantId: string): Promise<number>;
+  /** Esquece todos os nomes lembrados e as associações de descrição. Devolve quantos. */
+  esquecerTudo(tenantId: string): Promise<number>;
+  /** Os lançamentos que nasceram do extrato e nenhuma linha usa mais. */
+  lancamentosSoltosDoExtrato(tenantId: string): Promise<string[]>;
   /** As linhas ligadas (inteiras ou em parte) aos lançamentos pedidos, ou aos de uma sessão ou de um grupo. */
   linhasDosLancamentos(tenantId: string, onde: OndeEstaoOsLancamentos): Promise<LinhaDoExtrato[]>;
   /** Esquece as associações de descrição que apontam para a sessão. */

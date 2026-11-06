@@ -224,6 +224,21 @@ model Calendar {
   @@map("calendars")
 }
 
+// A aba Hoje: as tarefas que a pessoa escreve, por dia. A que não foi feita segue para o dia seguinte.
+model Task {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  title     String
+  date      DateTime  @db.Date
+  doneOn    DateTime? @map("done_on") @db.Date
+  position  Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, date])
+  @@map("tasks")
+}
+
 model Account {
   id           String      @id
   tenantId     String      @map("tenant_id")

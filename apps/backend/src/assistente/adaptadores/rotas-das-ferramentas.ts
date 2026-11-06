@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { diaNoFuso } from "../../financas/dominio/vista.js";
 
 type Args = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -73,6 +74,14 @@ function compromisso(args: Args, fuso: string) {
  */
 export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   listar_grupos_e_sessoes: { metodo: "GET", caminho: () => "grupos" },
+  consultar_hoje: { metodo: "GET", caminho: () => "hoje", consulta: (a) => ({ date: a.date }) },
+  criar_tarefa: {
+    metodo: "POST",
+    caminho: () => "tarefas",
+    corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), title: a.title, date: a.date ?? diaNoFuso(fuso) }),
+  },
+  concluir_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/concluir`, corpo: (a) => ({ done: a.done }) },
+  excluir_tarefa: { metodo: "DELETE", caminho: (a) => `tarefas/${id(a.id)}` },
   consultar_lancamentos: {
     metodo: "GET",
     caminho: () => "financas/base",

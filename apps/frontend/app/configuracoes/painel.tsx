@@ -248,7 +248,7 @@ export function Painel() {
   const [salvando, setSalvando] = useState(false);
   const [erroNome, setErroNome] = useState("");
   const [erroData, setErroData] = useState("");
-  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | "recomecar" | null>(null);
+  const [confirmacao, setConfirmacao] = useState<"excluir" | "desconectar" | "importar" | "recomecar" | "desfazer-conferencia" | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [transferindo, setTransferindo] = useState(false);
   const [palavra, setPalavra] = useState("");
@@ -503,9 +503,31 @@ export function Painel() {
     }
   }
 
+  async function desfazerConferencia() {
+    setTransferindo(true);
+    try {
+      const resposta = await fetch("/api/extratos/conferencia/desfazer-tudo", { method: "POST" });
+      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string; lines?: number; reactivated?: number; names?: number; orphans?: number };
+      if (!resposta.ok) throw new Error(corpo.message || "Não foi possível desfazer a conferência.");
+      toast.sucesso(
+        `Conferência desfeita: ${corpo.lines ?? 0} linhas voltaram a pendentes, ${corpo.reactivated ?? 0} reativadas, ${corpo.names ?? 0} nomes esquecidos e ${(corpo.orphans ?? 0) + 0} lançamentos soltos apagados.`,
+      );
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível desfazer a conferência.");
+    } finally {
+      setTransferindo(false);
+      setPalavra("");
+      setConfirmacao(null);
+    }
+  }
+
   function confirmarAcao() {
     if (confirmacao === "importar") {
       void importar();
+      return;
+    }
+    if (confirmacao === "desfazer-conferencia") {
+      void desfazerConferencia();
       return;
     }
     if (confirmacao === "recomecar") {
@@ -551,8 +573,8 @@ export function Painel() {
   }
 
   const lista = achatar(ARVORE, abertos);
-  const palavraEsperada = confirmacao === "recomecar" ? "RECOMEÇAR" : "EXCLUIR";
-  const exigePalavra = confirmacao === "excluir" || confirmacao === "recomecar";
+  const palavraEsperada = confirmacao === "recomecar" ? "RECOMEÇAR" : confirmacao === "desfazer-conferencia" ? "DESFAZER" : "EXCLUIR";
+  const exigePalavra = confirmacao === "excluir" || confirmacao === "recomecar" || confirmacao === "desfazer-conferencia";
   const podeConfirmar = !exigePalavra || palavra === palavraEsperada;
 
   return (
@@ -970,6 +992,23 @@ export function Painel() {
                 <Button onClick={() => seletor.current?.click()} disabled={transferindo}>Importar</Button>
               </Linha>
               <Linha
+                id="desfazer-conferencia"
+                titulo="Desfazer a conferência dos extratos"
+                dica="Volta cada linha dos extratos a sem lançamento, como no dia da importação: o que a linha criou some, o que ela pagou reabre, as ignoradas voltam e os nomes lembrados são esquecidos. Os extratos ficam."
+                grupo
+              >
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setPalavra("");
+                    setConfirmacao("desfazer-conferencia");
+                  }}
+                  disabled={transferindo}
+                >
+                  Desfazer tudo
+                </Button>
+              </Linha>
+              <Linha
                 id="recomecar"
                 titulo="Recomeçar"
                 dica="Apaga lançamentos, grupos, sessões, agenda, extratos, metas e o histórico. Conta, aparência, vencimentos, feriados, usuários e a inteligência artificial ficam."
@@ -1038,7 +1077,9 @@ export function Painel() {
                 ? "Importar os dados?"
                 : confirmacao === "recomecar"
                   ? "Recomeçar do zero?"
-                  : "Excluir a conta?"}
+                  : confirmacao === "desfazer-conferencia"
+                    ? "Desfazer toda a conferência?"
+                    : "Excluir a conta?"}
           </h2>
           <p>
             {confirmacao === "desconectar"
@@ -1047,7 +1088,9 @@ export function Painel() {
                 ? `Tudo o que você tem hoje (grupos, sessões, lançamentos, compromissos, extratos e metas) será substituído pelo conteúdo de ${arquivo?.name ?? "o arquivo"}. Isso não pode ser desfeito.`
                 : confirmacao === "recomecar"
                   ? "Lançamentos, grupos, sessões, compromissos, extratos, metas e o histórico saem. Ficam a conta, a aparência, os vencimentos, os feriados, os usuários e a inteligência artificial. Não pode ser desfeito."
-                  : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
+                  : confirmacao === "desfazer-conferencia"
+                    ? "Toda linha cruzada ou dividida volta a sem lançamento: o lançamento que nasceu dela é apagado e o que ela pagou volta a pendente. As linhas ignoradas voltam à conferência, e os nomes lembrados e as associações de descrição são esquecidos. Os extratos e as linhas ficam, como no dia da importação. Não pode ser desfeito."
+                    : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
           </p>
           {exigePalavra ? (
             <div className="grid gap-1">
@@ -1082,7 +1125,9 @@ export function Painel() {
                 ? "Substituir meus dados"
                 : confirmacao === "recomecar"
                   ? "Zerar os dados"
-                  : "Excluir conta"}
+                  : confirmacao === "desfazer-conferencia"
+                    ? "Desfazer a conferência"
+                    : "Excluir conta"}
           </Button>
         </div>
       </Dialogo>
