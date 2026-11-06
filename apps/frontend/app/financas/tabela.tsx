@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { useToast } from "../../components/ui/toast";
 import { CATEGORIAS_TRANSACAO, type BaseResposta, type LinhaBase } from "@finnagent/contracts";
@@ -58,7 +58,6 @@ export function TabelaLancamentos({
 }) {
   const toast = useToast();
   const curva = useCurva();
-  const marca = useId();
   // A Base mostra um mês por vez: começa no mês de hoje e o backend corrige se ele estiver fora do workflow.
   const [filtro, setFiltro] = useState<Filtro>({
     year,
@@ -149,6 +148,18 @@ export function TabelaLancamentos({
     <div className="grid min-w-0 gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <select
+          aria-label="Mês"
+          value={mes}
+          onChange={(event) => escolherMes(Number(event.target.value))}
+          className={field}
+        >
+          {dados.months.map((item) => (
+            <option key={item} value={item}>
+              {MESES[item - 1]}
+            </option>
+          ))}
+        </select>
+        <select
           aria-label="Ano"
           value={dados.year}
           onChange={(event) => setFiltro((atual) => ({ ...atual, year: Number(event.target.value) }))}
@@ -194,36 +205,6 @@ export function TabelaLancamentos({
           aria-label="Buscar"
           className={cn(field, "min-w-0 flex-1")}
         />
-      </div>
-
-      <div className="min-w-0 overflow-x-auto">
-        <div role="group" aria-label="Mês" className="flex w-max min-w-full border-b border-line">
-          {dados.months.map((item) => {
-            const ativo = item === mes;
-            return (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={ativo}
-                onClick={() => escolherMes(item)}
-                className={cn(
-                  "etiqueta-botao relative flex min-h-10 items-center px-3 whitespace-nowrap transition-colors",
-                  ativo ? "text-brand" : "text-ink-2 hover:text-ink",
-                  focusRing,
-                )}
-              >
-                {MESES[item - 1]?.slice(0, 3)}
-                {ativo ? (
-                  <motion.span
-                    layoutId={marca}
-                    className="absolute inset-x-0 bottom-0 border-b-2 border-brand"
-                    transition={curva}
-                  />
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       <motion.div
