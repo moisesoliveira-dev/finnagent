@@ -5,6 +5,7 @@ import {
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
   type DiferencaDoPagamento,
   type TipoDaLinha,
+  type ConferenciaDesfeita,
   type ConferenciaResposta,
   type ExtratosResposta,
   type Lancamento,
@@ -471,6 +472,26 @@ export class ExtratosService {
     for (const { statementId, line } of await this.extratos.linhasDosLancamentos(tenantId, onde)) {
       await this.desfazerLinha(tenantId, statementId, line, emExclusao, true);
     }
+  }
+
+  /**
+   * Desfaz toda a conferência, como se os extratos tivessem acabado de ser importados: cada linha cruzada ou
+   * dividida volta a pendente (o lançamento que nasceu dela some, o que ela pagou reabre), as ignoradas voltam, e
+   * os nomes lembrados e as associações de descrição são esquecidos. Os extratos e as linhas ficam.
+   */
+  async desfazerConferencia(tenantId: string): Promise<ConferenciaDesfeita> {
+    const linhas = await this.extratos.linhasCruzadas(tenantId);
+    for (const { statementId, line } of linhas) {
+      await this.desfazerLinha(tenantId, statementId, line, new Set(), true);
+    }
+    // O que o extrato criou e já não tem linha (de fluxos antigos) também sai: nada da conferência fica.
+    let orphans = 0;
+    for (const entryId of await this.extratos.lancamentosSoltosDoExtrato(tenantId)) {
+      await this.financas.excluir(tenantId, entryId).then(() => { orphans += 1; }, () => undefined);
+    }
+    const reactivated = await this.extratos.reativarTodas(tenantId);
+    const names = await this.extratos.esquecerTudo(tenantId);
+    return { lines: linhas.length, reactivated, names, orphans };
   }
 
   esquecerAssociacoesDaSessao(tenantId: string, sessionId: string) {

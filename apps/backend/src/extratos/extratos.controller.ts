@@ -247,6 +247,12 @@ export class ExtratosController {
     return this.executar(() => this.extratos.linhas(this.tenant(tenant), id, erros === "1"));
   }
 
+  @Post("extratos/conferencia/desfazer-tudo")
+  @HttpCode(200)
+  desfazerConferencia(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.extratos.desfazerConferencia(this.tenant(tenant)));
+  }
+
   @Post("extratos/:id/reprocessar")
   reprocessar(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
     if (!z.uuid().safeParse(id).success) throw new BadRequestException("Extrato não encontrado.");
