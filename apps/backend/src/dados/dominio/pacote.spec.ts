@@ -132,6 +132,25 @@ describe("pacote de dados", () => {
     expect(resumoDe(depois)).toMatchObject({ groups: 1, sessions: 1, entries: 1, appointments: 1 });
   });
 
+  it("renova a conta do lançamento e a sessão do compromisso", () => {
+    const comConta = pacote((dados) => {
+      dados.accounts = [{ id: "c1", name: "Nubank" }];
+      (dados.entries as Array<Record<string, unknown>>)[0].accountId = "c1";
+      (dados.appointments as Array<Record<string, unknown>>)[0].sessionId = "s1";
+    });
+    const depois = renovarIdentificadores(ler(comConta));
+    expect(depois.accounts[0].id).not.toBe("c1");
+    expect(depois.entries[0].accountId).toBe(depois.accounts[0].id);
+    expect(depois.appointments[0].sessionId).toBe(depois.sessions[0].id);
+  });
+
+  it("recusa lançamento com conta que não está no arquivo", () => {
+    const quebrado = pacote((dados) => {
+      (dados.entries as Array<Record<string, unknown>>)[0].accountId = "inexistente";
+    });
+    expect(interpretarPacote(quebrado)).toBe("O arquivo está incompleto ou corrompido.");
+  });
+
   it("renova também as partes de uma linha de extrato dividida", () => {
     const comExtrato = pacote((dados) => {
       dados.accounts = [{ id: "c1", name: "Nubank" }];
