@@ -11,12 +11,18 @@ import {
 import { ExtratosService } from "../../extratos/aplicacao/extratos.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
+import { HojeService } from "../../hoje/aplicacao/hoje.service.js";
 import { diaNoFuso } from "../../financas/dominio/vista.js";
 import { log } from "../../log.js";
 import { MetasService } from "../../metas/aplicacao/metas.service.js";
 import {
   ESPERA_DO_PLANO_MS,
+  HORA_DO_AVISO_DAS_TAREFAS,
   HORA_DOS_AVISOS_DO_DIA,
+  atrasados,
+  avisoDeTarefas,
+  avisosDeGasto,
+  vencimentosDeAmanha,
   avisoDeConferencia,
   avisoDeExtratoLido,
   avisoDePlano,
@@ -43,6 +49,8 @@ const extratoImportado = z.object({
 export class VarreduraService {
   /** O dia em que cada conta já recebeu os avisos do dia, para não refazer a conta a cada passada. */
   private readonly avisosDoDia = new Map<string, string>();
+  /** O dia em que cada conta já recebeu o aviso das tarefas da noite. */
+  private readonly avisosDaNoite = new Map<string, string>();
 
   constructor(
     private readonly notificacoes: NotificacoesService,
@@ -53,6 +61,7 @@ export class VarreduraService {
     private readonly metas: MetasService,
     private readonly assistente: AssistenteService,
     private readonly grupos: GruposService,
+    private readonly hojeDoDia: HojeService,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
   ) {}
 
@@ -78,13 +87,25 @@ export class VarreduraService {
     const planos = await this.assistente.planosEsperando(tenantId, new Date(agora.getTime() - ESPERA_DO_PLANO_MS));
     pedidos.push(...planos.map(avisoDePlano));
 
+    // "Teve gasto?" logo depois que um compromisso termina.
+    pedidos.push(...avisosDeGasto(await this.agenda.perguntasDeGasto(tenantId, agora), agora));
+
+    // No fim do dia, as tarefas que ficaram abertas.
+    if (horaNoFuso(conta.timezone, agora) >= HORA_DO_AVISO_DAS_TAREFAS && this.avisosDaNoite.get(tenantId) !== hoje) {
+      const dia = await this.hojeDoDia.dia(tenantId, hoje);
+      const abertas = dia.tarefas.filter((item) => item.parentId === null && !item.doneOn).map((item) => item.title);
+      pedidos.push(...avisoDeTarefas(abertas, hoje));
+      this.avisosDaNoite.set(tenantId, hoje);
+    }
+
     if (horaNoFuso(conta.timezone, agora) >= HORA_DOS_AVISOS_DO_DIA && this.avisosDoDia.get(tenantId) !== hoje) {
       const [ano, mes] = hoje.split("-").map(Number) as [number, number];
       const base = await this.financas.listar(tenantId);
       pedidos.push(...vencimentosDeHoje(base.entries, hoje));
+      pedidos.push(...vencimentosDeAmanha(base.entries, hoje));
+      pedidos.push(...atrasados(base.entries, hoje));
       pedidos.push(...avisoDeConferencia(await this.extratos.semConferir(tenantId, ano, mes), hoje));
       pedidos.push(...avisosDasMetas(await this.metas.listar(tenantId), hoje));
-      await this.notificacoes.notificar(tenantId, pedidos);
       this.avisosDoDia.set(tenantId, hoje);
     }
     // O limite é conferido a cada passada: o aviso sai no dia em que a sessão passa da marca, não só às 8h.
