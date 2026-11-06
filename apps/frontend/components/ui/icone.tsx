@@ -23,9 +23,14 @@ export function Icone({
     | "clock"
     | "dashboard"
     | "edit"
+    | "fechar"
     | "file"
     | "gear"
     | "layers"
+    | "lista"
+    | "lua"
+    | "menu"
+    | "sol"
     | "mic"
     | "pin"
     | "sair"
@@ -113,6 +118,13 @@ export function Icone({
       </svg>
     );
   }
+  if (name === "lista") {
+    return (
+      <svg {...comum}>
+        <path d="M4 7l2 2 3-4M4 15l2 2 3-4M12 7h8M12 16h8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   if (name === "check") {
     return (
       <svg {...comum}>
@@ -176,6 +188,35 @@ export function Icone({
     return (
       <svg {...comum}>
         <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7-7l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (name === "menu") {
+    return (
+      <svg {...comum}>
+        <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "fechar") {
+    return (
+      <svg {...comum}>
+        <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "sol") {
+    return (
+      <svg {...comum}>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "lua") {
+    return (
+      <svg {...comum}>
+        <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" strokeLinejoin="round" />
       </svg>
     );
   }
