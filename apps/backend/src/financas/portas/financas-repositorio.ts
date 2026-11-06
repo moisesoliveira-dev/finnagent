@@ -67,6 +67,8 @@ export type FalhaDeLancamento =
   | "tipo-acumulo"
   | "valor-base"
   | "valor-lancada"
+  /** O Fixo já tem transação nesse mês ("AAAA-MM"), que o lançamento também ocuparia. */
+  | `mes-ocupado:${string}`
   | "ausente"
   | "categoria"
   | "encerrada"

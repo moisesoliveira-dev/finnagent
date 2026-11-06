@@ -15,6 +15,7 @@ import {
   regraPadrao,
   type CalendarioDeDiasUteis,
   type CategoriaTransacao,
+  type TipoSessao,
   type Configuracoes,
   type Conta,
   type ContasResposta,
@@ -289,7 +290,7 @@ export default function Financas() {
         mode: "outflows",
         status: "pending",
         transactionType: "unusual",
-        category: categoriaDaSessao(opcoes[0]?.categories),
+        category: categoriaDaSessao(opcoes[0]),
         priority: "normal",
         amount: "",
         installments: "2",
@@ -490,7 +491,7 @@ export default function Financas() {
                       sessionId: event.target.value,
                       category: editando
                         ? current.category
-                        : categoriaDaSessao(escolhida?.categories, current.category),
+                        : categoriaDaSessao(escolhida, current.category),
                     };
                   })
                 }
@@ -976,11 +977,14 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
   };
 }
 
+// O Fixo começa pela única, como sempre; o Acúmulo, pela fixa.
 function categoriaDaSessao(
-  categories: CategoriaTransacao[] | undefined,
+  sessao: { kind: TipoSessao; categories: CategoriaTransacao[] } | undefined,
   atual?: CategoriaTransacao,
 ): CategoriaTransacao {
+  const categories = sessao?.categories;
   if (atual && categories?.includes(atual)) return atual;
+  if (sessao?.kind === "valor" && categories?.includes("unique")) return "unique";
   if (categories?.includes("fixed")) return "fixed";
   return categories?.[0] ?? "unique";
 }

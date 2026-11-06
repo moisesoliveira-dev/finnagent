@@ -168,7 +168,7 @@ function Corpo({
           />
           <p className="text-xs text-ink-2">
             {kind === "valor"
-              ? "Aceita uma transação única. Depois de lançada, sai das opções."
+              ? "Guarda uma transação por mês: única, parcela, empréstimo ou fixa. No mês ocupado, sai das opções."
               : "Junta vários lançamentos: cada linha do extrato acumulada aqui soma no mês dela."}
           </p>
         </div>

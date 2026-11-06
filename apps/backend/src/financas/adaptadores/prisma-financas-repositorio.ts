@@ -39,7 +39,13 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
-import { categoriaPermitida, protegeValorBase } from "../../grupos/dominio/sessao.js";
+import {
+  categoriaPermitida,
+  mesEmConflito,
+  mesesDoLancamento,
+  protegeValorBase,
+  type VencimentoDaSessao,
+} from "../../grupos/dominio/sessao.js";
 import { chaveDoMes } from "@finnagent/contracts";
 import type { TipoSessao } from "@finnagent/contracts";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
@@ -166,14 +172,14 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       where: { id: sessionId, tenantId, kind: "valor", endedAt: null },
       select: {
         entries: {
-          where: { tenantId, status: { not: "cancelled" }, startYear: year, startMonth: month },
+          where: { tenantId, status: { not: "cancelled" } },
           orderBy: { position: "asc" },
-          select: { id: true },
-          take: 1,
+          select: linhaDoFixo,
         },
       },
     });
-    const ativo = sessao?.entries[0];
+    const mes = chaveDoMes(year, month);
+    const ativo = (sessao?.entries ?? []).find((item) => mesesDaLinhaDoFixo(item).includes(mes));
     return ativo ? { entryId: ativo.id } : null;
   }
 
@@ -198,7 +204,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         tenantId,
         pedido.sessionId,
         pedido.category,
-        { year: pedido.startYear, month: pedido.startMonth },
+        mesesDoContrato(pedido, gradeDoPedido(pedido, calendario)),
         undefined,
         emPartes,
       );
@@ -267,7 +273,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         tenantId,
         pedido.sessionId,
         pedido.category,
-        { year: pedido.startYear, month: pedido.startMonth },
+        mesesDoContrato(pedido, grade ?? efetivasDaLinha(atual)),
         {
           id: atual.id,
           cents: atual.cents,
@@ -1294,13 +1300,72 @@ async function recusaDaCobertura(
   return null;
 }
 
-/** O Fixo só olha o mês do pedido: a transação de outro mês não ocupa este. */
+const linhaDoFixo = {
+  id: true,
+  position: true,
+  status: true,
+  cents: true,
+  category: true,
+  installments: true,
+  startYear: true,
+  startMonth: true,
+  amounts: { select: { cents: true } },
+  occurrences: { select: { dueOn: true, status: true, kind: true, plannedCents: true, paidCents: true } },
+} as const;
+
+/** Os meses que a transação gravada ocupa no Fixo, pelos vencimentos dela. */
+function mesesDaLinhaDoFixo(item: {
+  status: string;
+  cents: number;
+  category: string;
+  installments: number | null;
+  startYear: number;
+  startMonth: number;
+  amounts: { cents: number }[];
+  occurrences: { dueOn: Date; status: string; kind: string; plannedCents: number; paidCents: number | null }[];
+}) {
+  return mesesDoLancamento({
+    ...item,
+    months: item.amounts.map((mes) => mes.cents),
+    vencimentos: item.occurrences.map((venc) => ({
+      dueDate: dataIso(venc.dueOn),
+      status: venc.status,
+      kind: venc.kind,
+      cents: venc.plannedCents,
+    })),
+  }).map((mes) => mes.month);
+}
+
+/** Os meses que o pedido vai ocupar no Fixo, pela grade dele. */
+function mesesDoContrato(pedido: NovoLancamento, grade: Ocorrencia[]) {
+  const vencimentos: VencimentoDaSessao[] = grade.map((item) => ({
+    dueDate: item.dueDate,
+    status: item.status,
+    kind: item.kind ?? null,
+    cents: item.plannedCents,
+  }));
+  return mesesDoLancamento({
+    category: pedido.category,
+    startYear: pedido.startYear,
+    startMonth: pedido.startMonth,
+    installments: pedido.installments,
+    status: pedido.status,
+    cents: pedido.cents,
+    months: mesesDoPedido(pedido).map((mes) => mes.cents),
+    vencimentos,
+  }).map((mes) => mes.month);
+}
+
+/**
+ * O Fixo guarda uma transação por mês. A única ocupa o mês dela; parcela, empréstimo e fixa ocupam cada mês em que
+ * vencem. A transação de outro mês não ocupa este. `emPartes` aprova mais uma num mês já ocupado.
+ */
 async function recusaDaSessao(
   tx: Prisma.TransactionClient,
   tenantId: string,
   sessionId: string,
   category: CategoriaTransacao,
-  mes: { year: number; month: number },
+  meses: string[],
   valor?: {
     id: string;
     cents: number;
@@ -1328,12 +1393,14 @@ async function recusaDaSessao(
   if (kind !== "valor") return null;
   const irmas = (
     await tx.entry.findMany({
-      where: { tenantId, sessionId, status: { not: "cancelled" }, startYear: mes.year, startMonth: mes.month },
-      select: { id: true, position: true, status: true, startYear: true, startMonth: true },
+      where: { tenantId, sessionId, status: { not: "cancelled" } },
+      select: linhaDoFixo,
     })
-  ).map((item) => ({ ...item, month: chaveDoMes(item.startYear, item.startMonth) }));
-  const jaEsta = valor != null && irmas.some((item) => item.id === valor.id);
-  if (!jaEsta && irmas.length > 0 && !emPartes) return "valor-lancada" as const;
+  ).map((item) => ({ id: item.id, position: item.position, status: item.status, meses: mesesDaLinhaDoFixo(item) }));
+  const propria = valor ? irmas.find((item) => item.id === valor.id) : undefined;
+  const outras = irmas.filter((item) => item.id !== valor?.id);
+  const conflito = mesEmConflito(kind, outras, meses, propria?.meses ?? []);
+  if (conflito && !emPartes) return `mes-ocupado:${conflito}` as const;
   if (
     valor &&
     protegeValorBase(

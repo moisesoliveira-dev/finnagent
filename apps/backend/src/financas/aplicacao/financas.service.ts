@@ -20,7 +20,7 @@ import {
   CONFIGURACOES_REPOSITORIO,
   type ConfiguracoesRepositorio,
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
-import { mensagemDaCategoria } from "../../grupos/dominio/sessao.js";
+import { mensagemDaCategoria, mensagemDoMesOcupado } from "../../grupos/dominio/sessao.js";
 import { PedidoInvalido } from "../dominio/erros.js";
 import {
   erroDoPedido,
@@ -152,6 +152,9 @@ export class FinancasService {
     if (resultado === "valor-lancada") {
       throw new PedidoInvalido("Esta sessão fixa já foi lançada.");
     }
+    if (typeof resultado === "string" && resultado.startsWith("mes-ocupado:")) {
+      throw new PedidoInvalido(mensagemDoMesOcupado(resultado.slice("mes-ocupado:".length)));
+    }
     if (resultado === "reserva") {
       throw new PedidoInvalido("Esta sessão guarda uma meta. O valor separado entra como única, não como série.");
     }
@@ -179,6 +182,9 @@ export class FinancasService {
     }
     if (resultado === "valor-lancada") {
       throw new PedidoInvalido("Esta sessão fixa já foi lançada.");
+    }
+    if (typeof resultado === "string" && resultado.startsWith("mes-ocupado:")) {
+      throw new PedidoInvalido(mensagemDoMesOcupado(resultado.slice("mes-ocupado:".length)));
     }
     if (resultado === "base") {
       throw new Conflito("Movimento e categoria não podem ser alterados.");

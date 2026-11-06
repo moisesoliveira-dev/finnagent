@@ -106,7 +106,7 @@ function grupos(corpo: GruposResposta) {
       sessao.id,
       `grupo ${nomes.get(sessao.groupId) ?? sessao.groupId}`,
       sessao.name,
-      sessao.kind === "valor" ? "Fixo (uma única por mês)" : "Acúmulo",
+      sessao.kind === "valor" ? "Fixo (uma transação por mês; parcela e fixa ocupam cada mês em que vencem)" : "Acúmulo",
       `aceita: ${sessao.categories.join(", ")}`,
       `total ${reais(sessao.totalCents)}`,
     ];
