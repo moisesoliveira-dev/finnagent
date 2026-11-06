@@ -5,3 +5,7 @@ export function PATCH(request: Request, context: { params: Promise<{ id: string 
     context.params.then((params) => callBackend(`contas/${params.id}`, { method: "PATCH", body })),
   );
 }
+
+export function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  return context.params.then((params) => callBackend(`contas/${params.id}`, { method: "DELETE" }));
+}
