@@ -14,6 +14,7 @@ import {
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
+  avisosDeLimite,
   canaisDePush,
   horaNoFuso,
   lembretesNaJanela,
@@ -177,6 +178,21 @@ describe("avisos que viram notificação", () => {
     ]);
     const aprovada = { ...resposta, division: { viagem: { percent: 40, cents: 40_000, approved: true } } };
     expect(avisosDasMetas(aprovada, "2026-10-25").map((item) => item.chave)).toEqual(["meta:prazo:viagem:2026-10"]);
+  });
+
+  it("avisa a sessão perto do limite uma vez por mês e, ao estourar, avisa de novo", () => {
+    const usos = [
+      { sessionId: "s1", sessionName: "Mercado", groupName: "Casa", limitCents: 100000, usedCents: 85000, percent: 85 },
+      { sessionId: "s2", sessionName: "Uber", groupName: "Transporte", limitCents: 20000, usedCents: 26000, percent: 130 },
+      { sessionId: "s3", sessionName: "Lazer", groupName: "Vida", limitCents: 30000, usedCents: 9000, percent: 30 },
+    ];
+    const avisos = avisosDeLimite(usos, "2026-11");
+    expect(avisos.map((item) => [item.tipo, item.chave, item.titulo])).toEqual([
+      ["limites", "limite:80:s1:2026-11", "Mercado perto do limite"],
+      ["limites", "limite:100:s2:2026-11", "Uber passou do limite"],
+    ]);
+    expect(avisos[0]?.texto.replace(/ /g, " ")).toBe("R$ 850,00 de R$ 1.000,00 neste mês (85%). Faltam R$ 150,00.");
+    expect(avisos[1]?.destino).toEqual({ tela: "financas", id: null });
   });
 
   it("manda o plano parado só para quem abriu a conversa", () => {

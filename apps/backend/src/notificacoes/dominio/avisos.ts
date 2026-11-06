@@ -1,4 +1,5 @@
 import {
+  AVISO_DO_LIMITE_EM,
   emSilencio,
   ocorrenciasDoLancamento,
   type CanalDeNotificacao,
@@ -9,6 +10,7 @@ import {
   type PreferenciasDeNotificacao,
   type StatusExtrato,
   type TipoDeNotificacao,
+  type UsoDoLimite,
 } from "@finnagent/contracts";
 import { valorDaOcorrencia } from "../../financas/dominio/vista.js";
 
@@ -179,6 +181,34 @@ export function avisosDasMetas(metas: MetasResposta, hoje: string): PedidoDeNoti
         texto: `Separe ${dinheiro(parte)} para ${meta.name} neste mês.`,
         destino: { tela: "metas", id: null },
         chave: `meta:parte:${meta.id}:${mes}`,
+      });
+    }
+  }
+  return pedidos;
+}
+
+/**
+ * A sessão com limite que passou de 80% do teto do mês, e a que estourou. Cada marca avisa uma vez por mês: a
+ * chave leva a sessão, o mês e a marca.
+ */
+export function avisosDeLimite(usos: UsoDoLimite[], mes: string): PedidoDeNotificacao[] {
+  const pedidos: PedidoDeNotificacao[] = [];
+  for (const uso of usos) {
+    if (uso.percent >= 100) {
+      pedidos.push({
+        tipo: "limites",
+        titulo: `${uso.sessionName} passou do limite`,
+        texto: `${dinheiro(uso.usedCents)} de ${dinheiro(uso.limitCents)} neste mês (${uso.percent}%).`,
+        destino: { tela: "financas", id: null },
+        chave: `limite:100:${uso.sessionId}:${mes}`,
+      });
+    } else if (uso.percent >= AVISO_DO_LIMITE_EM) {
+      pedidos.push({
+        tipo: "limites",
+        titulo: `${uso.sessionName} perto do limite`,
+        texto: `${dinheiro(uso.usedCents)} de ${dinheiro(uso.limitCents)} neste mês (${uso.percent}%). Faltam ${dinheiro(uso.limitCents - uso.usedCents)}.`,
+        destino: { tela: "financas", id: null },
+        chave: `limite:${AVISO_DO_LIMITE_EM}:${uso.sessionId}:${mes}`,
       });
     }
   }
