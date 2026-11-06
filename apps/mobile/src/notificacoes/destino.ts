@@ -5,6 +5,8 @@ export function rotaDoApp(destino: DestinoDaNotificacao) {
   switch (destino.tela) {
     case "conferencia":
       return "/extratos?aba=conferencia";
+    case "hoje":
+      return "/inicio/hoje";
     case "assistente":
       return destino.id ? `/assistente?c=${encodeURIComponent(destino.id)}` : "/assistente";
     default:
