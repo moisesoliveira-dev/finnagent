@@ -246,7 +246,8 @@ function referenciasConsistentes(dados: DadosDoPacote) {
     ) &&
     dados.statementAliases.every(
       (item) => sessoes.has(item.sessionId) && (!item.entryId || lancamentos.has(item.entryId)),
-    )
+    ) &&
+    dados.statementLineParts.every((item) => extratos.has(item.statementId) && lancamentos.has(item.entryId))
   );
 }
 
@@ -312,6 +313,11 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       ...item,
       statementId: para(extratos, item.statementId),
       entryId: de(lancamentos, item.entryId),
+    })),
+    statementLineParts: dados.statementLineParts.map((item) => ({
+      ...item,
+      statementId: para(extratos, item.statementId),
+      entryId: para(lancamentos, item.entryId),
     })),
     statementAliases: dados.statementAliases.map((item) => ({
       ...item,
