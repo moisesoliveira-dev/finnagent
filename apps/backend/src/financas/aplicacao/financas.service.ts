@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import {
   ajustarTransacao,
   regraPadrao,
+  usoDosLimites,
   type BaseResposta,
   type EfeitoTransacao,
   type FinancasResposta,
@@ -13,6 +14,7 @@ import {
   type PedidoDePagamento,
   type StatusTransacao,
 } from "@finnagent/contracts";
+import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import {
   CONFIGURACOES_REPOSITORIO,
@@ -55,6 +57,7 @@ export class FinancasService {
     @Inject(FINANCAS_REPOSITORIO) private readonly financas: FinancasRepositorio,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
     private readonly feriados: FeriadosService,
+    @Optional() private readonly grupos?: GruposService,
   ) {}
 
   async listar(tenantId: string, incluirEncerradas = false): Promise<FinancasResposta> {
@@ -83,7 +86,12 @@ export class FinancasService {
 
   async base(tenantId: string, filtro: FiltroBase): Promise<BaseResposta> {
     const base = await this.listar(tenantId);
-    return montarBase(base, await this.hoje(tenantId), filtro);
+    const resposta = montarBase(base, await this.hoje(tenantId), filtro);
+    // O uso das sessões com limite no mês mostrado, para a Base avisar na própria linha da sessão.
+    const grupos = resposta.month && this.grupos ? await this.grupos.listar(tenantId) : null;
+    const nome = (id: string) => grupos?.groups.find((grupo) => grupo.id === id)?.name ?? "";
+    const limits = grupos && resposta.month ? usoDosLimites(grupos.sessions, base.entries, base.workflow, resposta.year, resposta.month, nome) : [];
+    return { ...resposta, limits };
   }
 
   async geral(tenantId: string, year: number): Promise<GeralResposta> {

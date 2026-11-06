@@ -19,6 +19,12 @@ export class ContasService {
     return resultado;
   }
 
+  async excluir(tenantId: string, id: string) {
+    const resultado = await this.contas.excluir(tenantId, id);
+    if (resultado === "ausente") throw new NaoEncontrado("Conta não encontrada.");
+    if (resultado === "com-extratos") throw new Conflito("Esta conta tem extratos importados. Apague os extratos antes de excluir a conta.");
+  }
+
   async atualizar(tenantId: string, id: string, pedido: PedidoDeConta) {
     const resultado = await this.contas.atualizar(tenantId, id, pedido);
     if (resultado === "ausente") throw new NaoEncontrado("Conta não encontrada.");

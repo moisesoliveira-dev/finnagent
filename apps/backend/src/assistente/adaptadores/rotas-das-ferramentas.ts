@@ -78,9 +78,10 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_tarefa: {
     metodo: "POST",
     caminho: () => "tarefas",
-    corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), title: a.title, date: a.date ?? diaNoFuso(fuso) }),
+    corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), title: a.title, date: a.date ?? diaNoFuso(fuso), ...(a.parentId ? { parentId: a.parentId } : {}), ...(a.repeat && !a.parentId ? { repeat: a.repeat } : {}) }),
   },
   concluir_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/concluir`, corpo: (a) => ({ done: a.done }) },
+  mover_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/mover`, corpo: (a) => ({ parentId: a.parentId ?? null, beforeId: a.beforeId ?? null }) },
   excluir_tarefa: { metodo: "DELETE", caminho: (a) => `tarefas/${id(a.id)}` },
   consultar_lancamentos: {
     metodo: "GET",
@@ -157,12 +158,13 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
       description: a.description ?? "",
       justification: a.justification ?? "",
       kind: a.kind,
+      limitCents: a.limitCents ?? null,
     }),
   },
   editar_sessao: {
     metodo: "PATCH",
     caminho: (a) => `sessoes/${id(a.id)}`,
-    corpo: (a) => ({ name: a.name, description: a.description, justification: a.justification, groupId: a.groupId }),
+    corpo: (a) => ({ name: a.name, description: a.description, justification: a.justification, groupId: a.groupId, ...(a.limitCents === undefined ? {} : { limitCents: a.limitCents }) }),
   },
   excluir_sessao: { metodo: "DELETE", caminho: (a) => `sessoes/${id(a.id)}` },
   consultar_virada_do_ano: { metodo: "GET", caminho: () => "grupos/virada" },

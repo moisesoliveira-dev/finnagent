@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CALENDARIO_NACIONAL,
   CATEGORIAS_TRANSACAO,
@@ -51,7 +51,6 @@ import { VisaoGeral } from "./visao-geral";
 import { api } from "./api";
 import { CampoValor } from "./campo-valor";
 import { useCelular } from "../../components/ui/tela";
-import { Contas } from "./contas";
 import { Emprestimos } from "./emprestimos";
 import { RegraDoVencimento } from "./regra-do-vencimento";
 import { centavosParaReais, doisDigitos, reaisParaCentavos } from "./reais";
@@ -100,11 +99,6 @@ type Rascunho = {
 
 const field = cn(campo, "w-full");
 
-function hojeIso() {
-  const agora = new Date();
-  return `${agora.getFullYear()}-${doisDigitos(agora.getMonth() + 1)}-${doisDigitos(agora.getDate())}`;
-}
-
 export default function Financas() {
   const toast = useToast();
   const [data, setData] = useState<FinancasVista | null>(null);
@@ -126,16 +120,7 @@ export default function Financas() {
   const [calendario, setCalendario] = useState<CalendarioDeDiasUteis>(CALENDARIO_NACIONAL);
   const [atualizando, setAtualizando] = useState(false);
 
-  // As contas vêm à parte: mudam pouco e a lista do formulário e os saldos usam a mesma.
-  const carregarContas = useCallback(async () => {
-    try {
-      const resposta = await api<ContasResposta>("/api/contas");
-      setContas(resposta.accounts);
-    } catch {
-      // Sem contas a tela segue: o lançamento pode ficar sem conta.
-    }
-  }, []);
-
+  // As contas vêm à parte, para a lista do formulário; a gestão delas fica na aba Contas.
   useEffect(() => {
     let ativo = true;
     api<ContasResposta>("/api/contas")
@@ -253,6 +238,7 @@ export default function Financas() {
           startedAt: null,
           endedAt: null,
           kind: "acumulo",
+          limitCents: null,
           categories: [...CATEGORIAS_TRANSACAO],
           occupiedMonths: [],
           cents: 0,
@@ -440,9 +426,6 @@ export default function Financas() {
         <div className="grid min-w-0 gap-4">
           {!ready && !falhou ? (
             <Carregando texto="Carregando finanças." titulo linhas={5} />
-          ) : null}
-          {ready && data ? (
-            <Contas contas={contas} entries={data.entries} hoje={hojeIso()} onMudou={carregarContas} />
           ) : null}
           {ready && data ? (
             <Emprestimos

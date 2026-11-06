@@ -15,6 +15,7 @@ export function Icone({
     | "bell"
     | "calc"
     | "calendar"
+    | "cartao"
     | "chart"
     | "chat"
     | "check"
@@ -29,10 +30,12 @@ export function Icone({
     | "layers"
     | "lista"
     | "lua"
+    | "mais"
     | "menu"
     | "sol"
     | "mic"
     | "pin"
+    | "punho"
     | "sair"
     | "send"
     | "stop"
@@ -188,6 +191,35 @@ export function Icone({
     return (
       <svg {...comum}>
         <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7-7l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (name === "cartao") {
+    return (
+      <svg {...comum}>
+        <rect x="3" y="6" width="18" height="12" />
+        <path d="M3 10h18M7 15h4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === "mais") {
+    return (
+      <svg {...comum}>
+        <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (name === "punho") {
+    return (
+      <svg {...comum}>
+        <circle cx="9" cy="6" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="6" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="9" cy="12" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="12" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="9" cy="18" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="18" r="1.5" fill="currentColor" stroke="none" />
       </svg>
     );
   }

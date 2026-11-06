@@ -3,8 +3,10 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Headers,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -47,6 +49,13 @@ export class ContasController {
     const pedido = conta.safeParse(body);
     if (!pedido.success) throw new BadRequestException(this.mensagem(pedido.error.issues[0]?.path[0]));
     return this.executar(() => this.contas.atualizar(this.tenant(tenant), id, pedido.data));
+  }
+
+  @Delete("contas/:id")
+  @HttpCode(204)
+  excluir(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+    if (!z.uuid().safeParse(id).success) throw new NotFoundException("Conta não encontrada.");
+    return this.executar(() => this.contas.excluir(this.tenant(tenant), id));
   }
 
   private mensagem(campo: PropertyKey | undefined) {

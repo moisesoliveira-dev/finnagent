@@ -37,6 +37,17 @@ export class PrismaContasRepositorio implements ContasRepositorio {
     });
   }
 
+  async excluir(tenantId: string, id: string) {
+    return this.banco().$transaction(async (tx) => {
+      const atual = await tx.account.findFirst({ where: { id, tenantId }, select: { id: true, _count: { select: { statements: true } } } });
+      if (!atual) return "ausente" as const;
+      if (atual._count.statements > 0) return "com-extratos" as const;
+      // Os lançamentos perdem a conta (SetNull na relação) e continuam na sobra.
+      await tx.account.deleteMany({ where: { id, tenantId } });
+      await gravarOutbox(tx, tenantId, "remover-conta", id, { id });
+    });
+  }
+
   private banco() {
     if (!this.prisma.ativo) throw new BancoIndisponivel();
     return this.prisma;

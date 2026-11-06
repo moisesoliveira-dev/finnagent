@@ -1562,3 +1562,213 @@ button.entrada-com-icone.selecao.hora {
     --wheel-fade-background-rgb: 255, 255, 255;
   }
 }
+
+
+/* ---------- Hoje ---------- */
+
+.lista-do-dia {
+  display: grid;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.grupo-do-dia {
+  border-bottom: 1px solid var(--line);
+}
+
+.grupo-do-dia:last-child {
+  border-bottom: 0;
+}
+
+.cabeca-do-grupo {
+  margin: 0;
+  padding: 8px 16px;
+  font-weight: 400;
+  background: var(--surface-2);
+}
+
+.linha-de-anotar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.linha-de-anotar input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+}
+
+.linha-de-anotar input::placeholder {
+  color: var(--ink-2);
+}
+
+.caixa-vazia {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px dashed var(--line);
+}
+
+.vazio-do-dia {
+  margin: 0;
+  padding: 24px 16px;
+  font-size: 0.875rem;
+}
+
+/* A linha inteira é o alvo de toque da caixa: o rótulo envolve a caixa e o texto, com 48 px de altura. */
+.linha-do-dia {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.linha-do-dia:last-child {
+  border-bottom: 0;
+}
+
+.linha-do-dia .marcar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 0;
+}
+
+.caixa {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+.linha-do-dia .hora {
+  flex: none;
+  width: 56px;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.linha-do-dia .texto {
+  flex: 1;
+}
+
+.linha-do-dia .texto > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.linha-do-dia .detalhe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.linha-do-dia .detalhe > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linha-do-dia.feita {
+  color: var(--ink-2);
+}
+
+.linha-do-dia.feita .texto > span:first-child {
+  text-decoration: line-through;
+}
+
+.linha-do-dia .lado {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding-right: 12px;
+}
+
+.linha-do-dia .lado:has(ion-button) {
+  padding-right: 0;
+}
+
+.linha-do-dia.pendencia {
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.linha-do-dia.pendencia ion-icon {
+  flex: none;
+  font-size: 1.25rem;
+}
+
+/* O botão só de ícone dentro da linha: 44 px, sem margem, na cor fraca. */
+ion-button.apagar {
+  width: 44px;
+  margin: 0;
+  --padding-start: 0;
+  --padding-end: 0;
+  --color: var(--ink-2);
+}
+
+.chip.evento {
+  color: var(--event);
+  background: var(--event-soft);
+  border-color: var(--event);
+}
+
+/* ---------- Contas ---------- */
+
+.link-de-secao {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.atalho-de-linha {
+  color: inherit;
+  text-decoration: none;
+}
+
+.atalho-de-linha > ion-icon {
+  flex: none;
+  font-size: 1.25rem;
+  color: var(--ink-2);
+}
+
+.linha.prevista {
+  color: var(--ink-2);
+}
+
+.saldo-corrido {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}

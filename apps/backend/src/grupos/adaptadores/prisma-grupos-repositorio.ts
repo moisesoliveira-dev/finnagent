@@ -20,6 +20,7 @@ const sessaoCompleta = {
   endedAt: true,
   cents: true,
   kind: true,
+  limitCents: true,
   entries: {
     select: {
       id: true,
@@ -339,6 +340,7 @@ function sessaoDe(row: {
   endedAt: Date | null;
   cents: number;
   kind: string;
+  limitCents: number | null;
   entries: {
     id: string;
     position: number;
@@ -373,6 +375,7 @@ function sessaoDe(row: {
     cents: resumo.cents,
     additions: resumo.additions,
     totalCents: resumo.totalCents,
+    limitCents: kind === "acumulo" ? row.limitCents : null,
   };
 }
 
@@ -382,6 +385,8 @@ function gravacao(dados: DadosDaSessao) {
     name: dados.name,
     description: dados.description,
     justification: dados.justification,
+    // Só o acúmulo tem limite; o valor 0 é o mesmo que nenhum.
+    ...(dados.limitCents === undefined ? {} : { limitCents: dados.limitCents && dados.limitCents > 0 ? dados.limitCents : null }),
   };
 }
 
@@ -393,6 +398,7 @@ function sessaoIgual(
     justification: string;
     kind: string;
     cents: number;
+    limitCents: number | null;
   },
   dados: DadosDaSessao,
   kind: TipoSessao,
@@ -404,7 +410,8 @@ function sessaoIgual(
     atual.description === dados.description &&
     atual.justification === dados.justification &&
     atual.kind === kind &&
-    atual.cents === cents
+    atual.cents === cents &&
+    (dados.limitCents === undefined || (atual.limitCents ?? null) === (dados.limitCents || null))
   );
 }
 

@@ -27,6 +27,7 @@ const criarGrupo = z.object({
 });
 const atualizarGrupo = z.object({ name: nome, description: descricao });
 const justificativa = z.string().trim().max(160);
+const limite = z.number().int().min(0).max(100_000_000_00).nullable().optional();
 const criarSessao = z.object({
   id: z.uuid(),
   groupId: z.uuid(),
@@ -34,6 +35,7 @@ const criarSessao = z.object({
   description: descricao.optional().default(""),
   justification: justificativa.optional().default(""),
   kind: z.enum(TIPOS_SESSAO),
+  limitCents: limite,
 });
 const permanecerAno = z.object({
   year: z.number().int(),
@@ -46,6 +48,7 @@ const atualizarSessao = z.object({
   justification: justificativa,
   groupId: z.uuid(),
   kind: z.enum(TIPOS_SESSAO).optional(),
+  limitCents: limite,
 });
 
 @Controller()
@@ -119,6 +122,7 @@ export class GruposController {
           name: pedido.name,
           description: pedido.description,
           justification: pedido.justification,
+          limitCents: pedido.limitCents,
         },
         pedido.kind,
       ),
@@ -138,6 +142,7 @@ export class GruposController {
         name: pedido.name,
         description: pedido.description,
         justification: pedido.justification,
+        limitCents: pedido.limitCents,
       }, pedido.kind),
     );
   }

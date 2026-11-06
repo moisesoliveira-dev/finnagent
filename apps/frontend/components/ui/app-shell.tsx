@@ -24,6 +24,7 @@ const items: Array<{ href: string; label: string; icone: Icone }> = [
   { href: "/hoje", label: "Hoje", icone: "lista" },
   { href: "/agenda", label: "Agenda", icone: "calendar" },
   { href: "/financas", label: "Finanças", icone: "wallet" },
+  { href: "/contas", label: "Contas", icone: "cartao" },
   { href: "/metas", label: "Metas", icone: "target" },
   { href: "/relatorios", label: "Relatórios", icone: "chart" },
   { href: "/eventos", label: "Eventos", icone: "clock" },

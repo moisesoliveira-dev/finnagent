@@ -82,3 +82,98 @@ Arquivos:
 - `apps/frontend/components/ui/app-shell.tsx` e `icone.tsx`
 - `apps/frontend/app/financas/visao-geral.tsx`, `tabela.tsx` e `page.tsx`
 - `apps/frontend/components/ui/tela.ts` (novo)
+
+## Subatividades
+
+O que foi feito: uma atividade da aba Hoje pode ter subatividades, um nível só. A tarefa ganhou `parentId` (migração `20261106150000_subtarefas`, com apagar em cascata). Na tela, o "+" na linha da atividade abre o campo da subatividade logo abaixo; as filhas aparecem recuadas e a atividade mostra "1 de 3". Marcar a atividade marca as subatividades abertas; reabrir a atividade reabre só ela; marcar a última subatividade fecha a atividade, e reabrir uma delas reabre a atividade (`hoje/dominio/subtarefas.ts`). A lista do dia traz as subatividades junto com a atividade, mesmo quando a data delas é outra. O assistente já tinha as quatro ferramentas de tarefa (consultar o dia, anotar, concluir e apagar), porque o `agents` carrega o catálogo inteiro do contrato; `criar_tarefa` ganhou `parentId` para anotar uma subatividade.
+
+Motivo: na lista, uma atividade grande se divide em passos.
+
+Verificação: 472 testes no backend (3 novos do domínio das subatividades), tsc e lint limpos; a migração aplicada no Postgres local. No navegador, em 1280 e 375 px: o "+" abre o campo e o foco fica nele enquanto se digita; duas subatividades criadas pela tela; marcar uma deixa a atividade em "1 de 2"; marcar a segunda fecha a atividade, que vai para Feito; reabrir uma subatividade reabre a atividade; apagar a atividade apaga as filhas; sem rolagem horizontal, inclusive com o campo da subatividade aberto.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma` e `migrations/20261106150000_subtarefas/`
+- `apps/backend/src/hoje/dominio/subtarefas.ts` e spec (novos), `portas/tarefas-repositorio.ts`, `adaptadores/prisma-tarefas-repositorio.ts`, `aplicacao/hoje.service.ts` e spec, `hoje.controller.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/frontend/app/hoje/page.tsx`
+
+## Aba Contas
+
+O que foi feito: as contas saíram do bloco solto em Finanças e ganharam a aba "Contas", entre Finanças e Metas. À esquerda, a lista de contas e cartões com o saldo de hoje (ou o lançado na fatura); à direita, a conta escolhida: tipo, saldo inicial, saldo hoje e fim do mês, os movimentos do mês (pela data em que contam, com o saldo correndo linha a linha e "Previsto" nos pendentes), o início e o fim do mês, e os extratos importados nela com o estado de cada um. Criar e editar usam o mesmo diálogo (`app/contas/dialogo.tsx`). Excluir conta é novo: `DELETE contas/:id` apaga a conta, os lançamentos dela ficam sem conta, e a conta com extratos importados é recusada até os extratos saírem; evento `remover-conta` no outbox. O formulário de lançamento continua escolhendo a conta.
+
+Motivo: as contas estavam soltas dentro de Finanças, sem lugar para ver os movimentos de cada uma.
+
+Verificação: tsc e lint limpos no backend e no frontend; 64 testes de contas e assistente passando. No navegador, em 1280 e 375 px: o item Contas no menu, a lista com a conta escolhida em destaque, o detalhe com saldo inicial, saldo hoje, fim do mês, o mês com início e fim, os seis extratos do Nubank com o estado; uma conta de teste criada pela API, editada pelo diálogo e excluída pela tela com confirmação; o Excluir fica desabilitado na conta com extratos; sem rolagem horizontal. Não verificado: a lista de movimentos com dados, porque o banco local está sem lançamentos ligados a conta depois do desfazer da conferência feito na simulação.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/contas/contas.controller.ts`, `aplicacao/contas.service.ts`, `portas/contas-repositorio.ts`, `adaptadores/prisma-contas-repositorio.ts`
+- `apps/frontend/app/contas/page.tsx` e `dialogo.tsx` (novos), `app/api/contas/[id]/route.ts`
+- `apps/frontend/app/financas/page.tsx` (o bloco saiu) e `app/financas/contas.tsx` (apagado)
+- `apps/frontend/components/ui/app-shell.tsx` e `icone.tsx`
+
+## Árvore de tarefas, arraste e menu da linha
+
+O que foi feito: a subatividade pode ter subatividades, sem limite de nível. A linha da tarefa ganhou um punho à esquerda: segurar e arrastar reordena entre as irmãs (um traço azul mostra onde vai cair) e soltar mais à direita, abaixo de uma linha, põe a tarefa dentro dela; dá para tirar uma subatividade para a raiz e aninhar em cadeia. Os botões de editar, apagar e "+" viraram um menu de três pontos verticais com Subatividade, Editar, Subir, Descer, Tirar de dentro (quando há pai) e Apagar. No backend, `PATCH tarefas/:id/mover` recebe `parentId` (null para a raiz) e `beforeId` (a irmã na frente da qual entra; sem ela, fica no fim), recusa ciclo e renumera as irmãs; evento `mover-tarefa` no outbox. Marcar e reabrir seguem a árvore inteira (`hoje/dominio/subtarefas.ts`). O assistente ganhou `mover_tarefa`.
+
+Motivo: organizar a lista como no Notion, arrastando, em vez de só criar e apagar.
+
+Verificação: tsc e lint limpos no backend e no frontend; os testes do domínio e do serviço de Hoje e do assistente passando. No navegador, em 1280 e 375 px, com três tarefas criadas pela API: o menu abre com as opções certas para cada linha (Subir só quando não é a primeira, Tirar de dentro só na subatividade) e fecha ao clicar fora; Subatividade abre o campo com o foco; arrastar uma tarefa para dentro da subatividade a deixa no terceiro nível, com o traço do destino recuado; Tirar de dentro sobe um nível, depois do pai; arrastar antes de outra troca a ordem na tela e no banco; Subir troca a posição com a irmã; Editar abre o formulário no lugar e Escape fecha; Apagar remove; sem rolagem horizontal.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/hoje/dominio/subtarefas.ts` e spec, `portas/tarefas-repositorio.ts`, `adaptadores/prisma-tarefas-repositorio.ts`, `aplicacao/hoje.service.ts`, `hoje.controller.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/frontend/app/api/tarefas/[id]/mover/route.ts` (novo)
+- `apps/frontend/app/hoje/page.tsx` e `menu-da-linha.tsx` (novo)
+- `apps/frontend/components/ui/icone.tsx`
+
+## Livre do mês, limite por sessão e tarefa recorrente
+
+O que foi feito: a Hoje ganhou o cartão "Livre até o fim do mês": a sobra do mês com o que ainda vai vencer, mais o que veio dos meses anteriores, menos o que as metas já separaram, dividido pelos dias que faltam (`HojeResposta.livre`, pelo mesmo cálculo das metas). A sessão de acúmulo ganhou um limite de saídas por mês (`Session.limitCents`, migração `20261106170000_limite_da_sessao`): o campo fica no diálogo da sessão em Grupos, a Base mostra "usado de limite" com uma barra na linha da sessão (`BaseResposta.limits`), a Hoje lista as sessões com limite no cartão e põe a que estourou nas pendências, e a varredura de avisos manda a notificação do tipo novo "Limites" aos 80% e ao passar (`usoDosLimites` no contrato, `avisosDeLimite` no domínio dos avisos; uma vez por sessão, mês e marca). A tarefa da raiz pode repetir (`Task.repeat`, migração `20261106173000_tarefa_recorrente`): todo dia, dias úteis, toda semana ou todo mês, escolhido em Editar; ao ser marcada, nasce de novo no próximo dia da regra que ainda não passou, com as subatividades abertas (`hoje/dominio/repeticao.ts`). As ferramentas `criar_sessao`, `editar_sessao` e `criar_tarefa` ganharam `limitCents` e `repeat`.
+
+Motivo: o sistema registrava, mas não orientava quanto dá para gastar nem avisava antes de uma sessão estourar; e a tarefa de toda semana precisava ser anotada de novo a cada vez.
+
+Verificação: 478 testes no backend (repetição, sobra livre e limites na Hoje, avisos de limite), 60 no agents, tsc e lint limpos nos três; as duas migrações aplicadas pelo backend ao subir. No navegador, em 1280 e 375 px, com um grupo, uma sessão com limite de R$ 100 e um lançamento de R$ 90 criados pela API: a Hoje mostra o cartão "Livre até o fim do mês" com os dias que faltam e a barra "Lanches R$ 90,00 de R$ 100,00" (90%); a Base mostra o mesmo uso na linha da sessão; Grupos mostra "Limite de R$ 100,00 por mês" e o diálogo abre com o campo preenchido; a tarefa editada para "Toda semana" ganha o chip e, ao ser marcada, nasce de novo em 13 de novembro com a mesma regra; sem rolagem horizontal. Os 5 E2E passaram de novo na build nova. Não verificado: a notificação de limite pela varredura (ela corre no horário do BullMQ) e o estouro acima de 100% na tela.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma`, `migrations/20261106170000_limite_da_sessao/`, `migrations/20261106173000_tarefa_recorrente/`
+- `apps/backend/src/hoje/dominio/repeticao.ts` e spec (novos), `adaptadores/prisma-tarefas-repositorio.ts`, `aplicacao/hoje.service.ts` e spec, `hoje.controller.ts`, `hoje.module.ts`
+- `apps/backend/src/grupos/portas/grupos-repositorio.ts`, `adaptadores/prisma-grupos-repositorio.ts`, `grupos.controller.ts`
+- `apps/backend/src/financas/aplicacao/financas.service.ts`, `financas.module.ts`
+- `apps/backend/src/notificacoes/dominio/avisos.ts` e spec, `aplicacao/varredura.service.ts`, `notificacoes.module.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- `apps/frontend/app/hoje/page.tsx`, `app/grupos/page.tsx`, `app/financas/tabela.tsx`, `app/financas/page.tsx`
+
+## Hoje e Contas no mobile
+
+O que foi feito: o app mobile ganhou a página Hoje (`/inicio/hoje`, ligada pelo bloco "Hoje" do Início, que agora vem de `GET /api/hoje` com "x de y" e um link "Ver o dia"): navegação de dia, andamento, campo de anotar, os grupos do dia com a caixa de marcar (tarefa, compromisso e vencimento, com as mesmas chamadas do web), subatividades recuadas por nível, apagar com confirmação e as pendências como links. E as páginas Contas (`/financas/contas`, ligada no topo de Finanças) e o detalhe da conta (`/financas/contas/:id`): saldo hoje, fim do mês, saldo inicial, movimentos do mês com saldo corrido e os extratos da conta. Só leitura. A barra de abas não mudou.
+
+Motivo: a Hoje é a tela de uso diário e não existia no celular; as contas também não.
+
+Verificação: `pnpm --filter mobile build` (tsc e vite) e `pnpm --filter mobile test` (10 testes) passando. No navegador em 375 px, pelo Vite contra o BFF local: o bloco Hoje no Início, a página Hoje com anotar, marcar, desmarcar, trocar de dia e apagar; a lista de contas e o detalhe com os extratos; sem rolagem horizontal; alvos de toque de 44 px. Não verificado: compromisso e vencimento na Hoje do mobile (o dia não tinha nenhum), conta do tipo cartão, tema escuro e o aparelho real.
+
+Arquivos:
+
+- `apps/mobile/src/paginas/Hoje.tsx`, `paginas/hoje/dia.ts` e spec (novos)
+- `apps/mobile/src/paginas/Contas.tsx`, `paginas/contas/DetalheDaConta.tsx`, `paginas/contas/movimentos.ts` e spec (novos)
+- `apps/mobile/src/App.tsx`, `paginas/Inicio.tsx`, `paginas/Financas.tsx`, `tema/tema.css`
+
+## E2E com Playwright
+
+O que foi feito: os cinco fluxos principais do frontend ganharam testes de ponta a ponta com Playwright, em `apps/frontend/e2e/`: Hoje (anotar, marcar, apagar pelo menu), Finanças (lançar uma única e ver na Base), Metas (criar e excluir), Agenda (criar um compromisso de hoje e apagar) e Importações (importar um CSV numa conta nova, ver as linhas e excluir). Os testes rodam em série contra o ambiente local já no ar (`pnpm --filter frontend e2e`), sem subir servidor, e apagam o que criaram mesmo em falha.
+
+Motivo: as regras pedem E2E nos fluxos principais e só havia conferência manual.
+
+Verificação: `pnpm --filter frontend e2e` com os 5 testes passando em 39 s contra o Docker local; nada sobrando na base depois. Nenhum defeito real encontrado.
+
+Arquivos:
+
+- `apps/frontend/playwright.config.ts`, `e2e/apoio.ts`, `e2e/*.spec.ts`, `e2e/fixtures/extrato.csv` (novos)
+- `apps/frontend/package.json`, `pnpm-lock.yaml`, `.gitignore`

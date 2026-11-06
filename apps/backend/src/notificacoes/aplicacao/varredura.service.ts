@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ANTECEDENCIA_MS, STATUS_EXTRATO, type Compromisso } from "@finnagent/contracts";
+import { ANTECEDENCIA_MS, STATUS_EXTRATO, usoDosLimites, type Compromisso } from "@finnagent/contracts";
 import { z } from "zod";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { AssistenteService } from "../../assistente/aplicacao/assistente.service.js";
@@ -10,6 +10,7 @@ import {
 } from "../../configuracoes/portas/configuracoes-repositorio.js";
 import { ExtratosService } from "../../extratos/aplicacao/extratos.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
+import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
 import { diaNoFuso } from "../../financas/dominio/vista.js";
 import { log } from "../../log.js";
 import { MetasService } from "../../metas/aplicacao/metas.service.js";
@@ -20,6 +21,7 @@ import {
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
+  avisosDeLimite,
   horaNoFuso,
   lembretesNaJanela,
   vencimentosDeHoje,
@@ -50,6 +52,7 @@ export class VarreduraService {
     private readonly extratos: ExtratosService,
     private readonly metas: MetasService,
     private readonly assistente: AssistenteService,
+    private readonly grupos: GruposService,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
   ) {}
 
@@ -83,7 +86,14 @@ export class VarreduraService {
       pedidos.push(...avisosDasMetas(await this.metas.listar(tenantId), hoje));
       await this.notificacoes.notificar(tenantId, pedidos);
       this.avisosDoDia.set(tenantId, hoje);
-      return;
+    }
+    // O limite é conferido a cada passada: o aviso sai no dia em que a sessão passa da marca, não só às 8h.
+    const grupos = await this.grupos.listar(tenantId);
+    if (grupos.sessions.some((sessao) => sessao.limitCents)) {
+      const [ano, mes] = hoje.split("-").map(Number) as [number, number];
+      const base = await this.financas.listar(tenantId);
+      const nome = (id: string) => grupos.groups.find((grupo) => grupo.id === id)?.name ?? "";
+      pedidos.push(...avisosDeLimite(usoDosLimites(grupos.sessions, base.entries, base.workflow, ano, mes, nome), hoje.slice(0, 7)));
     }
     await this.notificacoes.notificar(tenantId, pedidos);
   }

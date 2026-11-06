@@ -11,7 +11,10 @@ import { toque } from "./haptico";
 import { Movimento, curvaSaida, mola } from "./movimento";
 import { Agenda } from "./paginas/Agenda";
 import { Assistente } from "./paginas/Assistente";
+import { Contas } from "./paginas/Contas";
+import { DetalheDaConta } from "./paginas/contas/DetalheDaConta";
 import { Financas } from "./paginas/Financas";
+import { Hoje } from "./paginas/Hoje";
 import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
 import { Metas } from "./paginas/Metas";
@@ -127,7 +130,10 @@ export function App() {
                   <IonRouterOutlet>
                     <Route path="/" element={<Navigate to="/inicio" replace />} />
                     <Route path="/inicio" element={<Inicio />} />
+                    <Route path="/inicio/hoje" element={<Hoje />} />
                     <Route path="/financas" element={<Financas />} />
+                    <Route path="/financas/contas" element={<Contas />} />
+                    <Route path="/financas/contas/:id" element={<DetalheDaConta />} />
                     <Route path="/agenda" element={<Agenda />} />
                     <Route path="/assistente" element={<Assistente />} />
                     <Route path="/metas" element={<Metas />} />

@@ -31,6 +31,8 @@ model Session {
   endedAt       DateTime?         @map("ended_at") @db.Date
   cents         Int               @default(0)
   kind          String            @default("acumulo")
+  // Acúmulo: o teto de saídas por mês. Sem valor, sem limite.
+  limitCents    Int?              @map("limit_cents")
   group         Group             @relation(fields: [groupId], references: [id], onDelete: Restrict)
   entries       Entry[]
   additions     SessionAddition[]
@@ -233,9 +235,16 @@ model Task {
   doneOn    DateTime? @map("done_on") @db.Date
   position  Int       @default(0)
   createdAt DateTime  @default(now()) @map("created_at")
+  // Só na raiz: a regra de repetição ("daily", "weekdays", "weekly", "monthly"). Ao ser feita, nasce a próxima.
+  repeat    String?
+  // A subatividade aponta para a atividade, em qualquer profundidade. Apagar a atividade apaga as filhas.
+  parentId  String?   @map("parent_id")
+  parent    Task?     @relation("Subtarefas", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Task[]    @relation("Subtarefas")
 
   @@unique([tenantId, id])
   @@index([tenantId, date])
+  @@index([tenantId, parentId])
   @@map("tasks")
 }
 

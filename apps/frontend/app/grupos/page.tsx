@@ -8,7 +8,7 @@ import { Dialogo } from "../../components/ui/dialogo";
 import { Expandir, Seta } from "../../components/ui/movimento";
 import { Rotulo } from "../../components/ui/rotulo";
 import { Chip } from "../../components/ui/chip";
-import { Money } from "../../components/ui/money";
+import { formatarReais, Money } from "../../components/ui/money";
 import { PageHeader } from "../../components/ui/page-header";
 import { PendingAction } from "../../components/ui/pending-action";
 import { Segmentado } from "../../components/ui/segmentado";
@@ -16,6 +16,8 @@ import { useToast } from "../../components/ui/toast";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
 import { Vazio } from "../../components/ui/vazio";
+import { CampoValor } from "../financas/campo-valor";
+import { centavosParaReais, reaisParaCentavos } from "../financas/reais";
 type Group = GruposResposta["groups"][number];
 type Session = GruposResposta["sessions"][number];
 type RascunhoGrupo = { id: string | null; name: string; description: string };
@@ -27,6 +29,8 @@ type RascunhoSessao = {
   groupId: string;
   escolherGrupo: boolean;
   kind: TipoSessao;
+  /** O limite do mês, já na máscara de reais; vazio é sem limite. */
+  limit: string;
 };
 type Sugestao = {
   titulo: string;
@@ -169,6 +173,7 @@ export default function Grupos() {
       groupId: session?.groupId || groupId || (escolherGrupo ? (unico?.id ?? "") : ""),
       escolherGrupo,
       kind: session?.kind ?? "acumulo",
+      limit: session?.limitCents ? centavosParaReais(session.limitCents) : "",
     });
   }
 
@@ -222,7 +227,8 @@ export default function Grupos() {
       toast.erro("Escolha um grupo.");
       return;
     }
-    const corpo = { name, description, justification, groupId };
+    const limitCents = sessionDraft.kind === "acumulo" && sessionDraft.limit ? reaisParaCentavos(sessionDraft.limit) : null;
+    const corpo = { name, description, justification, groupId, limitCents: limitCents || null };
     try {
       const session = sessionDraft.id
         ? await api<Session>(`/api/sessoes/${sessionDraft.id}`, {
@@ -548,6 +554,20 @@ export default function Grupos() {
                 : ""}
             </p>
           </div>
+          {sessionDraft?.kind === "acumulo" ? (
+            <div className="grid gap-1">
+              <Rotulo htmlFor="sessao-limite" dica="O teto de saídas por mês nesta sessão. A Hoje e as notificações avisam aos 80% e ao passar.">
+                Limite do mês <span className="font-normal text-ink-2">(opcional)</span>
+              </Rotulo>
+              <CampoValor
+                id="sessao-limite"
+                value={sessionDraft.limit}
+                onChange={(limit) => setSessionDraft((current) => (current ? { ...current, limit } : current))}
+                className={field}
+              />
+              <p className="text-xs text-ink-2">Em branco, a sessão não tem limite. Só as saídas contam.</p>
+            </div>
+          ) : null}
           {sessionDraft?.escolherGrupo ? (
             <div className="grid gap-1">
               <Rotulo htmlFor="sessao-grupo" dica="O grupo para onde esta sessão vai.">
@@ -772,7 +792,10 @@ function GroupCard({
                         ) : null}
                       </p>
                     ) : session.kind === "acumulo" ? (
-                      <p className="text-sm text-ink-2">Soma das transações</p>
+                      <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+                        <span>Soma das transações</span>
+                        {session.limitCents ? <span>· Limite de {formatarReais(session.limitCents)} por mês</span> : null}
+                      </p>
                     ) : null}
                     <p className="flex items-center gap-2 text-sm">
                       <span className="text-ink-2">Total</span>

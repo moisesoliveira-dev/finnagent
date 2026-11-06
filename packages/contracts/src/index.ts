@@ -38,7 +38,50 @@ export type Sessao = {
   cents: number;
   additions: Acrescimo[];
   totalCents: number;
+  /** Acúmulo: o teto de saídas por mês que a pessoa combinou consigo. null: sem limite. */
+  limitCents: number | null;
 };
+
+/** Quanto da sessão com limite já foi usado num mês, para avisar antes de estourar. */
+export type UsoDoLimite = {
+  sessionId: string;
+  sessionName: string;
+  groupName: string;
+  limitCents: number;
+  /** As saídas do mês nessa sessão, em valor positivo. */
+  usedCents: number;
+  /** 0 a 100, podendo passar de 100. */
+  percent: number;
+};
+
+/** O aviso sai ao passar deste ponto e, de novo, ao passar do limite. */
+export const AVISO_DO_LIMITE_EM = 80;
+
+/**
+ * O uso de cada sessão com limite no mês: soma as saídas dos lançamentos dela (pelo que está agendado no mês).
+ * Sessão sem limite não entra.
+ */
+export function usoDosLimites(sessions: Sessao[], entries: Lancamento[], workflow: Workflow, year: number, month: number, groupName: (groupId: string) => string): UsoDoLimite[] {
+  const lista: UsoDoLimite[] = [];
+  for (const session of sessions) {
+    if (session.limitCents === null || session.limitCents <= 0 || session.endedAt) continue;
+    let usedCents = 0;
+    for (const entry of entries) {
+      if (entry.sessionId !== session.id) continue;
+      const valor = centavosNoMes(entry, workflow, year, month - 1);
+      if (valor !== undefined && valor < 0) usedCents -= valor;
+    }
+    lista.push({
+      sessionId: session.id,
+      sessionName: session.name,
+      groupName: groupName(session.groupId),
+      limitCents: session.limitCents,
+      usedCents,
+      percent: Math.round((usedCents / session.limitCents) * 100),
+    });
+  }
+  return lista.sort((a, b) => b.percent - a.percent || a.sessionName.localeCompare(b.sessionName, "pt-BR"));
+}
 
 /** Um mês ("AAAA-MM") em que a sessão Fixo já tem a transação: o valor dela e o total com as partes. */
 export type MesOcupado = { month: string; cents: number; totalCents: number };
@@ -480,6 +523,8 @@ export type BaseResposta = {
   groups: { id: string; name: string }[];
   rows: LinhaBase[];
   totalCents: number;
+  /** As sessões com limite e o uso delas no mês da resposta. O serviço preenche; a vista pura não tem. */
+  limits?: UsoDoLimite[];
 };
 
 export type LinhaGeral = {
@@ -958,6 +1003,16 @@ export type CategoriaCompromisso = (typeof CATEGORIAS_COMPROMISSO)[number];
 
 export const STATUS_COMPROMISSO = ["done", "undone"] as const;
 
+export const REPETICOES_DE_TAREFA = ["daily", "weekdays", "weekly", "monthly"] as const;
+export type RepeticaoDeTarefa = (typeof REPETICOES_DE_TAREFA)[number];
+
+export const ROTULO_DA_REPETICAO: Record<RepeticaoDeTarefa, string> = {
+  daily: "Todo dia",
+  weekdays: "Dias úteis",
+  weekly: "Toda semana",
+  monthly: "Todo mês",
+};
+
 /** Uma tarefa escrita pela pessoa na aba Hoje. A que não foi feita segue para os dias seguintes. */
 export type Tarefa = {
   id: string;
@@ -967,9 +1022,16 @@ export type Tarefa = {
   /** O dia em que foi feita; null enquanto aberta. */
   doneOn: string | null;
   position: number;
+  /** A atividade de que esta é subatividade; null nas atividades da raiz. A árvore tem a profundidade que a pessoa quiser. */
+  parentId: string | null;
+  /** Só na raiz: ao ser feita, a tarefa nasce de novo no próximo dia da regra, com as subatividades abertas. */
+  repeat: RepeticaoDeTarefa | null;
 };
 
-export type PedidoDeTarefa = { title: string; date: string };
+export type PedidoDeTarefa = { title: string; date: string; parentId?: string | null; repeat?: RepeticaoDeTarefa | null };
+
+/** Mover uma tarefa: para dentro de outra (`parentId`) ou para a raiz (null), antes de `beforeId` ou no fim das irmãs. */
+export type PedidoDeMovimento = { parentId: string | null; beforeId?: string | null };
 
 export type CompromissoDoDia = {
   id: string;
@@ -1001,13 +1063,29 @@ export type VencimentoDoDia = {
 
 export type PendenciaDoDia = {
   id: string;
-  kind: "conferencia" | "sobra";
+  kind: "conferencia" | "sobra" | "limite";
   title: string;
   detail: string;
   href: string;
 };
 
 /** O dia inteiro numa lista: tarefas, compromissos, vencimentos e, quando é hoje, as pendências do sistema. */
+/** O que a pessoa tem livre até o fim do mês, para orientar o gasto do dia. */
+export type SobraLivre = {
+  /** A sobra deste mês mais o que veio dos anteriores, menos o que as metas já separaram. */
+  cents: number;
+  /** Só a sobra deste mês, com os vencimentos que ainda vão cair. */
+  monthCents: number;
+  /** O que veio dos meses anteriores. */
+  carriedCents: number;
+  /** O que as metas já separaram neste mês. */
+  separatedCents: number;
+  /** Dias até o fim do mês, contando hoje. */
+  daysLeft: number;
+  /** O livre dividido pelos dias que faltam. */
+  perDayCents: number;
+};
+
 export type HojeResposta = {
   date: string;
   today: string;
@@ -1015,6 +1093,10 @@ export type HojeResposta = {
   compromissos: CompromissoDoDia[];
   vencimentos: VencimentoDoDia[];
   pendencias: PendenciaDoDia[];
+  /** Só em hoje; null quando o mês não tem base. */
+  livre: SobraLivre | null;
+  /** As sessões com limite e o uso delas no mês de hoje, da mais cheia para a mais folgada. */
+  limites: UsoDoLimite[];
 };
 
 export type StatusCompromisso = (typeof STATUS_COMPROMISSO)[number];
@@ -2056,9 +2138,9 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "atualizar-status-compromisso",
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
-  ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "excluir-tarefa"]),
+  ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "mover-tarefa", "excluir-tarefa"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
-  ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta"]),
+  ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta", "remover-conta"]),
   ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato", "desfazer-conferencia"]),
   ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas", "dividir-linha", "desfazer-divisao"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
@@ -3003,6 +3085,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
         .describe(
           "valor = recebe um só lançamento, da categoria única (unique); acumulo = junta vários lançamentos de qualquer categoria, inclusive fixa, parcela e empréstimo.",
         ),
+      limitCents: z.number().int().min(0).nullable().optional().describe("Acúmulo: o teto de saídas por mês, em centavos. null ou ausente: sem limite."),
     }),
     rotulo: (args) => `Criou a sessão ${entreAspas(args.name)}`,
   }),
@@ -3016,6 +3099,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       name: z.string().trim().min(1).max(80),
       description: z.string().trim().max(160),
       justification: z.string().trim().max(160),
+      limitCents: z.number().int().min(0).nullable().optional().describe("Acúmulo: o teto de saídas por mês, em centavos. null tira o limite; ausente mantém o que está."),
     }),
     rotulo: (args) => `Editou a sessão ${entreAspas(args.name)}`,
   }),
@@ -3104,19 +3188,34 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "criar_tarefa",
     agentes: ["agenda"],
-    descricao: "Escreve uma tarefa na aba Hoje da pessoa. Sem date, é para hoje. Tarefa não guarda valor: dinheiro é lançamento.",
+    descricao:
+      "Escreve uma tarefa na aba Hoje da pessoa. Sem date, é para hoje. Com parentId, vira subatividade de uma tarefa que já existe (o id vem de consultar_hoje; subatividades podem ter subatividades). Tarefa não guarda valor: dinheiro é lançamento.",
     esquema: z.object({
       title: z.string().trim().min(1).max(160).describe("A tarefa, curta, como a pessoa falaria."),
       date: dataDoSistema.optional(),
+      parentId: idDoSistema.optional().describe("A atividade de que esta é subatividade."),
+      repeat: z.enum(REPETICOES_DE_TAREFA).optional().describe("Só sem parentId: daily (todo dia), weekdays (dias úteis), weekly (toda semana) ou monthly (todo mês). Ao ser feita, a tarefa nasce de novo no próximo dia da regra."),
     }),
     rotulo: (args) => `Anotou a tarefa ${entreAspas(args.title)}`,
   }),
   ferramenta({
     nome: "concluir_tarefa",
     agentes: ["agenda"],
-    descricao: "Marca uma tarefa da aba Hoje como feita (done true) ou reabre (done false). O id vem de consultar_hoje.",
+    descricao: "Marca uma tarefa da aba Hoje como feita (done true) ou reabre (done false). O id vem de consultar_hoje. Marcar a atividade marca as subatividades; a última subatividade fecha a atividade.",
     esquema: z.object({ id: idDoSistema, done: z.boolean() }),
     rotulo: (args) => (args.done ? "Marcou a tarefa como feita" : "Reabriu a tarefa"),
+  }),
+  ferramenta({
+    nome: "mover_tarefa",
+    agentes: ["agenda"],
+    descricao:
+      "Muda uma tarefa de lugar na aba Hoje: para dentro de outra (parentId) ou para a raiz (parentId null), e antes de uma irmã (beforeId) ou no fim. Serve para organizar e para tornar uma subatividade uma atividade.",
+    esquema: z.object({
+      id: idDoSistema,
+      parentId: idDoSistema.nullable().describe("A atividade que vai receber esta; null para a raiz."),
+      beforeId: idDoSistema.nullable().optional().describe("A irmã na frente da qual ela entra; sem isso, fica no fim."),
+    }),
+    rotulo: () => "Moveu a tarefa",
   }),
   ferramenta({
     nome: "excluir_tarefa",
@@ -3806,7 +3905,7 @@ export function proximosVencimentos(
 /* ---------------------------------------------------------------------------------------------- */
 
 /** O que gera aviso. A pessoa liga ou desliga cada tipo em cada canal. */
-export const TIPOS_DE_NOTIFICACAO = ["vencimentos", "lembretes", "extratos", "metas", "assistente"] as const;
+export const TIPOS_DE_NOTIFICACAO = ["vencimentos", "lembretes", "extratos", "metas", "limites", "assistente"] as const;
 export type TipoDeNotificacao = (typeof TIPOS_DE_NOTIFICACAO)[number];
 
 /** Central: a lista dentro do sistema. Celular e navegador: o push, que chega com o app ou a aba fechados. */
@@ -3818,6 +3917,7 @@ export const ROTULO_DO_TIPO_DE_NOTIFICACAO: Record<TipoDeNotificacao, { titulo: 
   lembretes: { titulo: "Lembretes", dica: "Compromisso da agenda, na antecedência escolhida." },
   extratos: { titulo: "Extratos", dica: "Leitura de imagem ou PDF que terminou e linhas esperando conferência." },
   metas: { titulo: "Metas", dica: "Meta alcançada, parte do mês sem separar e prazo chegando." },
+  limites: { titulo: "Limites", dica: "Sessão que passou de 80% do limite do mês e sessão que estourou." },
   assistente: { titulo: "Assistente", dica: "Plano do consultor parado esperando a sua aprovação." },
 };
 
@@ -3870,6 +3970,7 @@ export const PREFERENCIAS_DE_NOTIFICACAO_PADRAO: PreferenciasDeNotificacao = {
     lembretes: { central: true, celular: true, navegador: true },
     extratos: { central: true, celular: true, navegador: false },
     metas: { central: true, celular: true, navegador: false },
+    limites: { central: true, celular: true, navegador: true },
     assistente: { central: true, celular: true, navegador: true },
   },
   silencio: { ativo: false, inicio: "22:00", fim: "07:00" },
@@ -3884,6 +3985,7 @@ export const ESQUEMA_PREFERENCIAS_DE_NOTIFICACAO = z.object({
     lembretes: canaisDoTipo,
     extratos: canaisDoTipo,
     metas: canaisDoTipo,
+    limites: canaisDoTipo,
     assistente: canaisDoTipo,
   }),
   silencio: z.object({ ativo: z.boolean(), inicio: horaDoDia, fim: horaDoDia }),
