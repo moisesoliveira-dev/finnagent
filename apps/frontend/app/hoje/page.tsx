@@ -1,18 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import {
+  REPETICOES_DE_TAREFA,
+  ROTULO_DA_REPETICAO,
+  type CompromissoDoDia,
+  type HojeResposta,
+  type PendenciaDoDia,
+  type RepeticaoDeTarefa,
+  type Tarefa,
+  type UsoDoLimite,
+  type VencimentoDoDia,
+} from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
 import { Carregando } from "../../components/ui/esqueleto";
 import { Icone } from "../../components/ui/icone";
-import { Money } from "../../components/ui/money";
+import { formatarReais, Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada, Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
 import { ROTULO_CATEGORIA } from "../financas/rotulos";
+import { MenuDaLinha, type OpcaoDaLinha } from "./menu-da-linha";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, cache: "no-store", headers: { "content-type": "application/json", ...init?.headers } });
@@ -49,6 +60,19 @@ function detalhesDoVencimento(item: VencimentoDoDia) {
   return [item.counterparty || `${item.groupName} › ${item.sessionName}`, ROTULO_CATEGORIA[item.category]].join(" · ");
 }
 
+/** O recuo de cada nível da árvore, em pixels: a caixa da filha alinha com o texto da mãe. */
+const RECUO = 28;
+/** O arraste que passa disso para a direita, abaixo de uma linha, põe a tarefa dentro dela. */
+const RECUO_PARA_ENTRAR = 40;
+
+type Alvo = { id: string; posicao: "antes" | "depois"; dentro: boolean };
+type Arraste = { id: string; alvo: Alvo | null };
+
+function descendentes(tarefas: Tarefa[], id: string): string[] {
+  const filhos = tarefas.filter((item) => item.parentId === id).map((item) => item.id);
+  return filhos.flatMap((filho) => [filho, ...descendentes(tarefas, filho)]);
+}
+
 export default function Hoje() {
   const toast = useToast();
   const [dia, setDia] = useState<string | null>(null);
@@ -58,6 +82,10 @@ export default function Hoje() {
   const [deslize, setDeslize] = useState(0);
   const [novo, setNovo] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
+  // A atividade que está recebendo uma subatividade nova, e o texto dela.
+  const [novaSub, setNovaSub] = useState<string | null>(null);
+  const [textoSub, setTextoSub] = useState("");
+  const [arraste, setArraste] = useState<Arraste | null>(null);
 
   const carregar = useCallback(
     (alvo: string | null) =>
@@ -118,20 +146,38 @@ export default function Hoje() {
     );
   }
 
+  async function adicionarSub(pai: Tarefa) {
+    const title = textoSub.trim();
+    if (!title) return;
+    const feito = await agir(
+      `sub-${pai.id}`,
+      () => api("/api/tarefas", { method: "POST", body: JSON.stringify({ id: crypto.randomUUID(), title, date: pai.date, parentId: pai.id }) }),
+      "Não foi possível anotar a subatividade.",
+    );
+    if (feito) setTextoSub("");
+  }
+
   const tarefa = (item: Tarefa, done: boolean) =>
     agir(item.id, () => api(`/api/tarefas/${item.id}/concluir`, { method: "PATCH", body: JSON.stringify({ done }) }), "Não foi possível marcar a tarefa.");
 
   const apagarTarefa = (item: Tarefa) =>
     agir(`apagar-${item.id}`, () => api(`/api/tarefas/${item.id}`, { method: "DELETE" }), "Não foi possível apagar a tarefa.");
 
-  const salvarTarefa = async (item: Tarefa, title: string, date: string) => {
+  const salvarTarefa = async (item: Tarefa, title: string, date: string, repeat: RepeticaoDeTarefa | null) => {
     const feito = await agir(
       `editar-${item.id}`,
-      () => api(`/api/tarefas/${item.id}`, { method: "PATCH", body: JSON.stringify({ title, date }) }),
+      () => api(`/api/tarefas/${item.id}`, { method: "PATCH", body: JSON.stringify({ title, date, repeat }) }),
       "Não foi possível salvar a tarefa.",
     );
     if (feito) setEditando(null);
   };
+
+  const mover = (item: Tarefa, parentId: string | null, beforeId: string | null) =>
+    agir(
+      `mover-${item.id}`,
+      () => api(`/api/tarefas/${item.id}/mover`, { method: "PATCH", body: JSON.stringify({ parentId, beforeId }) }),
+      "Não foi possível mover a tarefa.",
+    );
 
   const compromisso = (item: CompromissoDoDia, done: boolean) =>
     agir(
@@ -161,14 +207,155 @@ export default function Hoje() {
       "Não foi possível marcar o pagamento.",
     );
 
+  const tarefas = dados?.tarefas ?? [];
+  const filhasDe = (id: string | null) => tarefas.filter((item) => item.parentId === id);
+  const raizes = filhasDe(null);
+
+  // ----- Arrastar e soltar: o punho segura a linha; soltar em cima ou embaixo de outra reordena, mais à direita entra nela.
+  function alvoEm(x: number, y: number, arrastada: string): Alvo | null {
+    const elemento = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-tarefa]");
+    if (!elemento) return null;
+    const id = elemento.dataset.tarefa ?? "";
+    if (!id || id === arrastada || descendentes(tarefas, arrastada).includes(id)) return null;
+    const caixa = elemento.getBoundingClientRect();
+    const nivel = Number(elemento.dataset.nivel ?? 0);
+    const posicao = y < caixa.top + caixa.height / 2 ? "antes" : "depois";
+    const dentro = posicao === "depois" && x > caixa.left + 16 + nivel * RECUO + RECUO_PARA_ENTRAR;
+    return { id, posicao, dentro };
+  }
+
+  function soltar(arrastada: Tarefa, alvo: Alvo) {
+    const destino = tarefas.find((item) => item.id === alvo.id);
+    if (!destino) return;
+    if (alvo.dentro) {
+      void mover(arrastada, destino.id, null);
+      return;
+    }
+    const irmas = filhasDe(destino.parentId).filter((item) => item.id !== arrastada.id);
+    const indice = irmas.findIndex((item) => item.id === destino.id);
+    const beforeId = alvo.posicao === "antes" ? destino.id : (irmas[indice + 1]?.id ?? null);
+    void mover(arrastada, destino.parentId, beforeId);
+  }
+
+  // ----- Uma tarefa com a árvore abaixo dela, o campo de subatividade nova e a edição no lugar.
+  const atividade = (item: Tarefa, nivel: number): React.ReactNode => {
+    if (!dados) return null;
+    const filhas = filhasDe(item.id);
+    const feitas = filhas.filter((filha) => filha.doneOn).length;
+    const pai = item.parentId ? tarefas.find((outra) => outra.id === item.parentId) : null;
+    const irmas = filhasDe(item.parentId);
+    const posicao = irmas.findIndex((outra) => outra.id === item.id);
+    const emArraste = arraste?.id === item.id;
+    const alvo = arraste?.alvo?.id === item.id ? arraste.alvo : null;
+    const opcoes: OpcaoDaLinha[] = [
+      {
+        rotulo: "Subatividade",
+        onClick: () => {
+          setNovaSub(item.id);
+          setTextoSub("");
+        },
+      },
+      { rotulo: "Editar", onClick: () => setEditando(item.id) },
+      ...(posicao > 0 ? [{ rotulo: "Subir", onClick: () => void mover(item, item.parentId, irmas[posicao - 1]?.id ?? null) }] : []),
+      ...(posicao < irmas.length - 1 ? [{ rotulo: "Descer", onClick: () => void mover(item, item.parentId, irmas[posicao + 2]?.id ?? null) }] : []),
+      ...(pai
+        ? [
+            {
+              rotulo: "Tirar de dentro",
+              onClick: () => {
+                const tias = filhasDe(pai.parentId);
+                const depoisDoPai = tias[tias.findIndex((outra) => outra.id === pai.id) + 1]?.id ?? null;
+                void mover(item, pai.parentId, depoisDoPai);
+              },
+            },
+          ]
+        : []),
+      { rotulo: "Apagar", perigo: true, onClick: () => void apagarTarefa(item) },
+    ];
+    return (
+      <Fragment key={item.id}>
+        {editando === item.id ? (
+          <EdicaoDaTarefa
+            item={item}
+            nivel={nivel}
+            ocupado={ocupado === `editar-${item.id}`}
+            onSalvar={(title, date, repeat) => void salvarTarefa(item, title, date, repeat)}
+            onCancelar={() => setEditando(null)}
+          />
+        ) : (
+          <Linha
+            chave={item.id}
+            nivel={nivel}
+            feito={Boolean(item.doneOn)}
+            ocupado={ocupado === item.id}
+            rotulo={`${nivel > 0 ? "Subatividade" : "Tarefa"} ${item.title}`}
+            onMarcar={(done) => void tarefa(item, done)}
+            titulo={item.title}
+            detalhe={filhas.length > 0 ? `${feitas} de ${filhas.length}` : undefined}
+            chip={
+              <>
+                {nivel === 0 && item.date < dados.date && !item.doneOn ? <Chip tone="pending">Ficou de {rotuloCurto(item.date)}</Chip> : null}
+                {item.repeat ? <Chip tone="info">{ROTULO_DA_REPETICAO[item.repeat]}</Chip> : null}
+              </>
+            }
+            opcoes={opcoes}
+            emArraste={emArraste}
+            alvo={alvo}
+            onPegar={(x, y) => setArraste({ id: item.id, alvo: alvoEm(x, y, item.id) })}
+            onArrastar={(x, y) => setArraste((atual) => (atual ? { ...atual, alvo: alvoEm(x, y, atual.id) } : atual))}
+            onSoltar={() => {
+              if (arraste?.alvo) soltar(item, arraste.alvo);
+              setArraste(null);
+            }}
+          />
+        )}
+        {filhas.map((filha) => atividade(filha, nivel + 1))}
+        {novaSub === item.id ? (
+          <ItemAnimado className="min-w-0 border-b border-line py-2 pr-4 last:border-b-0" style={{ paddingLeft: 16 + (nivel + 1) * RECUO }}>
+            <form
+              className="flex min-w-0 items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void adicionarSub(item);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setNovaSub(null);
+              }}
+            >
+              <span className="size-4 shrink-0 border border-dashed border-line" aria-hidden />
+              <label htmlFor={`sub-${item.id}`} className="sr-only">
+                Nova subatividade de {item.title}
+              </label>
+              <input
+                id={`sub-${item.id}`}
+                autoFocus
+                className={cn("min-h-10 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-2", focusRing)}
+                placeholder="Subatividade"
+                maxLength={160}
+                value={textoSub}
+                onChange={(event) => setTextoSub(event.target.value)}
+              />
+              <Button type="submit" variant="quiet" aria-label="Adicionar subatividade" className="size-10 px-0" disabled={!textoSub.trim() || ocupado !== ""}>
+                <Icone name="add" />
+              </Button>
+              <Button type="button" variant="quiet" aria-label="Cancelar subatividade" className="size-10 px-0" onClick={() => setNovaSub(null)}>
+                <Icone name="fechar" />
+              </Button>
+            </form>
+          </ItemAnimado>
+        ) : null}
+      </Fragment>
+    );
+  };
+
   const atrasados = dados ? dados.vencimentos.filter((item) => item.situation === "late") : [];
   const doDia = dados ? dados.vencimentos.filter((item) => item.situation !== "late") : [];
   const abertas = dados
     ? dados.compromissos.filter((item) => item.status !== "done").length +
       dados.vencimentos.filter((item) => item.situation !== "completed").length +
-      dados.tarefas.filter((item) => !item.doneOn).length
+      tarefas.filter((item) => !item.doneOn).length
     : 0;
-  const total = dados ? dados.compromissos.length + dados.vencimentos.length + dados.tarefas.length : 0;
+  const total = dados ? dados.compromissos.length + dados.vencimentos.length + tarefas.length : 0;
   const feitas = total - abertas;
   const ehHoje = dados ? dados.date === dados.today : true;
   const vazio = dados ? total === 0 && dados.pendencias.length === 0 : false;
@@ -209,8 +396,10 @@ export default function Hoje() {
               </div>
             ) : null}
 
+            {dados.livre ? <Livre livre={dados.livre} limites={dados.limites} /> : null}
+
             {/* Uma lista só, como uma lista de papel: o campo de anotar é a primeira linha. */}
-            <div className="rounded-lg border border-line bg-surface">
+            <div className={cn("rounded-lg border border-line bg-surface", arraste && "select-none")}>
               <form onSubmit={(event) => void adicionar(event)} className="flex min-w-0 items-center gap-3 border-b border-line px-4 py-2">
                 <span className="size-4 shrink-0 border border-dashed border-line" aria-hidden />
                 <label htmlFor="nova-tarefa" className="sr-only">
@@ -281,55 +470,20 @@ export default function Hoje() {
                 ))}
               </Grupo>
 
-              <Grupo titulo="Para fazer" vazio={dados.tarefas.every((item) => item.doneOn) && dados.pendencias.length === 0}>
-                {dados.tarefas
-                  .filter((item) => !item.doneOn)
-                  .map((item) =>
-                    editando === item.id ? (
-                      <EdicaoDaTarefa
-                        key={item.id}
-                        item={item}
-                        ocupado={ocupado === `editar-${item.id}`}
-                        onSalvar={(title, date) => void salvarTarefa(item, title, date)}
-                        onCancelar={() => setEditando(null)}
-                      />
-                    ) : (
-                      <Linha
-                        key={item.id}
-                        chave={item.id}
-                        feito={false}
-                        ocupado={ocupado === item.id}
-                        rotulo={`Tarefa ${item.title}`}
-                        onMarcar={(done) => void tarefa(item, done)}
-                        titulo={item.title}
-                        chip={item.date < dados.date ? <Chip tone="pending">Ficou de {rotuloCurto(item.date)}</Chip> : null}
-                        onEditar={() => setEditando(item.id)}
-                        onApagar={() => void apagarTarefa(item)}
-                      />
-                    ),
-                  )}
+              <Grupo titulo="Para fazer" vazio={raizes.every((item) => item.doneOn) && dados.pendencias.length === 0}>
+                {raizes.filter((item) => !item.doneOn).map((item) => atividade(item, 0))}
                 {dados.pendencias.map((item) => (
                   <Pendencia key={item.id} item={item} />
                 ))}
               </Grupo>
 
-              <Grupo titulo="Feito" vazio={!dados.tarefas.some((item) => item.doneOn)}>
-                {dados.tarefas
-                  .filter((item) => item.doneOn)
-                  .map((item) => (
-                    <Linha
-                      key={item.id}
-                      chave={item.id}
-                      feito
-                      ocupado={ocupado === item.id}
-                      rotulo={`Tarefa ${item.title}`}
-                      onMarcar={(done) => void tarefa(item, done)}
-                      titulo={item.title}
-                      onApagar={() => void apagarTarefa(item)}
-                    />
-                  ))}
+              <Grupo titulo="Feito" vazio={!raizes.some((item) => item.doneOn)}>
+                {raizes.filter((item) => item.doneOn).map((item) => atividade(item, 0))}
               </Grupo>
             </div>
+            {tarefas.length > 1 ? (
+              <p className="text-xs text-ink-2">Segure o punho de uma tarefa e arraste para reordenar. Solte mais à direita, abaixo de outra, para pôr dentro dela.</p>
+            ) : null}
           </Troca>
         ) : null}
       </div>
@@ -349,11 +503,12 @@ function Grupo({ titulo, vazio, children }: { titulo: string; vazio: boolean; ch
 }
 
 /**
- * Uma linha da lista: a caixa, a hora quando há, o título com o detalhe em texto, e o valor ou o chip à direita.
- * O que já foi feito fica riscado e apagado, sem sair do lugar.
+ * Uma linha da lista: o punho de arrastar (nas tarefas), a caixa, a hora quando há, o título com o detalhe, e o
+ * valor, o chip ou o menu de três pontos à direita. O que já foi feito fica riscado e apagado, sem sair do lugar.
  */
 function Linha({
   chave,
+  nivel = 0,
   feito,
   ocupado,
   rotulo,
@@ -363,10 +518,15 @@ function Linha({
   detalhe,
   chip,
   lado,
-  onEditar,
-  onApagar,
+  opcoes,
+  emArraste = false,
+  alvo = null,
+  onPegar,
+  onArrastar,
+  onSoltar,
 }: {
   chave: string;
+  nivel?: number;
   feito: boolean;
   ocupado: boolean;
   rotulo: string;
@@ -376,12 +536,56 @@ function Linha({
   detalhe?: string;
   chip?: React.ReactNode;
   lado?: React.ReactNode;
-  onEditar?: () => void;
-  onApagar?: () => void;
+  /** O menu de três pontos. Sem ele, a linha não tem ações. */
+  opcoes?: OpcaoDaLinha[];
+  emArraste?: boolean;
+  alvo?: Alvo | null;
+  onPegar?: (x: number, y: number) => void;
+  onArrastar?: (x: number, y: number) => void;
+  onSoltar?: () => void;
 }) {
   const id = `item-${chave}`;
+  const arrastavel = Boolean(onPegar);
   return (
-    <ItemAnimado className={cn("group flex min-w-0 items-center gap-3 border-b border-line px-4 py-2 last:border-b-0", feito && "text-ink-2")}>
+    <ItemAnimado
+      data-tarefa={arrastavel ? chave : undefined}
+      data-nivel={arrastavel ? nivel : undefined}
+      className={cn("relative flex min-w-0 items-center gap-3 border-b border-line py-2 pr-4 last:border-b-0", feito && "text-ink-2", emArraste && "opacity-50")}
+      style={{ paddingLeft: arrastavel ? 8 + nivel * RECUO : 16 }}
+    >
+      {alvo ? (
+        <span
+          aria-hidden
+          className={cn("pointer-events-none absolute right-4 h-0.5 bg-brand", alvo.posicao === "antes" ? "top-0" : "bottom-0")}
+          style={{ left: 16 + nivel * RECUO + (alvo.dentro ? RECUO : 0) }}
+        />
+      ) : null}
+      {arrastavel ? (
+        <button
+          type="button"
+          aria-label={`Mover: ${rotulo}`}
+          title="Segure e arraste"
+          disabled={ocupado}
+          className={cn("inline-flex size-10 shrink-0 cursor-grab touch-none items-center justify-center text-ink-2 active:cursor-grabbing", focusRing)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            onPegar?.(event.clientX, event.clientY);
+          }}
+          onPointerMove={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            onArrastar?.(event.clientX, event.clientY);
+          }}
+          onPointerUp={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            event.currentTarget.releasePointerCapture(event.pointerId);
+            onSoltar?.();
+          }}
+          onPointerCancel={() => onSoltar?.()}
+        >
+          <Icone name="punho" />
+        </button>
+      ) : null}
       <input
         id={id}
         type="checkbox"
@@ -403,16 +607,7 @@ function Linha({
       </label>
       <span className="flex shrink-0 items-center gap-1">
         {lado}
-        {onEditar ? (
-          <Button type="button" variant="quiet" className="size-10 px-0" aria-label={`Editar: ${rotulo}`} disabled={ocupado} onClick={onEditar}>
-            <Icone name="edit" />
-          </Button>
-        ) : null}
-        {onApagar ? (
-          <Button type="button" variant="quiet" className="size-10 px-0" aria-label={`Apagar: ${rotulo}`} disabled={ocupado} onClick={onApagar}>
-            <Icone name="remove" />
-          </Button>
-        ) : null}
+        {opcoes ? <MenuDaLinha rotulo={rotulo} opcoes={opcoes} disabled={ocupado} /> : null}
       </span>
     </ItemAnimado>
   );
@@ -421,24 +616,27 @@ function Linha({
 /** A tarefa em edição, no lugar dela: o texto e o dia; Enter salva, Escape cancela. */
 function EdicaoDaTarefa({
   item,
+  nivel,
   ocupado,
   onSalvar,
   onCancelar,
 }: {
   item: Tarefa;
+  nivel: number;
   ocupado: boolean;
-  onSalvar: (title: string, date: string) => void;
+  onSalvar: (title: string, date: string, repeat: RepeticaoDeTarefa | null) => void;
   onCancelar: () => void;
 }) {
   const [title, setTitle] = useState(item.title);
   const [date, setDate] = useState(item.date);
+  const [repeat, setRepeat] = useState<RepeticaoDeTarefa | "">(item.repeat ?? "");
   return (
-    <ItemAnimado className="border-b border-line px-4 py-2 last:border-b-0">
+    <ItemAnimado className="min-w-0 border-b border-line py-2 pr-4 last:border-b-0" style={{ paddingLeft: 16 + nivel * RECUO }}>
       <form
         className="flex min-w-0 flex-wrap items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (title.trim()) onSalvar(title.trim(), date);
+          if (title.trim()) onSalvar(title.trim(), date, repeat || null);
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") onCancelar();
@@ -447,18 +645,26 @@ function EdicaoDaTarefa({
         <label htmlFor={`editar-${item.id}`} className="sr-only">
           Texto da tarefa
         </label>
-        <input
-          id={`editar-${item.id}`}
-          autoFocus
-          className={cn(campo, "min-w-0 flex-1")}
-          maxLength={160}
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
+        <input id={`editar-${item.id}`} autoFocus className={cn(campo, "min-w-0 flex-1")} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
         <label htmlFor={`editar-dia-${item.id}`} className="sr-only">
           Dia da tarefa
         </label>
         <input id={`editar-dia-${item.id}`} type="date" className={campo} value={date} onChange={(event) => setDate(event.target.value)} />
+        {nivel === 0 ? (
+          <>
+            <label htmlFor={`editar-repete-${item.id}`} className="sr-only">
+              Repetir
+            </label>
+            <select id={`editar-repete-${item.id}`} className={campo} value={repeat} onChange={(event) => setRepeat(event.target.value as RepeticaoDeTarefa | "")}>
+              <option value="">Não repete</option>
+              {REPETICOES_DE_TAREFA.map((opcao) => (
+                <option key={opcao} value={opcao}>
+                  {ROTULO_DA_REPETICAO[opcao]}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
         <Button type="submit" variant="default" disabled={ocupado || !title.trim()}>
           Salvar
         </Button>
@@ -467,6 +673,61 @@ function EdicaoDaTarefa({
         </Button>
       </form>
     </ItemAnimado>
+  );
+}
+
+/**
+ * O que a pessoa tem livre até o fim do mês e quanto isso dá por dia, mais as sessões com limite: o número que
+ * orienta o gasto de hoje.
+ */
+function Livre({ livre, limites }: { livre: NonNullable<HojeResposta["livre"]>; limites: UsoDoLimite[] }) {
+  const partes = [
+    `Neste mês ${formatarReais(livre.monthCents)}`,
+    livre.carriedCents !== 0 ? `de antes ${formatarReais(livre.carriedCents)}` : "",
+    livre.separatedCents !== 0 ? `separado nas metas ${formatarReais(livre.separatedCents)}` : "",
+  ].filter(Boolean);
+  return (
+    <section aria-label="Livre até o fim do mês" className="grid min-w-0 gap-3 rounded-lg border border-line bg-surface p-4">
+      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="etiqueta text-ink-2">Livre até o fim do mês</span>
+        <span className="text-sm text-ink-2">{livre.daysLeft === 1 ? "último dia" : `${livre.daysLeft} dias`}</span>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+        <span className="font-display text-xl tracking-titulo">
+          <Money cents={livre.cents} strong />
+        </span>
+        {livre.cents > 0 ? (
+          <span className="text-sm text-ink-2">
+            {formatarReais(livre.perDayCents)} por dia
+          </span>
+        ) : (
+          <span className="text-sm text-neg">Sem folga: as saídas do mês já passam das entradas.</span>
+        )}
+      </div>
+      <p className="text-xs text-ink-2">{partes.join(" · ")}.</p>
+      {limites.length > 0 ? (
+        <ul className="grid min-w-0 gap-2 border-t border-line pt-3" aria-label="Limites das sessões">
+          {limites.map((uso) => {
+            const tom = uso.percent >= 100 ? "bg-neg" : uso.percent >= 80 ? "bg-pending" : "bg-brand";
+            return (
+              <li key={uso.sessionId} className="grid min-w-0 gap-1">
+                <div className="flex min-w-0 items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate">
+                    {uso.sessionName} <span className="text-ink-2">· {uso.groupName}</span>
+                  </span>
+                  <span className={cn("shrink-0 tabular-nums", uso.percent >= 100 ? "text-neg" : "text-ink-2")}>
+                    {formatarReais(uso.usedCents)} de {formatarReais(uso.limitCents)}
+                  </span>
+                </div>
+                <div className="h-1 w-full bg-surface-2" role="progressbar" aria-label={`${uso.sessionName}: ${uso.percent}% do limite`} aria-valuenow={Math.min(uso.percent, 100)} aria-valuemin={0} aria-valuemax={100}>
+                  <div className={cn("h-1", tom)} style={{ width: `${Math.min(uso.percent, 100)}%` }} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

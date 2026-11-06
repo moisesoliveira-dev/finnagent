@@ -10,6 +10,8 @@ export type DadosDaSessao = {
   name: string;
   description: string;
   justification: string;
+  /** Acúmulo: o teto de saídas por mês. null tira o limite; ausente mantém o que está. */
+  limitCents?: number | null;
 };
 
 export interface GruposRepositorio {

@@ -14,15 +14,22 @@ import {
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { REPETICOES_DE_TAREFA } from "@finnagent/contracts";
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { HojeService } from "./aplicacao/hoje.service.js";
 
 const tenantId = z.uuid();
 const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const tarefa = z.object({ title: z.string().trim().min(1).max(160), date: dataIso });
+const tarefa = z.object({
+  title: z.string().trim().min(1).max(160),
+  date: dataIso,
+  parentId: z.uuid().nullable().optional(),
+  repeat: z.enum(REPETICOES_DE_TAREFA).nullable().optional(),
+});
 const criarTarefa = tarefa.extend({ id: z.uuid() });
 const concluir = z.object({ done: z.boolean() });
+const mover = z.object({ parentId: z.uuid().nullable(), beforeId: z.uuid().nullable().optional() });
 
 @Controller()
 export class HojeController {
@@ -55,6 +62,13 @@ export class HojeController {
     const pedido = concluir.safeParse(body);
     if (!pedido.success) throw new BadRequestException("Diga se a tarefa foi feita.");
     return this.executar(() => this.hoje.concluir(this.tenant(tenant), this.id(id), pedido.data.done));
+  }
+
+  @Patch("tarefas/:id/mover")
+  mover(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const pedido = mover.safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Diga para onde a tarefa vai.");
+    return this.executar(() => this.hoje.mover(this.tenant(tenant), this.id(id), pedido.data));
   }
 
   @Delete("tarefas/:id")

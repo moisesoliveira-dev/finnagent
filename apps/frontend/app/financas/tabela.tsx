@@ -4,13 +4,13 @@ import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { useToast } from "../../components/ui/toast";
-import { CATEGORIAS_TRANSACAO, type BaseResposta, type LinhaBase } from "@finnagent/contracts";
+import { CATEGORIAS_TRANSACAO, type BaseResposta, type LinhaBase, type UsoDoLimite } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
 import { ControleExclusao } from "./acoes";
 import { Chip } from "../../components/ui/chip";
 import { Dialogo } from "../../components/ui/dialogo";
-import { Money } from "../../components/ui/money";
+import { formatarReais, Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada, Seta, Troca, useCurva } from "../../components/ui/movimento";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
@@ -110,6 +110,8 @@ export function TabelaLancamentos({
   }, [chave, toast]);
 
   const grupos = useMemo(() => agrupar(dados?.rows ?? []), [dados]);
+  const limiteDe = (grupo: string, sessao: string): UsoDoLimite | undefined =>
+    dados?.limits?.find((uso) => uso.groupName === grupo && uso.sessionName === sessao);
   const sessaoAberta = aberta ? (grupos.flatMap((grupo) => grupo.sessoes).find((item) => item.chave === aberta) ?? null) : null;
 
   async function excluir(linha: LinhaBase) {
@@ -249,7 +251,9 @@ export function TabelaLancamentos({
                   </button>
                   {fechado ? null : (
                     <ListaAnimada className="min-w-0">
-                      {grupo.sessoes.map((sessao) => (
+                      {grupo.sessoes.map((sessao) => {
+                        const uso = limiteDe(grupo.nome, sessao.nome);
+                        return (
                         <ItemAnimado key={sessao.chave} className="min-w-0 border-t border-line">
                           <button
                             type="button"
@@ -264,7 +268,28 @@ export function TabelaLancamentos({
                               <span className="truncate font-medium">{sessao.nome}</span>
                               <span className="text-xs text-ink-2">
                                 {sessao.linhas.length === 1 ? "1 lançamento" : `${sessao.linhas.length} lançamentos`}
+                                {uso ? (
+                                  <span className={uso.percent >= 100 ? "text-neg" : undefined}>
+                                    {" · "}
+                                    {formatarReais(uso.usedCents)} de {formatarReais(uso.limitCents)} do limite
+                                  </span>
+                                ) : null}
                               </span>
+                              {uso ? (
+                                <span
+                                  className="h-1 w-full max-w-48 bg-surface-2"
+                                  role="progressbar"
+                                  aria-label={`${sessao.nome}: ${uso.percent}% do limite`}
+                                  aria-valuenow={Math.min(uso.percent, 100)}
+                                  aria-valuemin={0}
+                                  aria-valuemax={100}
+                                >
+                                  <span
+                                    className={cn("block h-1", uso.percent >= 100 ? "bg-neg" : uso.percent >= 80 ? "bg-pending" : "bg-brand")}
+                                    style={{ width: `${Math.min(uso.percent, 100)}%` }}
+                                  />
+                                </span>
+                              ) : null}
                             </span>
                             <Money cents={sessao.totalCents} />
                             <span aria-hidden="true" className="text-ink-2">
@@ -272,7 +297,8 @@ export function TabelaLancamentos({
                             </span>
                           </button>
                         </ItemAnimado>
-                      ))}
+                        );
+                      })}
                     </ListaAnimada>
                   )}
                 </section>
