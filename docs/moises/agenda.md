@@ -107,3 +107,34 @@ Arquivos:
 
 - `apps/frontend/app/agenda/page.tsx`
 - `apps/frontend/app/agenda/lista.tsx`
+
+## Avisos espertos: gasto do compromisso, vencimentos e tarefas
+
+O que foi feito: depois que um compromisso termina, o sistema pergunta "Teve gasto?". A pergunta aparece na Hoje, num grupo próprio, com o campo de valor, a sessão (a do compromisso, ou um seletor quando ele não tem) e os botões "Lançar" e "Não teve"; e sai como notificação do tipo novo "Gastos dos compromissos" nas três horas depois do fim, levando para a Hoje. Lançar cria um lançamento único de saída, já pago no dia do compromisso (`POST compromissos/:id/gastos`); "Não teve" só responde (`POST compromissos/:id/sem-gasto`). A resposta fica em `appointment_spendings`, uma por compromisso e dia, e a pergunta não volta. Não pergunta quando já há gasto na sessão do compromisso naquele dia, quando o compromisso é o lembrete de um lançamento, nem quando a pessoa desmarca "Perguntar se teve gasto quando terminar" no diálogo do compromisso (`appointments.ask_spending`). O compromisso do dia todo só pergunta se tiver sessão de gastos, às 20h. As perguntas de ontem continuam na Hoje, para o compromisso da noite ser respondido de manhã. Os vencimentos ganharam o aviso da véspera (só saída) e o do atraso: no dia seguinte ao vencimento e uma vez por semana no primeiro mês, para a saída não marcada como paga e para a entrada não marcada como recebida, levando para a Hoje. E às 20h sai o aviso das tarefas que ficaram abertas no dia (tipo novo "Tarefas"). O assistente ganhou `registrar_gasto_do_compromisso` e `sem_gasto_no_compromisso`, e `criar_compromisso` aceita `askSpending`.
+
+Motivo: o sistema deve lembrar a pessoa de registrar o que gastou num compromisso e avisar antes e depois do que vence, sem esperar que ela abra a tela.
+
+Verificação: 486 testes no backend (pergunta de gasto, vencimento de amanhã, atraso, tarefas da noite), 60 no agents e 12 no mobile; tsc e lint limpos; a migração aplicada pelo backend ao subir; os 5 E2E passando. No navegador, em 1280 e 375 px, com três compromissos de hoje que já tinham terminado: os dois com a pergunta ligada aparecem em "Teve gasto?" e o desligado não; digitar 42,50 e "Lançar" cria o lançamento único pago na sessão do compromisso e a pergunta some; sem sessão, aparece o seletor numa linha própria e "Lançar" fica desabilitado até escolher; "Não teve" tira a pergunta; sem rolagem horizontal. A varredura, rodada no contexto do backend, monta o aviso "Teve gasto em …?" para a Hoje e roda sem erro. Não verificado: a notificação gravada para um usuário, porque no ambiente local sem login os dados ficam num tenant sem usuário e a varredura só avisa usuários; no Railway, com login, o tenant tem usuários. Também não verificado: o mobile chamando as rotas reais (o grupo foi conferido com respostas simuladas).
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/prisma/schema.prisma` e `migrations/20261107090000_gasto_do_compromisso/`
+- `apps/backend/src/agenda/dominio/pergunta-de-gasto.ts` e spec (novos), `aplicacao/agenda.service.ts`, `agenda.controller.ts`, `portas/agenda-repositorio.ts`, `adaptadores/prisma-agenda-repositorio.ts`
+- `apps/backend/src/notificacoes/dominio/avisos.ts` e spec, `aplicacao/varredura.service.ts`, `notificacoes.module.ts`
+- `apps/backend/src/hoje/aplicacao/hoje.service.ts` e spec
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts`
+- specs com compromisso de exemplo: `agenda/aplicacao/ocorrencias.spec.ts`, `painel/dominio/avisos.spec.ts`, `painel/dominio/montar.spec.ts`
+- `apps/frontend/app/api/compromissos/[id]/gastos/` e `sem-gasto/` (novos), `app/hoje/page.tsx`, `app/agenda/page.tsx`
+
+## Pergunta de gasto no mobile
+
+O que foi feito: a Hoje do app ganhou o grupo "Teve gasto?" no topo, com o valor, a sessão (ou o seletor, sem sessão no compromisso), "Lançar" e "Não teve", pelas mesmas rotas do web; a notificação de destino "hoje" abre `/inicio/hoje`. O seletor do app deixou de usar a classe `vazio`, que colidia com a caixa tracejada de lista vazia e esticava o campo.
+
+Motivo: a notificação chega no celular, e a resposta precisa caber ali.
+
+Arquivos:
+
+- `apps/mobile/src/paginas/Hoje.tsx`, `paginas/hoje/dia.ts` e spec
+- `apps/mobile/src/notificacoes/destino.ts`
+- `apps/mobile/src/componentes/Selecao.tsx`
