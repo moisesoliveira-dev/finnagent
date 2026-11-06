@@ -17,7 +17,7 @@ import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { partesNoFuso } from "../dominio/fuso.js";
 import type { EventoGoogle } from "../dominio/sincronizar.js";
-import type { AgendaRepositorio, NovoCompromisso } from "../portas/agenda-repositorio.js";
+import type { AgendaRepositorio, NovoCompromisso, RespostaDeGasto } from "../portas/agenda-repositorio.js";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -125,6 +125,7 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
           endDay: completo.endDay,
           entryId: completo.entryId,
           sessionId: completo.sessionId,
+          askSpending: completo.askSpending,
         },
       });
       await this.alinharVinculo(tx, tenantId, pedido.id, completo.entryId);
@@ -291,6 +292,32 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     }
   }
 
+  async respostasDeGasto(tenantId: string, desde: string): Promise<RespostaDeGasto[]> {
+    const rows = await this.banco().appointmentSpending.findMany({
+      where: { tenantId, date: { gte: new Date(`${desde}T00:00:00.000Z`) } },
+      select: { id: true, appointmentId: true, date: true, answer: true, entryId: true },
+    });
+    return rows.map(respostaDe);
+  }
+
+  async responderGasto(tenantId: string, resposta: RespostaDeGasto) {
+    return this.banco().$transaction(async (tx) => {
+      const compromisso = await tx.appointment.findFirst({ where: { id: resposta.appointmentId, tenantId }, select: { id: true } });
+      if (!compromisso) return "ausente" as const;
+      const date = new Date(`${resposta.date}T00:00:00.000Z`);
+      const atual = await tx.appointmentSpending.findFirst({
+        where: { tenantId, appointmentId: resposta.appointmentId, date },
+        select: { id: true, appointmentId: true, date: true, answer: true, entryId: true },
+      });
+      if (atual) return respostaDe(atual);
+      await tx.appointmentSpending.create({
+        data: { id: resposta.id, tenantId, appointmentId: resposta.appointmentId, date, answer: resposta.answer, entryId: resposta.entryId },
+      });
+      await gravarOutbox(tx, tenantId, "responder-gasto-compromisso", resposta.appointmentId, resposta, marcaDe(resposta));
+      return resposta;
+    });
+  }
+
   private banco() {
     if (!this.prisma.ativo) throw new BancoIndisponivel();
     return this.prisma;
@@ -320,6 +347,7 @@ function dadosDe(tenantId: string, pedido: NovoCompromisso) {
     endDay: pedido.endDay,
     entryId: pedido.entryId,
     sessionId: pedido.sessionId,
+    askSpending: pedido.askSpending,
   };
 }
 
@@ -378,6 +406,7 @@ type Linha = {
   endDay: number | null;
   entryId: string | null;
   sessionId: string | null;
+  askSpending: boolean;
   googleEventId?: string | null;
 };
 
@@ -410,6 +439,7 @@ function compromissoDe(row: Linha, timezone: FusoAgenda): Compromisso {
     sessionId: row.sessionId,
     sessionLabel: null,
     spentCents: 0,
+    askSpending: row.askSpending,
   };
 }
 
@@ -432,7 +462,8 @@ function mesmoCompromisso(atual: Linha, pedido: NovoCompromisso) {
     atual.endMonth === pedido.endMonth &&
     atual.endDay === pedido.endDay &&
     atual.entryId === pedido.entryId &&
-    atual.sessionId === pedido.sessionId
+    atual.sessionId === pedido.sessionId &&
+    atual.askSpending === pedido.askSpending
   );
 }
 
@@ -479,4 +510,14 @@ function fusoDe(valor: string): FusoAgenda {
 
 function agendaDe(valor: string): NomeAgenda {
   return AGENDAS.find((nome) => nome === valor) ?? "Pessoal";
+}
+
+function respostaDe(row: { id: string; appointmentId: string; date: Date; answer: string; entryId: string | null }): RespostaDeGasto {
+  return {
+    id: row.id,
+    appointmentId: row.appointmentId,
+    date: row.date.toISOString().slice(0, 10),
+    answer: row.answer === "entry" ? "entry" : "none",
+    entryId: row.entryId,
+  };
 }

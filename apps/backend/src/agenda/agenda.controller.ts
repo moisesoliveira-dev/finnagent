@@ -49,6 +49,7 @@ const camposCompromisso = z.object({
   endDay: z.number().int().min(1).max(31).nullable(),
   entryId: z.uuid().nullable(),
   sessionId: z.uuid().nullable().default(null),
+  askSpending: z.boolean().default(true),
 });
 
 function validarCompromisso(
@@ -69,6 +70,15 @@ const fuso = z.object({
   timezone: z.enum(FUSOS_AGENDA),
 });
 const status = z.object({ status: z.enum(STATUS_COMPROMISSO) });
+const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const gasto = z.object({
+  id: z.uuid(),
+  date: dataIso,
+  cents: z.number().int().min(1).max(2_147_483_647),
+  sessionId: z.uuid().optional(),
+  name: z.string().trim().min(1).max(80).optional(),
+});
+const semGasto = z.object({ date: dataIso });
 const destino = z.object({
   year: z.number().int().min(2000).max(2100),
   month: z.number().int().min(1).max(12),
@@ -144,6 +154,24 @@ export class AgendaController {
       throw new BadRequestException("Não foi possível salvar o compromisso.");
     }
     return this.executar(() => this.agenda.atualizar(this.tenant(tenant), identificador.data, pedido.data));
+  }
+
+  @Post("compromissos/:id/gastos")
+  registrarGasto(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const identificador = z.uuid().safeParse(id);
+    const pedido = gasto.safeParse(body);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    if (!pedido.success) throw new BadRequestException("Informe o dia e quanto foi gasto.");
+    return this.executar(() => this.agenda.registrarGasto(this.tenant(tenant), identificador.data, pedido.data));
+  }
+
+  @Post("compromissos/:id/sem-gasto")
+  semGasto(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const identificador = z.uuid().safeParse(id);
+    const pedido = semGasto.safeParse(body);
+    if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
+    if (!pedido.success) throw new BadRequestException("Informe o dia do compromisso.");
+    return this.executar(() => this.agenda.semGasto(this.tenant(tenant), identificador.data, pedido.data.date));
   }
 
   @Post("compromissos/:id/mover")

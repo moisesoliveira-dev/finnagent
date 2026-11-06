@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   type AgendaResposta,
@@ -8,6 +9,8 @@ import {
   type LancamentoDoMes,
   type MovimentoCompromisso,
   type NomeAgenda,
+  type PedidoDeGasto,
+  type PerguntaDeGasto,
   type SessaoDaAgenda,
   type StatusCompromisso,
   type Vinculo,
@@ -18,7 +21,8 @@ import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { GRUPOS_REPOSITORIO, type GruposRepositorio } from "../../grupos/portas/grupos-repositorio.js";
 import { PedidoInvalido } from "../dominio/erros.js";
-import { gastoDoCompromisso } from "../dominio/gasto.js";
+import { dataDoCompromisso, gastoDoCompromisso } from "../dominio/gasto.js";
+import { chaveDaResposta, perguntasDeGasto } from "../dominio/pergunta-de-gasto.js";
 import { montarIntervalo } from "../dominio/fuso.js";
 import { eventoValido } from "../dominio/sincronizar.js";
 import { lancamentosDoMes } from "../dominio/lancamentos-do-mes.js";
@@ -198,6 +202,7 @@ export class AgendaService {
       ...validadeAoMover(atual, destino),
       entryId: atual.entryId,
       sessionId: atual.sessionId,
+      askSpending: atual.askSpending,
     });
     return { appointment, series: atual.category !== "fixed" };
   }
@@ -217,6 +222,93 @@ export class AgendaService {
     return resultado;
   }
 
+  /** As sessões que acumulam, para lançar o gasto de um compromisso sem sessão. */
+  async sessoesDeGasto(tenantId: string) {
+    return (await this.sessoes(tenantId)).abertas;
+  }
+
+  /**
+   * Os compromissos de ontem e de hoje que terminaram sem gasto e sem resposta: a Hoje mostra e a varredura avisa.
+   * Ontem entra para o compromisso da noite ser respondido de manhã.
+   */
+  async perguntasDeGasto(tenantId: string, agora = new Date()): Promise<PerguntaDeGasto[]> {
+    const hoje = await this.financas.hoje(tenantId);
+    const ontem = somarDias(hoje, -1);
+    const meses = new Set([ontem.slice(0, 7), hoje.slice(0, 7)]);
+    const ocorrencias: Compromisso[] = [];
+    for (const mes of meses) {
+      const [year, month] = mes.split("-").map(Number) as [number, number];
+      ocorrencias.push(...(await this.ocorrencias(tenantId, year, month)));
+    }
+    const doDia = ocorrencias.filter((item) => {
+      const data = dataDoCompromisso(item);
+      return data === ontem || data === hoje;
+    });
+    if (doDia.length === 0) return [];
+    const [base, respostas, { rotulos }] = await Promise.all([
+      this.financas.listar(tenantId),
+      this.agenda.respostasDeGasto(tenantId, ontem),
+      this.sessoes(tenantId),
+    ]);
+    const respondidas = new Set(respostas.map((item) => chaveDaResposta(item.appointmentId, item.date)));
+    return perguntasDeGasto(doDia, base.entries, respondidas, agora, rotulos);
+  }
+
+  /** "Teve gasto": um lançamento único de saída, pago no dia do compromisso, na sessão escolhida ou na dele. */
+  async registrarGasto(tenantId: string, id: string, pedido: PedidoDeGasto | Omit<PedidoDeGasto, "sessionId"> & { sessionId?: string }) {
+    const compromisso = await this.ocorrenciaNoDia(tenantId, id, pedido.date);
+    const sessionId = pedido.sessionId ?? compromisso.sessionId;
+    if (!sessionId) throw new PedidoInvalido("Escolha a sessão do gasto.");
+    await this.conferirSessao(tenantId, sessionId, null);
+    const entry = await this.financas.registrar(tenantId, {
+      id: pedido.id,
+      sessionId,
+      name: (pedido.name ?? compromisso.title).slice(0, 80),
+      description: "",
+      justification: "",
+      date: pedido.date,
+      mode: "outflows",
+      status: "completed",
+      transactionType: "unusual",
+      category: "unique",
+      priority: "nopriority",
+      cents: pedido.cents,
+      installments: null,
+      installmentNumber: null,
+      dueDate: null,
+      interestRate: null,
+      nextDueDate: null,
+      recurrence: null,
+      recurrenceInterval: null,
+      dueRule: null,
+    });
+    const resposta = await this.agenda.responderGasto(tenantId, {
+      id: randomUUID(),
+      appointmentId: id,
+      date: pedido.date,
+      answer: "entry",
+      entryId: pedido.id,
+    });
+    if (resposta === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
+    return { resposta, entry };
+  }
+
+  /** "Não teve gasto": a pergunta some e não volta. */
+  async semGasto(tenantId: string, id: string, date: string) {
+    await this.ocorrenciaNoDia(tenantId, id, date);
+    const resposta = await this.agenda.responderGasto(tenantId, { id: randomUUID(), appointmentId: id, date, answer: "none", entryId: null });
+    if (resposta === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
+    return resposta;
+  }
+
+  /** A ocorrência do compromisso nesse dia; o que repete tem uma por dia. */
+  private async ocorrenciaNoDia(tenantId: string, id: string, date: string) {
+    const [year, month] = date.split("-").map(Number) as [number, number];
+    const compromisso = (await this.ocorrencias(tenantId, year, month)).find((item) => item.id === id && dataDoCompromisso(item) === date);
+    if (!compromisso) throw new NaoEncontrado("Esse compromisso não acontece nesse dia.");
+    return compromisso;
+  }
+
   async sincronizarGoogleCalendar(tenantId: string) {
     const eventos = await this.google.listar(tenantId);
     if (eventos === "desconectado") {
@@ -227,6 +319,11 @@ export class AgendaService {
     }
     return this.agenda.aplicarGoogle(tenantId, eventos);
   }
+}
+
+function somarDias(iso: string, dias: number) {
+  const [ano, mes, dia] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(ano, mes - 1, dia + dias)).toISOString().slice(0, 10);
 }
 
 function comSessao(compromisso: Compromisso, entries: Lancamento[], rotulos: Map<string, string>): Compromisso {

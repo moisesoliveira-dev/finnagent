@@ -108,12 +108,14 @@ export class HojeService {
       }
     }
     vencimentos.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.description.localeCompare(b.description, "pt-BR"));
-    if (dia !== today) return { date: dia, today, tarefas, compromissos, vencimentos, pendencias: [], livre: null, limites: [] };
+    if (dia !== today) return { date: dia, today, tarefas, compromissos, vencimentos, pendencias: [], livre: null, limites: [], gastos: [], sessoesParaGasto: [] };
     const [metas, grupos] = await Promise.all([this.metas.listar(tenantId).catch(() => null), this.grupos.listar(tenantId).catch(() => null)]);
     const nomeDoGrupo = (id: string) => grupos?.groups.find((grupo) => grupo.id === id)?.name ?? "";
     const limites: UsoDoLimite[] = grupos ? usoDosLimites(grupos.sessions, financas.entries, financas.workflow, year, month, nomeDoGrupo) : [];
     const pendencias = await this.pendencias(tenantId, year, month, metas, limites);
-    return { date: dia, today, tarefas, compromissos, vencimentos, pendencias, livre: sobraLivre(metas, year, month, day), limites };
+    const gastos = await this.agenda.perguntasDeGasto(tenantId).catch(() => []);
+    const sessoesParaGasto = gastos.some((item) => !item.sessionId) ? await this.agenda.sessoesDeGasto(tenantId) : [];
+    return { date: dia, today, tarefas, compromissos, vencimentos, pendencias, livre: sobraLivre(metas, year, month, day), limites, gastos, sessoesParaGasto };
   }
 
   private async pendencias(
