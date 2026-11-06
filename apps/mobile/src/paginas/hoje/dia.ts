@@ -1,4 +1,4 @@
-import type { CategoriaTransacao, HojeResposta, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
+import type { CategoriaTransacao, HojeResposta, PerguntaDeGasto, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
 
 export const ROTULO_CATEGORIA: Record<CategoriaTransacao, string> = {
   additional: "Extra",
@@ -86,4 +86,16 @@ export function resumoDoDia(dados: HojeResposta, limite: number): LinhaDoResumo[
     linhas.push({ chave: `p-${item.id}`, titulo: item.title, detalhe: item.detail, feito: false, cents: null, evento: false });
   }
   return linhas.slice(0, limite);
+}
+
+/** Os dígitos digitados no campo de valor, lidos como centavos: "1234" vale R$ 12,34. Até 11 dígitos. */
+export function centavosDosDigitos(texto: string) {
+  const digitos = texto.replace(/\D/g, "").replace(/^0+/, "").slice(0, 11);
+  return digitos ? Number(digitos) : 0;
+}
+
+/** "terminou às 14:30", "terminou ontem às 14:30" ou "terminou em 4 de nov às 14:30". */
+export function quandoTerminou(pergunta: Pick<PerguntaDeGasto, "date" | "endedAtLocal">, today: string) {
+  const dia = pergunta.date >= today ? "" : pergunta.date === somarDias(today, -1) ? "ontem " : `em ${rotuloCurto(pergunta.date)} `;
+  return `terminou ${dia}às ${pergunta.endedAtLocal}`;
 }

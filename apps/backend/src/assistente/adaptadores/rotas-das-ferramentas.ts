@@ -65,6 +65,7 @@ function compromisso(args: Args, fuso: string) {
     endDay: args.endDay ?? null,
     entryId: args.entryId ?? null,
     sessionId: args.sessionId ?? null,
+    askSpending: args.askSpending ?? true,
   };
 }
 
@@ -191,6 +192,12 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     corpo: (a) => ({ status: a.status }),
   },
   excluir_compromisso: { metodo: "DELETE", caminho: (a) => `compromissos/${id(a.id)}` },
+  registrar_gasto_do_compromisso: {
+    metodo: "POST",
+    caminho: (a) => `compromissos/${id(a.id)}/gastos`,
+    corpo: (a, _fuso, idGerado) => ({ id: idGerado ?? randomUUID(), date: a.date, cents: a.cents, ...(a.sessionId ? { sessionId: a.sessionId } : {}) }),
+  },
+  sem_gasto_no_compromisso: { metodo: "POST", caminho: (a) => `compromissos/${id(a.id)}/sem-gasto`, corpo: (a) => ({ date: a.date }) },
   sincronizar_google_calendar: { metodo: "POST", caminho: () => "agenda/sincronizar" },
   consultar_metas: { metodo: "GET", caminho: () => "metas" },
   dividir_sobra_das_metas: {

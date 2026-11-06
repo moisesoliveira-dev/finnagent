@@ -72,6 +72,7 @@ function consulta(startAt: string, status: Compromisso["status"] = "undone"): Co
     sessionId: null,
     sessionLabel: null,
     spentCents: 0,
+    askSpending: true,
   };
 }
 

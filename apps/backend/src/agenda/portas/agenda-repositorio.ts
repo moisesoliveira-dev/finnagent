@@ -33,6 +33,16 @@ export type NovoCompromisso = {
   endDay: number | null;
   entryId: string | null;
   sessionId: string | null;
+  askSpending: boolean;
+};
+
+/** A resposta à pergunta "teve gasto?" de uma ocorrência. */
+export type RespostaDeGasto = {
+  id: string;
+  appointmentId: string;
+  date: string;
+  answer: "none" | "entry";
+  entryId: string | null;
 };
 
 export type FalhaDeCompromisso = "identificador" | "lancamento-ausente" | "ausente";
@@ -55,4 +65,8 @@ export interface AgendaRepositorio {
     status: StatusCompromisso,
   ): Promise<Compromisso | "ausente">;
   aplicarGoogle(tenantId: string, eventos: EventoGoogle[]): Promise<{ atualizados: number }>;
+  /** As respostas de `desde` em diante ("AAAA-MM-DD"). */
+  respostasDeGasto(tenantId: string, desde: string): Promise<RespostaDeGasto[]>;
+  /** Grava a resposta; a segunda resposta do mesmo dia devolve a primeira. */
+  responderGasto(tenantId: string, resposta: RespostaDeGasto): Promise<RespostaDeGasto | "ausente">;
 }

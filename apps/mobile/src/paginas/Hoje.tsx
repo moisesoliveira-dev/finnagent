@@ -1,16 +1,30 @@
 import { IonAlert, IonButton, IonButtons, IonIcon, useIonToast, useIonViewWillEnter } from "@ionic/react";
-import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
-import { addOutline, chevronBack, chevronForward, sunnyOutline, trashOutline } from "ionicons/icons";
+import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, SessaoDaAgenda, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
+import { addOutline, cashOutline, chevronBack, chevronForward, sunnyOutline, trashOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { Fragment, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { enviar, pedir } from "../api/cliente";
+import { reais } from "../api/formato";
+import { Campo } from "../componentes/Campo";
 import { Dinheiro, Estado } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
+import { Selecao } from "../componentes/Selecao";
 import { toque } from "../haptico";
 import { Bloco, Cascata, Preenchimento, Troca, toqueDoDedo } from "../movimento";
 import { useDados } from "../useDados";
-import { andamento, detalhesDoVencimento, ehData, filhasDe, rotaDaPendencia, rotuloCurto, rotuloDoDia, somarDias } from "./hoje/dia";
+import {
+  andamento,
+  centavosDosDigitos,
+  detalhesDoVencimento,
+  ehData,
+  filhasDe,
+  quandoTerminou,
+  rotaDaPendencia,
+  rotuloCurto,
+  rotuloDoDia,
+  somarDias,
+} from "./hoje/dia";
 
 /** O recuo de cada nível da árvore, em pixels: a caixa da filha alinha com o texto da mãe. */
 const RECUO = 28;
@@ -82,6 +96,23 @@ export function Hoje() {
       },
       "Não foi possível marcar o pagamento.",
     );
+
+  // "Teve gasto?": lançar vira uma saída única paga no dia do compromisso; "não teve" só tira a pergunta.
+  const lancarGasto = (item: PerguntaDeGasto, cents: number, sessionId: string) =>
+    agir(
+      `gasto-${item.appointmentId}:${item.date}`,
+      () =>
+        enviar(`/api/compromissos/${item.appointmentId}/gastos`, {
+          id: crypto.randomUUID(),
+          date: item.date,
+          cents,
+          ...(item.sessionId ? {} : { sessionId }),
+        }),
+      "Não foi possível lançar o gasto.",
+    );
+
+  const semGasto = (item: PerguntaDeGasto) =>
+    agir(`gasto-${item.appointmentId}:${item.date}`, () => enviar(`/api/compromissos/${item.appointmentId}/sem-gasto`, { date: item.date }), "Não foi possível responder.");
 
   const tarefas = dados?.tarefas ?? [];
   const raizes = filhasDe(tarefas, null);
@@ -177,8 +208,22 @@ export function Hoje() {
                 </Bloco>
               ) : null}
 
-              {/* Uma lista só, como uma lista de papel: o campo de anotar é a primeira linha. */}
+              {/* Uma lista só, como uma lista de papel: a pergunta do gasto vem antes, depois o campo de anotar. */}
               <Bloco className="lista-do-dia">
+                <Grupo titulo="Teve gasto?" vazio={(dados.gastos ?? []).length === 0}>
+                  {(dados.gastos ?? []).map((item) => (
+                    <PerguntaDoGasto
+                      key={`${item.appointmentId}:${item.date}`}
+                      item={item}
+                      today={dados.today}
+                      sessoes={dados.sessoesParaGasto ?? []}
+                      ocupado={ocupado !== ""}
+                      onLancar={(cents, sessionId) => lancarGasto(item, cents, sessionId)}
+                      onSemGasto={() => void semGasto(item)}
+                    />
+                  ))}
+                </Grupo>
+
                 <form
                   className="linha-de-anotar"
                   onSubmit={(evento) => {
@@ -202,7 +247,7 @@ export function Hoje() {
                   </IonButton>
                 </form>
 
-                {vazio ? <p className="fraco vazio-do-dia">Nada marcado para este dia.</p> : null}
+                {vazio && (dados.gastos ?? []).length === 0 ? <p className="fraco vazio-do-dia">Nada marcado para este dia.</p> : null}
 
                 <Grupo titulo="Atrasados" vazio={atrasados.length === 0}>
                   {atrasados.map((item) => (
@@ -370,5 +415,73 @@ function Pendencia({ item }: { item: PendenciaDoDia }) {
       </span>
       <IonIcon icon={chevronForward} aria-hidden className="fraco" />
     </Link>
+  );
+}
+
+/**
+ * Um compromisso que terminou: quanto se gastou nele. O valor entra só com dígitos e aparece em reais; sem sessão
+ * de gastos no compromisso, a pessoa escolhe uma. "Lançar" vira uma saída paga no dia; "Não teve" tira a pergunta.
+ */
+function PerguntaDoGasto({
+  item,
+  today,
+  sessoes,
+  ocupado,
+  onLancar,
+  onSemGasto,
+}: {
+  item: PerguntaDeGasto;
+  today: string;
+  sessoes: SessaoDaAgenda[];
+  ocupado: boolean;
+  onLancar: (cents: number, sessionId: string) => Promise<boolean>;
+  onSemGasto: () => void;
+}) {
+  const [cents, setCents] = useState(0);
+  const [sessao, setSessao] = useState("");
+  const sessionId = item.sessionId ?? sessao;
+  const pode = cents > 0 && sessionId !== "" && !ocupado;
+
+  return (
+    <motion.div className="secao" style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <span className="texto" style={{ display: "grid", minWidth: 0 }}>
+        <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</strong>
+        <span className="fraco" style={{ fontSize: "0.875rem" }}>
+          {[quandoTerminou(item, today), item.location, item.sessionLabel].filter(Boolean).join(" · ")}
+        </span>
+      </span>
+      {item.sessionId ? null : (
+        <Selecao rotulo="Sessão do gasto" valor={sessao} vazio="Escolha a sessão" opcoes={sessoes.map((opcao) => ({ id: opcao.id, texto: opcao.label }))} aoMudar={setSessao} desabilitado={ocupado} />
+      )}
+      <Campo
+        icone={cashOutline}
+        rotulo={`Quanto gastou em ${item.title}`}
+        placeholder="R$ 0,00"
+        inputMode="numeric"
+        enterKeyHint="done"
+        value={cents > 0 ? reais(cents) : ""}
+        onMudar={(texto) => setCents(centavosDosDigitos(texto))}
+        disabled={ocupado}
+      />
+      <div className="grade">
+        <motion.div whileTap={toqueDoDedo}>
+          <IonButton expand="block" fill="outline" disabled={ocupado} onClick={onSemGasto}>
+            Não teve
+          </IonButton>
+        </motion.div>
+        <motion.div whileTap={toqueDoDedo}>
+          <IonButton
+            expand="block"
+            className="principal"
+            disabled={!pode}
+            onClick={async () => {
+              if (pode && (await onLancar(cents, sessionId))) setCents(0);
+            }}
+          >
+            Lançar
+          </IonButton>
+        </motion.div>
+      </div>
+    </motion.div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HojeResposta, Tarefa } from "@finnagent/contracts";
-import { andamento, ehData, filhasDe, resumoDoDia, rotaDaPendencia, rotuloDoDia, somarDias } from "./dia";
+import { andamento, centavosDosDigitos, ehData, filhasDe, quandoTerminou, resumoDoDia, rotaDaPendencia, rotuloDoDia, somarDias } from "./dia";
 
 const tarefa = (id: string, extra: Partial<Tarefa> = {}): Tarefa => ({ id, title: id, date: "2026-11-06", doneOn: null, position: 0, parentId: null, repeat: null, ...extra });
 
@@ -19,9 +19,25 @@ const dia: HojeResposta = {
   pendencias: [{ id: "p1", kind: "conferencia", title: "3 linhas sem lançamento", detail: "Conferir", href: "/extratos/conferencia" }],
   livre: null,
   limites: [],
+  gastos: [],
+  sessoesParaGasto: [],
 };
 
 describe("dia", () => {
+  it("lê os dígitos do valor como centavos", () => {
+    expect(centavosDosDigitos("")).toBe(0);
+    expect(centavosDosDigitos("R$ 0,05")).toBe(5);
+    expect(centavosDosDigitos("R$ 12,345")).toBe(12345);
+    expect(centavosDosDigitos("1.234,56")).toBe(123456);
+    expect(centavosDosDigitos("999999999999999")).toBe(99999999999);
+  });
+
+  it("diz quando o compromisso terminou, com ontem e com a data", () => {
+    expect(quandoTerminou({ date: "2026-11-06", endedAtLocal: "14:30" }, "2026-11-06")).toBe("terminou às 14:30");
+    expect(quandoTerminou({ date: "2026-11-05", endedAtLocal: "20:00" }, "2026-11-06")).toBe("terminou ontem às 20:00");
+    expect(quandoTerminou({ date: "2026-11-01", endedAtLocal: "09:00" }, "2026-11-06")).toBe("terminou em 1 de nov às 09:00");
+  });
+
   it("soma dias virando o mês e o ano", () => {
     expect(somarDias("2026-11-30", 1)).toBe("2026-12-01");
     expect(somarDias("2026-01-01", -1)).toBe("2025-12-31");

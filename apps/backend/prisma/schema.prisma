@@ -205,8 +205,11 @@ model Appointment {
   entryId       String?  @map("entry_id")
   sessionId     String?  @map("session_id")
   googleEventId String?  @map("google_event_id")
+  // Depois do fim, perguntar se teve gasto.
+  askSpending   Boolean  @default(true) @map("ask_spending")
   entry         Entry?   @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
   session       Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  spendings     AppointmentSpending[]
 
   @@unique([tenantId, googleEventId])
   @@index([tenantId, year, month])
@@ -630,4 +633,21 @@ model PushDevice {
 
   @@index([tenantId, userId])
   @@map("push_devices")
+}
+
+// A resposta da pessoa à pergunta "teve gasto?" de uma ocorrência de compromisso: "none" (não teve) ou "entry"
+// (virou o lançamento `entryId`). Uma por compromisso e dia.
+model AppointmentSpending {
+  id            String      @id
+  tenantId      String      @map("tenant_id")
+  appointmentId String      @map("appointment_id")
+  date          DateTime    @db.Date
+  answer        String
+  entryId       String?     @map("entry_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, appointmentId, date])
+  @@index([tenantId, date])
+  @@map("appointment_spendings")
 }

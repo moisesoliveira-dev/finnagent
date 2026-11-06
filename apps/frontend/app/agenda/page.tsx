@@ -50,6 +50,7 @@ type Rascunho = {
   category: CategoriaCompromisso;
   entryId: string;
   sessionId: string;
+  askSpending: boolean;
   existente: boolean;
 };
 
@@ -262,6 +263,7 @@ export default function Agenda() {
       category: "fixed",
       entryId: "",
       sessionId: "",
+      askSpending: true,
       existente: false,
     });
   }
@@ -292,6 +294,7 @@ export default function Agenda() {
       category: item.category,
       entryId: item.entryId ?? "",
       sessionId: item.sessionId ?? "",
+      askSpending: item.askSpending,
       existente: true,
     });
   }
@@ -319,6 +322,7 @@ export default function Agenda() {
       endDay: endDay ?? null,
       entryId: draftAtual.entryId || null,
       sessionId: draftAtual.sessionId || null,
+      askSpending: draftAtual.askSpending,
     };
   }
 
@@ -928,6 +932,20 @@ export default function Agenda() {
               Serve para gastos que se somam, como uma saída ou as corridas de um dia.
             </p>
           </div>
+          <label className="flex min-h-10 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className={caixaDeMarcar}
+              checked={draft?.askSpending ?? true}
+              onChange={(event) =>
+                setDraft((atual) => (atual ? { ...atual, askSpending: event.target.checked } : atual))
+              }
+            />
+            <span className="inline-flex items-center gap-1">
+              Perguntar se teve gasto quando terminar
+              <Dica texto="Depois do fim, a Hoje e a notificação perguntam se teve gasto. O dia todo só pergunta quando tem sessão de gastos, às 20h." />
+            </span>
+          </label>
           {draft?.existente && draft.category !== "fixed" ? (
             <p className="text-sm text-ink-2">
               Este compromisso se repete. Mudar a data move a série inteira.

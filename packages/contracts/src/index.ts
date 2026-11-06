@@ -1070,6 +1070,28 @@ export type PendenciaDoDia = {
 };
 
 /** O dia inteiro numa lista: tarefas, compromissos, vencimentos e, quando é hoje, as pendências do sistema. */
+/** Um compromisso que terminou sem gasto registrado: a Hoje e a notificação perguntam "teve gasto?". */
+export type PerguntaDeGasto = {
+  appointmentId: string;
+  /** O dia da ocorrência ("AAAA-MM-DD"); o compromisso que repete tem uma pergunta por dia. */
+  date: string;
+  title: string;
+  location: string;
+  time: string | null;
+  endTime: string | null;
+  allDay: boolean;
+  /** O instante em que a pergunta passou a valer: o fim do compromisso, ou as 20h do dia inteiro. */
+  endedAt: string;
+  /** "HH:MM" desse instante, no fuso do compromisso. */
+  endedAtLocal: string;
+  /** A sessão de gastos do compromisso, quando há; sem ela, a pessoa escolhe na hora de lançar. */
+  sessionId: string | null;
+  sessionLabel: string | null;
+};
+
+/** Responder com gasto: vira um lançamento único, de saída, já pago no dia do compromisso. */
+export type PedidoDeGasto = { id: string; date: string; cents: number; sessionId: string; name?: string };
+
 /** O que a pessoa tem livre até o fim do mês, para orientar o gasto do dia. */
 export type SobraLivre = {
   /** A sobra deste mês mais o que veio dos anteriores, menos o que as metas já separaram. */
@@ -1097,6 +1119,10 @@ export type HojeResposta = {
   livre: SobraLivre | null;
   /** As sessões com limite e o uso delas no mês de hoje, da mais cheia para a mais folgada. */
   limites: UsoDoLimite[];
+  /** Só em hoje: os compromissos de ontem e de hoje que terminaram sem gasto e sem resposta. */
+  gastos: PerguntaDeGasto[];
+  /** As sessões que acumulam, para lançar o gasto de um compromisso que não tem sessão. Vazio sem perguntas. */
+  sessoesParaGasto: SessaoDaAgenda[];
 };
 
 export type StatusCompromisso = (typeof STATUS_COMPROMISSO)[number];
@@ -1257,6 +1283,8 @@ export type Compromisso = {
   sessionId: string | null;
   sessionLabel: string | null;
   spentCents: number;
+  /** Depois do fim, o sistema pergunta se teve gasto. O dia inteiro só pergunta quando tem sessão de gastos. */
+  askSpending: boolean;
 };
 
 export type SessaoDaAgenda = {
@@ -2136,6 +2164,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "atualizar-compromisso",
     "excluir-compromisso",
     "atualizar-status-compromisso",
+    "responder-gasto-compromisso",
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
   ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "mover-tarefa", "excluir-tarefa"]),
@@ -2833,6 +2862,10 @@ const camposDoCompromisso = z.object({
     .describe(
       "Sessão de acúmulo que soma os gastos pagos no dia do compromisso, se houver. Não é o valor do compromisso: valor é lançamento, de finanças.",
     ),
+  askSpending: z
+    .boolean()
+    .optional()
+    .describe("Depois do fim, perguntar se teve gasto. Padrão true; false para compromisso que nunca envolve dinheiro, como uma reunião."),
 });
 
 export type FerramentaDoAssistente = {
@@ -3176,6 +3209,26 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "registrar_gasto_do_compromisso",
+    agentes: ["agenda", "financas"],
+    descricao:
+      "Responde a pergunta \"teve gasto?\" de um compromisso que terminou: vira um lançamento único de saída, pago no dia do compromisso. O id e o date vêm de consultar_hoje (gastos). Sem sessionId, usa a sessão de gastos do compromisso.",
+    esquema: z.object({
+      id: idDoSistema.describe("O compromisso."),
+      date: dataDoSistema.describe("O dia da ocorrência do compromisso."),
+      cents: z.number().int().min(1).describe("Quanto foi gasto, em centavos, positivo."),
+      sessionId: idDoSistema.optional().describe("A sessão que acumula o gasto; obrigatória se o compromisso não tiver sessão."),
+    }),
+    rotulo: () => "Lançou o gasto do compromisso",
+  }),
+  ferramenta({
+    nome: "sem_gasto_no_compromisso",
+    agentes: ["agenda"],
+    descricao: "Responde que o compromisso que terminou não teve gasto: a pergunta some da Hoje e não volta a ser feita.",
+    esquema: z.object({ id: idDoSistema.describe("O compromisso."), date: dataDoSistema.describe("O dia da ocorrência.") }),
+    rotulo: () => "Marcou o compromisso sem gasto",
   }),
   ferramenta({
     nome: "consultar_hoje",
@@ -3905,7 +3958,7 @@ export function proximosVencimentos(
 /* ---------------------------------------------------------------------------------------------- */
 
 /** O que gera aviso. A pessoa liga ou desliga cada tipo em cada canal. */
-export const TIPOS_DE_NOTIFICACAO = ["vencimentos", "lembretes", "extratos", "metas", "limites", "assistente"] as const;
+export const TIPOS_DE_NOTIFICACAO = ["vencimentos", "lembretes", "gastos", "tarefas", "extratos", "metas", "limites", "assistente"] as const;
 export type TipoDeNotificacao = (typeof TIPOS_DE_NOTIFICACAO)[number];
 
 /** Central: a lista dentro do sistema. Celular e navegador: o push, que chega com o app ou a aba fechados. */
@@ -3913,8 +3966,10 @@ export const CANAIS_DE_NOTIFICACAO = ["central", "celular", "navegador"] as cons
 export type CanalDeNotificacao = (typeof CANAIS_DE_NOTIFICACAO)[number];
 
 export const ROTULO_DO_TIPO_DE_NOTIFICACAO: Record<TipoDeNotificacao, { titulo: string; dica: string }> = {
-  vencimentos: { titulo: "Vencimentos", dica: "Lançamento pendente que vence hoje." },
+  vencimentos: { titulo: "Vencimentos", dica: "O que vence amanhã e hoje, e o que ficou atrasado ou a entrada que não foi marcada." },
   lembretes: { titulo: "Lembretes", dica: "Compromisso da agenda, na antecedência escolhida." },
+  gastos: { titulo: "Gastos dos compromissos", dica: "Depois que um compromisso termina, pergunta se teve gasto." },
+  tarefas: { titulo: "Tarefas", dica: "No fim do dia, as tarefas que ficaram abertas." },
   extratos: { titulo: "Extratos", dica: "Leitura de imagem ou PDF que terminou e linhas esperando conferência." },
   metas: { titulo: "Metas", dica: "Meta alcançada, parte do mês sem separar e prazo chegando." },
   limites: { titulo: "Limites", dica: "Sessão que passou de 80% do limite do mês e sessão que estourou." },
@@ -3931,7 +3986,7 @@ export const ROTULO_DO_CANAL_DE_NOTIFICACAO: Record<CanalDeNotificacao, string> 
  * Para onde a notificação leva. Cada cliente traduz para a própria rota: o web e o app não têm as mesmas URLs.
  * `id` é a conversa do assistente; nas outras telas fica null.
  */
-export const TELAS_DE_DESTINO = ["financas", "agenda", "extratos", "conferencia", "metas", "assistente"] as const;
+export const TELAS_DE_DESTINO = ["hoje", "financas", "agenda", "extratos", "conferencia", "metas", "assistente"] as const;
 export type TelaDeDestino = (typeof TELAS_DE_DESTINO)[number];
 export type DestinoDaNotificacao = { tela: TelaDeDestino; id: string | null };
 
@@ -3968,6 +4023,8 @@ export const PREFERENCIAS_DE_NOTIFICACAO_PADRAO: PreferenciasDeNotificacao = {
   canais: {
     vencimentos: { central: true, celular: true, navegador: true },
     lembretes: { central: true, celular: true, navegador: true },
+    gastos: { central: true, celular: true, navegador: true },
+    tarefas: { central: true, celular: true, navegador: false },
     extratos: { central: true, celular: true, navegador: false },
     metas: { central: true, celular: true, navegador: false },
     limites: { central: true, celular: true, navegador: true },
@@ -3983,6 +4040,8 @@ export const ESQUEMA_PREFERENCIAS_DE_NOTIFICACAO = z.object({
   canais: z.object({
     vencimentos: canaisDoTipo,
     lembretes: canaisDoTipo,
+    gastos: canaisDoTipo,
+    tarefas: canaisDoTipo,
     extratos: canaisDoTipo,
     metas: canaisDoTipo,
     limites: canaisDoTipo,

@@ -7,6 +7,7 @@ import {
   type DestinoDaNotificacao,
   type Lancamento,
   type MetasResposta,
+  type PerguntaDeGasto,
   type PreferenciasDeNotificacao,
   type StatusExtrato,
   type TipoDeNotificacao,
@@ -69,6 +70,107 @@ export function vencimentosDeHoje(entries: Lancamento[], hoje: string): PedidoDe
     }
   }
   return pedidos;
+}
+
+function somarDias(iso: string, dias: number) {
+  const [ano, mes, dia] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(ano, mes - 1, dia + dias)).toISOString().slice(0, 10);
+}
+
+function diasEntre(de: string, ate: string) {
+  return Math.round((Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / 86_400_000);
+}
+
+/** Saída pendente que vence amanhã: dá tempo de separar o dinheiro. A entrada de amanhã não avisa. */
+export function vencimentosDeAmanha(entries: Lancamento[], hoje: string): PedidoDeNotificacao[] {
+  const amanha = somarDias(hoje, 1);
+  const pedidos: PedidoDeNotificacao[] = [];
+  for (const entry of entries) {
+    for (const ocorrencia of ocorrenciasDoLancamento(entry)) {
+      if (ocorrencia.status !== "pending" || ocorrencia.dueDate !== amanha || ocorrencia.kind === "multa") continue;
+      const cents = valorDaOcorrencia(ocorrencia);
+      if (cents >= 0) continue;
+      pedidos.push({
+        tipo: "vencimentos",
+        titulo: entry.description || entry.name || entry.sessionName,
+        texto: `Vence amanhã: ${dinheiro(cents)}.`,
+        destino: { tela: "hoje", id: null },
+        chave: `vencimento:amanha:${entry.id}:${ocorrencia.number}`,
+      });
+    }
+  }
+  return pedidos;
+}
+
+/** Os dias de atraso em que o aviso volta: no dia seguinte ao vencimento e depois uma vez por semana, por um mês. */
+export const DIAS_DO_AVISO_DE_ATRASO = [1, 8, 15, 22, 29];
+
+/**
+ * O que venceu e não foi marcado: a saída atrasada (parcela, empréstimo, conta) e a entrada que não foi marcada como
+ * recebida. Avisa no dia seguinte e uma vez por semana durante o primeiro mês; depois a Hoje continua mostrando.
+ */
+export function atrasados(entries: Lancamento[], hoje: string): PedidoDeNotificacao[] {
+  const pedidos: PedidoDeNotificacao[] = [];
+  for (const entry of entries) {
+    for (const ocorrencia of ocorrenciasDoLancamento(entry)) {
+      if (ocorrencia.status !== "pending" || ocorrencia.dueDate >= hoje || ocorrencia.kind === "multa") continue;
+      const dias = diasEntre(ocorrencia.dueDate, hoje);
+      if (!DIAS_DO_AVISO_DE_ATRASO.includes(dias)) continue;
+      const cents = valorDaOcorrencia(ocorrencia);
+      const quando = dias === 1 ? "ontem" : `há ${dias} dias`;
+      pedidos.push({
+        tipo: "vencimentos",
+        titulo: entry.description || entry.name || entry.sessionName,
+        texto:
+          cents < 0
+            ? `Venceu ${quando} e não foi marcado como pago: ${dinheiro(cents)}. Se já pagou, marque na Hoje.`
+            : `A entrada prevista para ${dias === 1 ? "ontem" : `${dias} dias atrás`} não foi marcada como recebida: ${dinheiro(cents)}.`,
+        destino: { tela: "hoje", id: null },
+        chave: `atraso:${entry.id}:${ocorrencia.number}:${dias}`,
+      });
+    }
+  }
+  return pedidos;
+}
+
+/** Quanto tempo depois do fim a pergunta ainda sai como notificação. Depois disso, fica só na Hoje. */
+export const JANELA_DA_PERGUNTA_DE_GASTO_MS = 3 * 60 * 60 * 1000;
+
+/** "Teve gasto?" logo depois que o compromisso termina. Uma vez por compromisso e dia. */
+export function avisosDeGasto(perguntas: PerguntaDeGasto[], agora: Date): PedidoDeNotificacao[] {
+  return perguntas
+    .filter((item) => {
+      const passou = agora.getTime() - Date.parse(item.endedAt);
+      return passou >= 0 && passou <= JANELA_DA_PERGUNTA_DE_GASTO_MS;
+    })
+    .map((item) => ({
+      tipo: "gastos" as const,
+      titulo: `Teve gasto em ${item.title}?`,
+      texto: item.sessionLabel
+        ? `Terminou às ${item.endedAtLocal}. Lance quanto foi, em ${item.sessionLabel}, ou diga que não teve.`
+        : `Terminou às ${item.endedAtLocal}. Lance quanto foi ou diga que não teve.`,
+      destino: { tela: "hoje" as const, id: null },
+      chave: `gasto:${item.appointmentId}:${item.date}`,
+    }));
+}
+
+/** A tarefa da noite: depois desta hora, as tarefas que ficaram abertas no dia. */
+export const HORA_DO_AVISO_DAS_TAREFAS = "20:00";
+
+/** As tarefas da raiz que ficaram abertas hoje. Uma vez por dia; sem tarefa aberta, nada. */
+export function avisoDeTarefas(titulos: string[], hoje: string): PedidoDeNotificacao[] {
+  if (titulos.length === 0) return [];
+  const primeiras = titulos.slice(0, 3).join(", ");
+  const resto = titulos.length > 3 ? ` e mais ${titulos.length - 3}` : "";
+  return [
+    {
+      tipo: "tarefas",
+      titulo: titulos.length === 1 ? "1 tarefa ficou aberta hoje" : `${titulos.length} tarefas ficaram abertas hoje`,
+      texto: `${primeiras}${resto}. Marque o que fez; o resto passa para amanhã.`,
+      destino: { tela: "hoje", id: null },
+      chave: `tarefas:${hoje}`,
+    },
+  ];
 }
 
 /** Compromisso que começa dentro da antecedência escolhida na conta. */

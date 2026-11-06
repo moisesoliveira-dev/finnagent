@@ -15,6 +15,10 @@ import {
   avisoDePlano,
   avisosDasMetas,
   avisosDeLimite,
+  atrasados,
+  avisoDeTarefas,
+  avisosDeGasto,
+  vencimentosDeAmanha,
   canaisDePush,
   horaNoFuso,
   lembretesNaJanela,
@@ -85,6 +89,7 @@ function consulta(startAt: string, parcial: Partial<Compromisso> = {}): Compromi
     sessionId: null,
     sessionLabel: null,
     spentCents: 0,
+    askSpending: true,
     ...parcial,
   };
 }
@@ -193,6 +198,59 @@ describe("avisos que viram notificação", () => {
     ]);
     expect(avisos[0]?.texto.replace(/ /g, " ")).toBe("R$ 850,00 de R$ 1.000,00 neste mês (85%). Faltam R$ 150,00.");
     expect(avisos[1]?.destino).toEqual({ tela: "financas", id: null });
+  });
+
+  it("avisa na véspera só a saída pendente, e no dia seguinte ao vencimento o que ficou sem marcar", () => {
+    const saida = {
+      id: "e1", description: "Parcela da TV", name: "", sessionName: "Casa",
+      occurrences: [
+        { number: 1, dueDate: "2026-11-07", plannedCents: -10000, paidCents: null, paidOn: null, status: "pending" },
+        { number: 2, dueDate: "2026-11-05", plannedCents: -10000, paidCents: null, paidOn: null, status: "pending" },
+        { number: 3, dueDate: "2026-10-30", plannedCents: -10000, paidCents: null, paidOn: null, status: "pending" },
+      ],
+    } as unknown as Lancamento;
+    const entrada = {
+      id: "e2", description: "Salário", name: "", sessionName: "Renda",
+      occurrences: [
+        { number: 1, dueDate: "2026-11-07", plannedCents: 500000, paidCents: null, paidOn: null, status: "pending" },
+        { number: 2, dueDate: "2026-11-05", plannedCents: 500000, paidCents: null, paidOn: null, status: "pending" },
+      ],
+    } as unknown as Lancamento;
+    const amanha = vencimentosDeAmanha([saida, entrada], "2026-11-06");
+    expect(amanha.map((item) => item.chave)).toEqual(["vencimento:amanha:e1:1"]);
+    expect(amanha[0]?.texto.replace(/\u00a0/g, " ")).toBe("Vence amanhã: R$ 100,00.");
+    const atraso = atrasados([saida, entrada], "2026-11-06");
+    // A parcela 2 e o salário venceram ontem (1 dia); a parcela 3 está com 7 dias, fora dos dias de aviso.
+    expect(atraso.map((item) => item.chave)).toEqual(["atraso:e1:2:1", "atraso:e2:2:1"]);
+    expect(atraso[0]?.texto).toContain("Venceu ontem e não foi marcado como pago");
+    expect(atraso[1]?.texto).toContain("não foi marcada como recebida");
+    expect(atrasados([saida], "2026-11-07").map((item) => item.chave)).toEqual(["atraso:e1:3:8"]);
+    expect(atraso.every((item) => item.destino.tela === "hoje")).toBe(true);
+  });
+
+  it("pergunta do gasto só nas três horas depois do fim, uma vez por compromisso e dia", () => {
+    const pergunta = {
+      appointmentId: "c1", date: "2026-11-06", title: "Jantar", location: "", time: "19:00", endTime: "21:00", allDay: false,
+      endedAt: "2026-11-07T00:00:00.000Z", endedAtLocal: "21:00", sessionId: "s1", sessionLabel: "Lazer / Saídas",
+    };
+    expect(avisosDeGasto([pergunta], new Date("2026-11-06T23:59:00.000Z"))).toEqual([]);
+    const [aviso] = avisosDeGasto([pergunta], new Date("2026-11-07T00:10:00.000Z"));
+    expect(aviso).toEqual({
+      tipo: "gastos",
+      titulo: "Teve gasto em Jantar?",
+      texto: "Terminou às 21:00. Lance quanto foi, em Lazer / Saídas, ou diga que não teve.",
+      destino: { tela: "hoje", id: null },
+      chave: "gasto:c1:2026-11-06",
+    });
+    expect(avisosDeGasto([pergunta], new Date("2026-11-07T03:30:00.000Z"))).toEqual([]);
+  });
+
+  it("junta as tarefas abertas num aviso por dia", () => {
+    expect(avisoDeTarefas([], "2026-11-06")).toEqual([]);
+    const [aviso] = avisoDeTarefas(["Regar", "Ligar", "Pagar", "Ler"], "2026-11-06");
+    expect(aviso?.titulo).toBe("4 tarefas ficaram abertas hoje");
+    expect(aviso?.texto).toBe("Regar, Ligar, Pagar e mais 1. Marque o que fez; o resto passa para amanhã.");
+    expect(aviso?.chave).toBe("tarefas:2026-11-06");
   });
 
   it("manda o plano parado só para quem abriu a conversa", () => {

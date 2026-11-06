@@ -8,6 +8,7 @@ import {
   type CompromissoDoDia,
   type HojeResposta,
   type PendenciaDoDia,
+  type PerguntaDeGasto,
   type RepeticaoDeTarefa,
   type Tarefa,
   type UsoDoLimite,
@@ -22,6 +23,8 @@ import { formatarReais, Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada, Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
+import { CampoValor } from "../financas/campo-valor";
+import { reaisParaCentavos } from "../financas/reais";
 import { ROTULO_CATEGORIA } from "../financas/rotulos";
 import { MenuDaLinha, type OpcaoDaLinha } from "./menu-da-linha";
 
@@ -177,6 +180,28 @@ export default function Hoje() {
       `mover-${item.id}`,
       () => api(`/api/tarefas/${item.id}/mover`, { method: "PATCH", body: JSON.stringify({ parentId, beforeId }) }),
       "Não foi possível mover a tarefa.",
+    );
+
+  // "Teve gasto?": lançar vira um lançamento único pago no dia do compromisso; "Não teve" só responde.
+  const lancarGasto = (item: PerguntaDeGasto, cents: number, sessionId: string) =>
+    agir(
+      `gasto-${item.appointmentId}-${item.date}`,
+      () =>
+        api(`/api/compromissos/${item.appointmentId}/gastos`, {
+          method: "POST",
+          body: JSON.stringify({ id: crypto.randomUUID(), date: item.date, cents, sessionId }),
+        }),
+      "Não foi possível lançar o gasto.",
+    ).then((feito) => {
+      if (feito) toast.sucesso(`Gasto de ${item.title} lançado.`);
+      return feito;
+    });
+
+  const semGasto = (item: PerguntaDeGasto) =>
+    agir(
+      `gasto-${item.appointmentId}-${item.date}`,
+      () => api(`/api/compromissos/${item.appointmentId}/sem-gasto`, { method: "POST", body: JSON.stringify({ date: item.date }) }),
+      "Não foi possível responder.",
     );
 
   const compromisso = (item: CompromissoDoDia, done: boolean) =>
@@ -419,6 +444,20 @@ export default function Hoje() {
               </form>
 
               {vazio ? <p className="px-4 py-6 text-sm text-ink-2">Nada marcado para este dia.</p> : null}
+
+              <Grupo titulo="Teve gasto?" vazio={dados.gastos.length === 0}>
+                {dados.gastos.map((item) => (
+                  <PerguntaDoGasto
+                    key={`${item.appointmentId}-${item.date}`}
+                    item={item}
+                    ontem={item.date < dados.today}
+                    sessoes={dados.sessoesParaGasto}
+                    ocupado={ocupado === `gasto-${item.appointmentId}-${item.date}`}
+                    onLancar={(cents, sessionId) => lancarGasto(item, cents, sessionId)}
+                    onSemGasto={() => void semGasto(item)}
+                  />
+                ))}
+              </Grupo>
 
               <Grupo titulo="Atrasados" vazio={atrasados.length === 0}>
                 {atrasados.map((item) => (
@@ -728,6 +767,77 @@ function Livre({ livre, limites }: { livre: NonNullable<HojeResposta["livre"]>; 
         </ul>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Um compromisso que terminou sem gasto: o valor (só dígitos, em reais), a sessão quando ele não tem uma, e as duas
+ * respostas. A linha some depois de responder.
+ */
+function PerguntaDoGasto({
+  item,
+  ontem,
+  sessoes,
+  ocupado,
+  onLancar,
+  onSemGasto,
+}: {
+  item: PerguntaDeGasto;
+  ontem: boolean;
+  sessoes: { id: string; label: string }[];
+  ocupado: boolean;
+  onLancar: (cents: number, sessionId: string) => Promise<boolean>;
+  onSemGasto: () => void;
+}) {
+  const [valor, setValor] = useState("");
+  const [sessao, setSessao] = useState(item.sessionId ?? "");
+  const cents = reaisParaCentavos(valor);
+  const idValor = `gasto-valor-${item.appointmentId}-${item.date}`;
+  const idSessao = `gasto-sessao-${item.appointmentId}-${item.date}`;
+  const quando = `${ontem ? "Ontem, terminou" : "Terminou"} às ${item.endedAtLocal}`;
+  return (
+    <ItemAnimado className="grid min-w-0 gap-2 border-b border-line px-4 py-3 last:border-b-0">
+      <div className="flex min-w-0 items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate font-medium">{item.title}</span>
+        <Chip tone="event">{item.allDay ? "Dia todo" : item.time}</Chip>
+      </div>
+      <p className="text-sm text-ink-2">
+        {[quando, item.location, item.sessionLabel].filter(Boolean).join(" · ")}
+      </p>
+      <form
+        className="flex min-w-0 flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (cents && cents > 0 && sessao) void onLancar(cents, sessao).then((feito) => feito && setValor(""));
+        }}
+      >
+        {item.sessionId ? null : (
+          <>
+            <label htmlFor={idSessao} className="sr-only">
+              Sessão do gasto
+            </label>
+            <select id={idSessao} className={cn(campo, "w-full min-w-0 basis-full")} value={sessao} onChange={(event) => setSessao(event.target.value)}>
+              <option value="">Escolha a sessão</option>
+              {sessoes.map((opcao) => (
+                <option key={opcao.id} value={opcao.id}>
+                  {opcao.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <label htmlFor={idValor} className="sr-only">
+          Quanto foi gasto em {item.title}
+        </label>
+        <CampoValor id={idValor} value={valor} onChange={setValor} className={cn(campo, "w-32 min-w-0")} />
+        <Button type="submit" variant="default" disabled={ocupado || !cents || cents <= 0 || !sessao}>
+          Lançar
+        </Button>
+        <Button type="button" variant="quiet" disabled={ocupado} onClick={onSemGasto}>
+          Não teve
+        </Button>
+      </form>
+    </ItemAnimado>
   );
 }
 

@@ -7,7 +7,7 @@ function ocorrencia(number: number, dueDate: string, cents: number, status: "pen
   return { number, dueDate, plannedCents: cents, paidCents: status === "completed" ? cents : null, paidOn, status, kind: "parcela", parcel: number, paymentId: status === "completed" ? "p1" : null };
 }
 
-function montar(opcoes: { hoje?: string; semConferir?: number; sobra?: number; separado?: number; limite?: number } = {}) {
+function montar(opcoes: { hoje?: string; semConferir?: number; sobra?: number; separado?: number; limite?: number; gastos?: Array<{ appointmentId: string; sessionId: string | null }> } = {}) {
   const hoje = opcoes.hoje ?? "2026-11-06";
   const tarefas = [
     { id: "t1", title: "Comprar presente", date: "2026-11-06", doneOn: null, position: 0, parentId: null, repeat: null },
@@ -21,6 +21,8 @@ function montar(opcoes: { hoje?: string; semConferir?: number; sobra?: number; s
     excluir: async () => undefined,
   };
   const agenda = {
+    perguntasDeGasto: async () => opcoes.gastos ?? [],
+    sessoesDeGasto: async () => [{ id: "s1", label: "Casa / Compras" }],
     listar: async () => ({
       appointments: [
         { id: "c1", title: "Dentista", day: 6, time: "09:30", endTime: "10:30", allDay: false, location: "Clínica", calendar: "Pessoal", status: "undone" },
@@ -105,6 +107,15 @@ describe("o dia da pessoa", () => {
     expect(comLimite.pendencias.map((item) => item.kind)).toEqual(["limite"]);
     expect(comLimite.pendencias[0]?.title).toBe("Compras passou do limite de novembro");
     expect((await montar({ sobra: 50000 }).dia(TENANT, "2026-11-07")).livre).toBeNull();
+  });
+
+  it("em hoje, traz as perguntas de gasto e as sessões só quando alguma pergunta não tem sessão", async () => {
+    const semSessao = await montar({ gastos: [{ appointmentId: "c1", sessionId: null }] }).dia(TENANT);
+    expect(semSessao.gastos.map((item) => item.appointmentId)).toEqual(["c1"]);
+    expect(semSessao.sessoesParaGasto).toEqual([{ id: "s1", label: "Casa / Compras" }]);
+    const comSessao = await montar({ gastos: [{ appointmentId: "c1", sessionId: "s1" }] }).dia(TENANT);
+    expect(comSessao.sessoesParaGasto).toEqual([]);
+    expect((await montar({ gastos: [{ appointmentId: "c1", sessionId: null }] }).dia(TENANT, "2026-11-07")).gastos).toEqual([]);
   });
 
   it("conclui a tarefa no dia de hoje da pessoa e reabre com null", async () => {

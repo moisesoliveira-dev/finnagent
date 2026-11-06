@@ -38,7 +38,7 @@ export function Selecao({
     <div className="campo">
       <span className="etiqueta">{rotulo}</span>
       <button type="button" className="entrada-com-icone selecao" disabled={desabilitado} aria-haspopup="dialog" aria-label={`${rotulo}: ${escolhida?.texto ?? "nenhum"}`} onClick={() => setAberta(true)}>
-        <span className={`valor-escolhido${escolhida && valor !== "" ? "" : " vazio"}`}>{escolhida && valor !== "" ? escolhida.texto : (vazio ?? "Escolha")}</span>
+        <span className={`valor-escolhido${escolhida && valor !== "" ? "" : " fraco"}`}>{escolhida && valor !== "" ? escolhida.texto : (vazio ?? "Escolha")}</span>
         <IonIcon icon={chevronDown} aria-hidden />
       </button>
 
