@@ -131,4 +131,44 @@ describe("pacote de dados", () => {
     expect(depois.entryAmounts[0].entryId).toBe(lancamento.id);
     expect(resumoDe(depois)).toMatchObject({ groups: 1, sessions: 1, entries: 1, appointments: 1 });
   });
+
+  it("renova também as partes de uma linha de extrato dividida", () => {
+    const comExtrato = pacote((dados) => {
+      dados.accounts = [{ id: "c1", name: "Nubank" }];
+      dados.statements = [
+        {
+          id: "x1",
+          accountId: "c1",
+          filename: "nubank.csv",
+          format: "csv",
+          status: "done",
+          message: "",
+          startDate: null,
+          endDate: null,
+          lineCount: 1,
+          errorCount: 0,
+          importedAt: dia,
+          content: "",
+          contentHash: "h",
+          dateColumn: null,
+          descriptionColumn: null,
+          amountColumn: null,
+        },
+      ];
+      dados.statementLines = [{ statementId: "x1", line: 1, postedOn: null, description: "Mercado", cents: -1000, error: "", entryId: "e1" }];
+      dados.statementLineParts = [{ statementId: "x1", line: 1, entryId: "e1", cents: 1000, position: 0 }];
+    });
+    const depois = renovarIdentificadores(ler(comExtrato));
+    const [parte] = depois.statementLineParts;
+    expect(parte.statementId).toBe(depois.statements[0].id);
+    expect(parte.statementId).toBe(depois.statementLines[0].statementId);
+    expect(parte.entryId).toBe(depois.entries[0].id);
+  });
+
+  it("recusa parte de linha que aponta para um lançamento fora do arquivo", () => {
+    const quebrado = pacote((dados) => {
+      dados.statementLineParts = [{ statementId: "x1", line: 1, entryId: "e1", cents: 1, position: 0 }];
+    });
+    expect(interpretarPacote(quebrado)).toBe("O arquivo está incompleto ou corrompido.");
+  });
 });
