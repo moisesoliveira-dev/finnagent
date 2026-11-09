@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumoDaConta, type Conta, type Lancamento } from "@finnagent/contracts";
+import { resumoDaCaixinha, resumoDaConta, type Conta, type Lancamento } from "@finnagent/contracts";
 import { EXEMPLO } from "../../financas/dominio/exemplo.js";
 import { ContasService } from "./contas.service.js";
 
@@ -40,15 +40,33 @@ describe("saldo da conta", () => {
 describe("serviço de contas", () => {
   function servico(resposta: unknown) {
     const repo = { listar: async () => [banco], criar: async () => resposta, atualizar: async () => resposta };
-    return new ContasService(repo as never);
+    return new ContasService(repo as never, { listar: async () => [] } as never);
   }
 
   it("lista as contas", async () => {
-    expect(await servico(banco).listar(TENANT)).toEqual({ accounts: [banco] });
+    expect(await servico(banco).listar(TENANT)).toEqual({ accounts: [banco], boxes: [] });
   });
 
   it("recusa nome repetido e conta que não existe, com mensagens", async () => {
     await expect(servico("nome-ocupado").criar(TENANT, "x", { name: "Banco", kind: "conta", openingCents: 0 })).rejects.toThrow("Já existe uma conta");
     await expect(servico("ausente").atualizar(TENANT, "x", { name: "Banco", kind: "conta", openingCents: 0 })).rejects.toThrow("Conta não encontrada");
+  });
+});
+
+describe("saldo da caixinha", () => {
+  const caixinha = { id: "cx", accountId: banco.id, name: "Reserva", openingCents: 10_000, sessionId: "s-cx", goalId: null };
+  const pago = (dia: string, cents: number) => [{ number: 1, dueDate: dia, plannedCents: cents, paidCents: cents, paidOn: dia, status: "completed" as const }];
+
+  it("soma aplicação e rendimento, tira o resgate, e conta o rendimento do mês pedido", () => {
+    const entries = [
+      lancamento({ sessionId: "s-cx", transfer: true, occurrences: pago("2026-10-03", -30_000) }),
+      lancamento({ sessionId: "s-cx", accountId: null, occurrences: pago("2026-10-31", 200) }),
+      lancamento({ sessionId: "s-cx", accountId: null, occurrences: pago("2026-11-30", 300) }),
+      lancamento({ sessionId: "s-cx", transfer: true, occurrences: pago("2026-11-05", 5_000) }),
+      // Outra sessão não entra.
+      lancamento({ sessionId: "outra", accountId: null, occurrences: pago("2026-11-01", 9_999) }),
+    ];
+    expect(resumoDaCaixinha(caixinha, entries, "2026-11-10")).toEqual({ saldoCents: 35_200, rendimentoDoMesCents: 300, rendimentoTotalCents: 200 });
+    expect(resumoDaCaixinha(caixinha, entries, "2026-11-10", "2026-10").rendimentoDoMesCents).toBe(200);
   });
 });

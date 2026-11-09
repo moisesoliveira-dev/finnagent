@@ -3,7 +3,6 @@ import {
   Body,
   ConflictException,
   Controller,
-  Delete,
   Get,
   Headers,
   HttpCode,
@@ -34,6 +33,7 @@ const criarMeta = z
     }
   });
 
+const caixinhaDaMeta = z.object({ boxId: z.uuid().nullable() });
 const separarMeta = z.object({ cents: z.number().int().positive().max(2_147_483_647) });
 
 const divisaoDasMetas = z
@@ -100,12 +100,13 @@ export class MetasController {
     return this.executar(() => this.metas.separar(this.tenant(tenant), metaId.data, pedido.data.cents));
   }
 
-  @Delete(":id")
+  @Put(":id/caixinha")
   @HttpCode(204)
-  excluir(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+  ligarCaixinha(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
     const metaId = z.uuid().safeParse(id);
-    if (!metaId.success) throw new BadRequestException("Meta inválida.");
-    return this.executar(() => this.metas.excluir(this.tenant(tenant), metaId.data));
+    const pedido = caixinhaDaMeta.safeParse(body);
+    if (!metaId.success || !pedido.success) throw new BadRequestException("Escolha a caixinha.");
+    return this.executar(() => this.metas.ligarCaixinha(this.tenant(tenant), metaId.data, pedido.data.boxId));
   }
 
   private tenant(value: string | undefined) {

@@ -261,11 +261,31 @@ model Account {
   openingCents Int         @default(0) @map("opening_cents")
   statements   Statement[]
   entries      Entry[]
+  boxes        AccountBox[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("accounts")
+}
+
+// Caixinha (depósito) dentro de uma conta. Cada uma tem uma sessão no grupo "Caixinhas": nela entram o rendimento do
+// mês, as aplicações e os resgates. Ligada a uma meta, o saldo dela conta no guardado da meta.
+model AccountBox {
+  id           String  @id
+  tenantId     String  @map("tenant_id")
+  accountId    String  @map("account_id")
+  name         String
+  // O que já estava na caixinha quando a pessoa começou a controlar aqui.
+  openingCents Int     @default(0) @map("opening_cents")
+  sessionId    String  @map("session_id")
+  goalId       String? @map("goal_id")
+  account      Account @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, accountId, name])
+  @@unique([tenantId, goalId])
+  @@index([tenantId])
+  @@map("account_boxes")
 }
 
 model Statement {

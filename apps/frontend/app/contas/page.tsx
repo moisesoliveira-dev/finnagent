@@ -14,6 +14,10 @@ import {
   type ExtratosResposta,
   type FinancasVista,
   type LancamentoVista,
+  type Caixinha,
+  type Meta,
+  type MetasResposta,
+  resumoDaCaixinha,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
@@ -27,6 +31,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
 import { api } from "../financas/api";
+import { SecaoDeCaixinhas } from "./caixinhas";
 import { DialogoDeConta, type PedidoDeConta } from "./dialogo";
 
 const ROTULO_DO_EXTRATO: Record<Extrato["status"], string> = {
@@ -105,6 +110,8 @@ export default function Contas() {
   const toast = useToast();
   const hoje = hojeIso();
   const [contas, setContas] = useState<Conta[] | null>(null);
+  const [caixinhas, setCaixinhas] = useState<Caixinha[]>([]);
+  const [metas, setMetas] = useState<Meta[]>([]);
   const [entries, setEntries] = useState<LancamentoVista[]>([]);
   const [extratos, setExtratos] = useState<Extrato[]>([]);
   const [falhou, setFalhou] = useState(false);
@@ -121,6 +128,7 @@ export default function Contas() {
         api<ContasResposta>("/api/contas"),
         api<FinancasVista>("/api/financas"),
         api<ExtratosResposta>("/api/extratos").catch(() => ({ accounts: [], statements: [] }) as ExtratosResposta),
+        api<MetasResposta>("/api/metas").then((resposta) => resposta.goals).catch(() => [] as Meta[]),
       ]),
     [],
   );
@@ -128,9 +136,11 @@ export default function Contas() {
   useEffect(() => {
     let ativo = true;
     buscar()
-      .then(([c, f, e]) => {
+      .then(([c, f, e, m]) => {
         if (!ativo) return;
         setContas(c.accounts);
+        setCaixinhas(c.boxes ?? []);
+        setMetas(m);
         setEntries(f.entries);
         setExtratos(e.statements);
         setFalhou(false);
@@ -147,8 +157,10 @@ export default function Contas() {
 
   async function carregar() {
     try {
-      const [c, f, e] = await buscar();
+      const [c, f, e, m] = await buscar();
       setContas(c.accounts);
+      setCaixinhas(c.boxes ?? []);
+      setMetas(m);
       setEntries(f.entries);
       setExtratos(e.statements);
       setFalhou(false);
@@ -163,6 +175,9 @@ export default function Contas() {
   const doMes = conta ? movimentosDoMes(conta, entries, mes.year, mes.month) : null;
   const extratosDaConta = conta ? extratos.filter((item) => item.accountId === conta.id).sort((a, b) => b.importedAt.localeCompare(a.importedAt)) : [];
   const cartao = conta?.kind === "cartao";
+  const noDepositoDe = (alvo: Conta) =>
+    caixinhas.filter((item) => item.accountId === alvo.id).reduce((soma, item) => soma + resumoDaCaixinha(item, entries, hoje).saldoCents, 0);
+  const temCaixinha = (alvo: Conta) => caixinhas.some((item) => item.accountId === alvo.id);
 
   function mudarMes(delta: number) {
     setDeslize(delta);
@@ -231,6 +246,12 @@ export default function Contas() {
                         <span className="text-ink-2">{item.kind === "cartao" ? "Lançado na fatura" : "Saldo hoje"}</span>
                         <Money cents={r.saldoCents} strong />
                       </span>
+                      {temCaixinha(item) ? (
+                        <span className="flex items-baseline justify-between gap-2 text-sm">
+                          <span className="text-ink-2">Nas caixinhas</span>
+                          <Money cents={noDepositoDe(item)} />
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 );
@@ -253,8 +274,14 @@ export default function Contas() {
                 </Button>
                 <Button
                   variant="quiet"
-                  disabled={extratosDaConta.length > 0}
-                  title={extratosDaConta.length > 0 ? "Apague os extratos desta conta antes de excluí-la." : undefined}
+                  disabled={extratosDaConta.length > 0 || temCaixinha(conta)}
+                  title={
+                    extratosDaConta.length > 0
+                      ? "Apague os extratos desta conta antes de excluí-la."
+                      : temCaixinha(conta)
+                        ? "Exclua as caixinhas desta conta antes de excluí-la."
+                        : undefined
+                  }
                   onClick={() => setExcluindo(conta)}
                 >
                   Excluir
@@ -268,6 +295,16 @@ export default function Contas() {
               <Stat label={cartao ? "Fatura prevista" : "Fim do mês"}>
                 <Money cents={resumo.previstoCents} />
               </Stat>
+              {temCaixinha(conta) ? (
+                <>
+                  <Stat label="Nas caixinhas">
+                    <Money cents={noDepositoDe(conta)} />
+                  </Stat>
+                  <Stat label="Conta e caixinhas">
+                    <Money cents={resumo.saldoCents + noDepositoDe(conta)} />
+                  </Stat>
+                </>
+              ) : null}
             </dl>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -313,6 +350,8 @@ export default function Contas() {
                 </List>
               )}
             </Troca>
+
+            <SecaoDeCaixinhas conta={conta} caixinhas={caixinhas} entries={entries} metas={metas} hoje={hoje} mes={mes} onMudou={carregar} />
 
             <div className="grid min-w-0 gap-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">

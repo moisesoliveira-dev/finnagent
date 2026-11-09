@@ -57,7 +57,7 @@ class Memoria implements MetasRepositorio {
   }
 }
 
-function montar(opcoes: { grupos?: Array<{ id: string; name: string }>; nomeOcupado?: boolean; entries?: Lancamento[] } = {}) {
+function montar(opcoes: { grupos?: Array<{ id: string; name: string }>; nomeOcupado?: boolean; entries?: Lancamento[]; caixinhaDaMeta?: string } = {}) {
   const memoria = new Memoria();
   const chamadas = { grupos: [] as unknown[][], sessoes: [] as unknown[][], lancamentos: [] as Array<Record<string, unknown>>, removidas: [] as string[] };
   const grupos = {
@@ -84,7 +84,14 @@ function montar(opcoes: { grupos?: Array<{ id: string; name: string }>; nomeOcup
       entries: opcoes.entries ?? [],
     }),
   } as unknown as FinancasService;
-  return { servico: new MetasService(memoria, financas, grupos), memoria, chamadas };
+  const movimentos: Array<{ id: string; tipo: string; cents: number }> = [];
+  const caixinha = { id: "cx1", name: "Reserva", accountId: "c1", accountName: "Banco", saldoCents: 30_000, sessionId: "s-cx" };
+  const caixinhas = {
+    dasMetas: async () => new Map(opcoes.caixinhaDaMeta ? [[opcoes.caixinhaDaMeta, caixinha]] : []),
+    listar: async () => (opcoes.caixinhaDaMeta ? [{ ...caixinha, openingCents: 30_000, goalId: opcoes.caixinhaDaMeta }] : []),
+    movimentar: async (_t: string, id: string, pedido: { tipo: string; cents: number }) => void movimentos.push({ id, ...pedido }),
+  };
+  return { servico: new MetasService(memoria, financas, grupos, caixinhas as never), memoria, chamadas, movimentos };
 }
 
 const pedido = {
@@ -157,20 +164,12 @@ describe("meta com grupo e sessão", () => {
     await expect(servico.separar("t", "33333333-3333-4333-8333-333333333333", 100)).rejects.toBeInstanceOf(NaoEncontrado);
   });
 
-  it("excluir encerra a sessão só se ela nunca recebeu lançamento", async () => {
-    const vazia = montar();
-    const meta = await vazia.servico.criar("t", pedido);
-    await vazia.servico.excluir("t", meta.id);
-    expect(vazia.chamadas.removidas).toEqual([meta.sessionId]);
-
-    const usada = montar();
-    const outra = await usada.servico.criar("t", pedido);
-    (usada.servico as unknown as { financas: { listar: () => Promise<unknown> } }).financas.listar = async () => ({
-      workflow: { year: 2026, month: 3, day: 1 },
-      entries: [saida(outra.sessionId as string, 1000)],
-    });
-    await usada.servico.excluir("t", outra.id);
-    expect(usada.chamadas.removidas).toEqual([]);
+  it("excluir apaga a meta e devolve a sessão dela, sem encerrar aqui; meta que não existe recusa", async () => {
+    const { servico, chamadas } = montar();
+    const meta = await servico.criar("t", pedido);
+    expect((await servico.excluir("t", meta.id)).sessionId).toBe(meta.sessionId);
+    expect(chamadas.removidas).toEqual([]);
+    await expect(servico.excluir("t", meta.id)).rejects.toBeInstanceOf(NaoEncontrado);
   });
 });
 
@@ -233,5 +232,18 @@ describe("sobra com prioridade", () => {
     const metas = [meta("a", { targetCents: 1000, savedCents: 1000 }), meta("b", { targetCents: 1000 })];
     expect(alocarSobra(metas, hoje, 5_000)).toEqual({ a: 0, b: 1000 });
     expect(alocarSobra(metas, hoje, -300)).toEqual({ a: 0, b: 0 });
+  });
+});
+
+describe("meta guardada numa caixinha", () => {
+  it("o guardado soma o saldo da caixinha, e separar aplica nela em vez de lançar na sessão da meta", async () => {
+    const { servico, chamadas, movimentos } = montar({ caixinhaDaMeta: pedido.id });
+    const meta = await servico.criar("t", pedido);
+    const [lida] = (await servico.listar("t")).goals;
+    expect(lida?.savedCents).toBe(30_000);
+    expect(lida?.box).toMatchObject({ id: "cx1", name: "Reserva", accountName: "Banco", saldoCents: 30_000 });
+    await servico.separar("t", meta.id, 5_000);
+    expect(movimentos).toEqual([{ id: "cx1", tipo: "aplicacao", cents: 5_000, date: "2026-10-28" }]);
+    expect(chamadas.lancamentos).toHaveLength(0);
   });
 });

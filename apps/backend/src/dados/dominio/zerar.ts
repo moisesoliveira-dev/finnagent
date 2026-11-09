@@ -5,6 +5,7 @@ export const TABELAS_QUE_ZERAM = [
   "statementLinePart",
   "statementLine",
   "statement",
+  "accountBox",
   "account",
   "appointment",
   "entry",
