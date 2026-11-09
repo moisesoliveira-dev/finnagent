@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
+  evolucaoDoPatrimonio,
+  patrimonio,
+  resumoDaCaixinha,
+  type SaldosResposta,
   GRUPO_DAS_TRANSFERENCIAS,
   GRUPO_DOS_AJUSTES,
   SESSAO_DAS_TRANSFERENCIAS,
@@ -94,6 +98,26 @@ export class ContasService {
       transfer: pedido.foraDaSobra,
     });
     return { diferencaCents, entry };
+  }
+
+  /** O patrimônio e o saldo de hoje de cada conta e caixinha: o que a tela de Contas mostra. */
+  async saldos(tenantId: string): Promise<SaldosResposta> {
+    const [contas, caixinhas, { entries }, hoje] = await Promise.all([
+      this.contas.listar(tenantId),
+      this.caixinhas.listar(tenantId),
+      this.financas.listar(tenantId),
+      this.financas.hoje(tenantId),
+    ]);
+    return {
+      hoje,
+      patrimonio: patrimonio(contas, caixinhas, entries, hoje),
+      contas: contas.map((conta) => ({ id: conta.id, name: conta.name, kind: conta.kind, openingOn: conta.openingOn, ...resumoDaConta(conta, entries, hoje) })),
+      caixinhas: caixinhas.map((caixinha) => {
+        const resumo = resumoDaCaixinha(caixinha, entries, hoje);
+        return { id: caixinha.id, name: caixinha.name, accountId: caixinha.accountId, goalId: caixinha.goalId, saldoCents: resumo.saldoCents, rendimentoDoMesCents: resumo.rendimentoDoMesCents };
+      }),
+      evolucao: evolucaoDoPatrimonio(contas, caixinhas, entries, hoje, 6),
+    };
   }
 
   /** As últimas faturas do cartão e o limite. */

@@ -4,6 +4,7 @@ import type {
   ConferenciaResposta,
   ContasResposta,
   FaturasResposta,
+  SaldosResposta,
   Feriado,
   FeriadoLocal,
   GruposResposta,
@@ -55,6 +56,7 @@ const FORMATOS: Record<string, (corpo: never) => string | null> = {
   consultar_agenda: (corpo: AgendaResposta) => agenda(corpo),
   consultar_contas: (corpo: ContasResposta) => contas(corpo),
   consultar_faturas: (corpo: FaturasResposta) => faturas(corpo),
+  consultar_saldos: (corpo: SaldosResposta) => saldos(corpo),
   consultar_feriados: (corpo: { feriados: Feriado[]; locais: FeriadoLocal[] }) => feriados(corpo),
   consultar_notificacoes: (corpo: NotificacoesResposta) => notificacoes(corpo),
 };
@@ -163,6 +165,22 @@ function contas(corpo: ContasResposta) {
       linhas.push(`  - caixinha ${caixinha.id} · ${caixinha.name} · saldo inicial ${reais(caixinha.openingCents)}${caixinha.openingOn ? ` em ${caixinha.openingOn}` : ""} · sessão ${caixinha.sessionId}${caixinha.goalId ? ` · meta ${caixinha.goalId}` : ""}`);
     }
   }
+  return linhas.join("\n");
+}
+
+function saldos(corpo: SaldosResposta) {
+  if (!corpo.patrimonio || !Array.isArray(corpo.contas)) return null;
+  const p = corpo.patrimonio;
+  const linhas = [`Patrimônio em ${corpo.hoje}: ${reais(p.totalCents)} (contas ${reais(p.contasCents)} + caixinhas ${reais(p.caixinhasCents)} − cartões ${reais(p.cartoesCents)}).`];
+  if (!corpo.contas.length) linhas.push("Nenhuma conta cadastrada.");
+  for (const conta of corpo.contas) {
+    const cartao = conta.kind === "cartao";
+    linhas.push(`- ${conta.id} · ${conta.name} · ${cartao ? `lançado na fatura ${reais(conta.saldoCents)} · fatura prevista ${reais(conta.previstoCents)}` : `saldo hoje ${reais(conta.saldoCents)} · fim do mês ${reais(conta.previstoCents)}`}${conta.openingOn ? "" : " · saldo inicial sem data (tudo conta)"}`);
+    for (const caixinha of corpo.caixinhas.filter((item) => item.accountId === conta.id)) {
+      linhas.push(`  - caixinha ${caixinha.id} · ${caixinha.name} · saldo ${reais(caixinha.saldoCents)} · rendeu no mês ${reais(caixinha.rendimentoDoMesCents)}${caixinha.goalId ? ` · meta ${caixinha.goalId}` : ""}`);
+    }
+  }
+  linhas.push(`Evolução (fim de cada mês): ${corpo.evolucao.map((mes) => `${mes.month} ${reais(mes.totalCents)}`).join(" · ")}.`);
   return linhas.join("\n");
 }
 

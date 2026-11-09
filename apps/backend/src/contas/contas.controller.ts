@@ -83,6 +83,11 @@ export class ContasController {
     return this.executar(() => this.contas.transferir(this.tenant(tenant), pedido.data));
   }
 
+  @Get("contas/saldos")
+  saldos(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.contas.saldos(this.tenant(tenant)));
+  }
+
   @Get("contas/:id/faturas")
   faturas(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
     if (!z.uuid().safeParse(id).success) throw new NotFoundException("Conta não encontrada.");

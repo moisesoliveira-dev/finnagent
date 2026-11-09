@@ -1564,6 +1564,15 @@ export function patrimonio(contas: Conta[], caixinhas: Caixinha[], entries: Lanc
   return { contasCents, caixinhasCents, cartoesCents, totalCents: contasCents + caixinhasCents - cartoesCents };
 }
 
+/** O que a tela de Contas mostra, de uma vez: o patrimônio, o saldo de hoje de cada conta e de cada caixinha. */
+export type SaldosResposta = {
+  hoje: string;
+  patrimonio: Patrimonio;
+  contas: Array<{ id: string; name: string; kind: TipoDeConta; saldoCents: number; previstoCents: number; openingOn: string | null }>;
+  caixinhas: Array<{ id: string; name: string; accountId: string; goalId: string | null; saldoCents: number; rendimentoDoMesCents: number }>;
+  evolucao: Array<{ month: string; totalCents: number }>;
+};
+
 /** O patrimônio no fim de cada um dos últimos meses (o mês de hoje vale até hoje), do mais antigo ao atual. */
 export function evolucaoDoPatrimonio(contas: Conta[], caixinhas: Caixinha[], entries: Lancamento[], hoje: string, meses = 6) {
   const [ano, mes] = hoje.split("-").map(Number) as [number, number];
@@ -4154,6 +4163,15 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       date: dataDoSistema,
     }),
     rotulo: (args) => `${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[args.tipo]} de ${(args.cents / 100).toFixed(2).replace(".", ",")} reais na caixinha`,
+  }),
+  ferramenta({
+    nome: "consultar_saldos",
+    agentes: todosLeem,
+    descricao:
+      "O saldo de hoje de cada conta (e o previsto para o fim do mês), a fatura lançada de cada cartão, o saldo e o rendimento do mês de cada caixinha, o patrimônio (contas mais caixinhas menos cartões) e a evolução dele nos últimos seis meses. Use quando a pessoa perguntar quanto tem, quanto está guardado ou como o dinheiro dela evoluiu.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou os saldos e o patrimônio",
   }),
   ferramenta({
     nome: "ajustar_saldo_da_conta",

@@ -291,6 +291,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   reprocessar_extrato: { metodo: "POST", caminho: (a) => `extratos/${id(a.id)}/reprocessar` },
   excluir_extrato: { metodo: "DELETE", caminho: (a) => `extratos/${id(a.id)}` },
   consultar_contas: { metodo: "GET", caminho: () => "contas" },
+  consultar_saldos: { metodo: "GET", caminho: () => "contas/saldos" },
   criar_conta: {
     metodo: "POST",
     caminho: () => "contas",
