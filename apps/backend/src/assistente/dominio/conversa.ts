@@ -13,6 +13,11 @@ export const LIMITE_DO_HISTORICO = 20;
 /** Quanto do resultado de uma ferramenta o modelo lê. O resto é cortado, com aviso. */
 export const LIMITE_DO_RESULTADO = 12_000;
 
+/** A conferência do mês inteiro (até 200 linhas) precisa caber: o modelo propõe o plano a partir dela. */
+export const LIMITE_DO_RESULTADO_DA_CONFERENCIA = 60_000;
+
+const LIMITE_POR_FERRAMENTA: Record<string, number> = { consultar_conferencia: LIMITE_DO_RESULTADO_DA_CONFERENCIA };
+
 export function tituloDe(texto: string) {
   const linha = texto.split("\n").find((item) => item.trim())?.replace(/\s+/g, " ").trim() ?? "Nova conversa";
   return linha.length > 60 ? `${linha.slice(0, 57).trimEnd()}…` : linha;
@@ -60,8 +65,9 @@ export function resultadoParaOModelo(corpo: unknown, ferramenta?: string) {
     typeof corpo === "string"
       ? corpo
       : (ferramenta ? textoDoResultado(ferramenta, corpo) : null) ?? JSON.stringify(limpar(corpo));
-  if (texto.length <= LIMITE_DO_RESULTADO) return texto;
-  return `${texto.slice(0, LIMITE_DO_RESULTADO)}\n(resultado cortado: peça um filtro mais estreito se precisar do resto)`;
+  const limite = (ferramenta && LIMITE_POR_FERRAMENTA[ferramenta]) || LIMITE_DO_RESULTADO;
+  if (texto.length <= limite) return texto;
+  return `${texto.slice(0, limite)}\n(resultado cortado: peça um filtro mais estreito se precisar do resto)`;
 }
 
 const DIAS: Record<RetencaoDoChat, number | null> = { "30d": 30, "90d": 90, "1a": 365, sempre: null };

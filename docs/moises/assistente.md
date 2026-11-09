@@ -337,3 +337,26 @@ Arquivos:
 - `apps/backend/src/assistente/` (controlador, serviço, `dominio/pedido.ts`, porta e adaptador das conversas, spec do serviço)
 - `apps/frontend/app/assistente/conversas.tsx`, `compositor.tsx` e `chat.tsx`
 - `apps/frontend/components/ui/icone.tsx`
+
+## O assistente alcança o que a pessoa faz nas telas, e o plano conta o que cada passo devolveu
+
+- **Causa do "não lançou agosto":** ao executar um plano aprovado, o relato que voltava ao modelo dizia só "Passo N (acumular_linhas): feito" e descartava o resultado do lote (`launched`, `failed` com o motivo, `remaining`). O lote responde 201 mesmo com linhas que falharam, então o modelo dizia "pronto" com linhas de fora. Agora o relato traz o que cada passo devolveu (até 600 caracteres; o lote de linhas vai inteiro, até 6.000) e o fecho manda dizer quantas não entraram e propor outro plano para elas. O fecho só autoriza "terminou" com `failed` vazio e `remaining` zero.
+- **Executor:** o lote de linhas com nenhuma lançada vira falha do passo (o cartão mostra "falhou" com o motivo); com parte lançada, o cartão fica "feita" com a ressalva "X lançada(s), Y não: motivo".
+- **Conferência inteira numa chamada:** `consultar_conferencia` ganhou `todas: true`, que vira `pagina=0` no backend e devolve todas as linhas sem lançamento do mês de uma vez (até 200, constante `LINHAS_DA_CONFERENCIA_DE_UMA_VEZ`). O limite do resultado dessa ferramenta subiu para 60 mil caracteres. Antes o modelo lia 10 linhas por chamada e gastava um passo por página.
+- **Plano:** aceita a lista de linhas com o nome errado (`linhas`, `lines`, `itens`, `rows` viram `items`) antes de validar, em `normalizarArgs`. A descrição de `acumular_linhas` mostra o formato e explica `launched`, `failed` e `remaining`.
+- **Ferramentas novas**, para a IA alcançar o que a pessoa faz nas telas: contas (`consultar_contas`, `criar_conta`, `editar_conta`, `excluir_conta`); extratos (`ignorar_linhas`, `dividir_linha`, `desfazer_conferencia`); finanças (`desfazer_pagamento`); metas (`aprovar_parte_da_meta`); Hoje (`editar_tarefa`); feriados (`consultar_feriados`, `criar_feriado_local`, `excluir_feriado_local`); padrões de vencimento (`consultar_padroes_de_vencimento`, `atualizar_padroes_de_vencimento`, pelas rotas novas `GET` e `PATCH configuracoes/vencimentos`, a única parte das configurações que a IA alcança); notificações (`consultar_notificacoes`, `marcar_notificacao_lida`, `marcar_notificacoes_lidas`). Fica de fora, de propósito: perfil, senha, sessões de acesso, usuários, provedores de IA, conexão com o Google, dispositivos de push, exportar, importar e zerar dados.
+- **Prompt do consultor:** lê a conferência com `todas true`, infere o ano de um mês citado sem ano (e confirma em dúvida), conhece as áreas novas, e a regra do Fixo agora diz que ele guarda uma única por mês ou uma parcela, empréstimo ou fixa que ocupa cada mês em que vence. Resultados compactos para contas, feriados e notificações em `resultados.ts`.
+
+Motivo: a IA deve conseguir fazer, de modo correto, o que a pessoa faz nas telas, e nunca dizer que terminou com linhas de fora.
+
+Verificação: testes do backend (499), agents (61) e mobile (12) passando; tsc dos quatro apps, oxlint e eslint limpos. Docker reconstruído; dentro do container do backend, as rotas novas responderam: conferência `pagina=0` devolve tudo numa página de 200 e `pagina=101` recusa; conta criada, editada e apagada; `configuracoes/vencimentos` lido, alterado e restaurado, corpo inválido recusado; feriado local criado e apagado; notificações listadas e marcadas; ignorar linhas aceita o lote. Não verificado: uma conversa real com o modelo (precisa de provedor configurado).
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/assistente/adaptadores/rotas-das-ferramentas.ts` e `executor-http.ts` (+ spec)
+- `apps/backend/src/assistente/aplicacao/assistente.service.ts` (+ spec)
+- `apps/backend/src/assistente/dominio/plano.ts` (+ `plano.limite.spec.ts`), `conversa.ts` e `resultados.ts`
+- `apps/backend/src/extratos/extratos.controller.ts` e `aplicacao/extratos.service.ts`
+- `apps/backend/src/configuracoes/configuracoes.controller.ts` e `aplicacao/configuracoes.service.ts`
+- `apps/agents/src/assistente/dominio/prompts.ts` e `consultor.ts` (+ `prompts.spec.ts`)

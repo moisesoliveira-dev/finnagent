@@ -47,9 +47,21 @@ function linhasDoPlano(passos: unknown[]) {
     if (!passo || typeof passo !== "object") return soma;
     const { ferramenta, args } = passo as { ferramenta?: unknown; args?: unknown };
     if (ferramenta !== "acumular_linhas" || !args || typeof args !== "object") return soma;
-    const itens = (args as { items?: unknown }).items;
+    const itens = (normalizarArgs(ferramenta, args as Record<string, unknown>) as { items?: unknown }).items;
     return soma + (Array.isArray(itens) ? itens.length : 0);
   }, 0);
+}
+
+// Os nomes que o modelo usa no lugar de `items`. Aceitar poupa uma volta de recusa.
+const NOMES_DA_LISTA_DE_LINHAS = ["linhas", "lines", "itens", "rows"];
+
+/** Corrige o que o modelo costuma errar na forma dos argumentos, antes de validar pelo esquema. */
+export function normalizarArgs(ferramenta: string, args: Record<string, unknown>): Record<string, unknown> {
+  if (ferramenta !== "acumular_linhas" || Array.isArray(args.items)) return args;
+  const nome = NOMES_DA_LISTA_DE_LINHAS.find((chave) => Array.isArray(args[chave]));
+  if (!nome) return args;
+  const { [nome]: lista, ...resto } = args;
+  return { ...resto, items: lista };
 }
 
 export function validarPlano(entrada: unknown, gerarId: () => string): PlanoValidado | string {
@@ -70,7 +82,7 @@ export function validarPlano(entrada: unknown, gerarId: () => string): PlanoVali
     if (ferramenta.leitura) {
       return `Passo ${numero}: ${passo.ferramenta} só consulta. Consulte antes de propor; o plano é só para o que muda o sistema.`;
     }
-    const resolvidos = resolver(passo.args, passos, numero);
+    const resolvidos = resolver(normalizarArgs(passo.ferramenta, passo.args), passos, numero);
     if (typeof resolvidos === "string") return `Passo ${numero}: ${resolvidos}`;
     const validos = ferramenta.esquema.safeParse(resolvidos);
     if (!validos.success) return `Passo ${numero} (${passo.ferramenta}): ${problemasDe(validos.error.issues)}.`;

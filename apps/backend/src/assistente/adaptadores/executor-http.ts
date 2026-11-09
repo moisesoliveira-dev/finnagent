@@ -56,6 +56,7 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
     } catch {
       // Resposta em texto puro: o modelo lê como veio.
     }
+    if (resposta.ok && itens) return resultadoDoLote(lido as Partial<Lote> | null);
     if (resposta.ok) return { ok: true, conteudo: resultadoParaOModelo(lido, chamada.nome), detalhe: "" };
     const mensagem =
       lido && typeof lido === "object" && "message" in lido ? String((lido as { message: unknown }).message) : `Erro ${resposta.status}.`;
@@ -102,8 +103,31 @@ export class ExecutorHttp implements ExecutorDeFerramentas {
       for (const mes of lido.remaining ?? []) meses.set(`${mes.year}-${mes.month}`, mes);
     }
     total.remaining = [...meses.values()];
-    return { ok: true, conteudo: resultadoParaOModelo(total), detalhe: "" };
+    return resultadoDoLote(total);
   }
+}
+
+/**
+ * O lote responde 201 mesmo quando linhas falham. Nenhuma lançada é falha do passo; parte lançada é feito com a
+ * ressalva no cartão. O conteúdo vai inteiro para o modelo: launched, failed (com o motivo) e remaining.
+ */
+function resultadoDoLote(lido: Partial<Lote> | null): ResultadoDaExecucao {
+  const launched = lido?.launched ?? 0;
+  const failed = lido?.failed ?? [];
+  const conteudo = resultadoParaOModelo(lido);
+  if (failed.length && launched === 0) {
+    return { ok: false, conteudo: `Nenhuma linha foi lançada. ${conteudo}`, detalhe: `Nenhuma linha entrou: ${motivosDe(failed)}` };
+  }
+  if (failed.length) {
+    return { ok: true, conteudo, detalhe: `${launched} lançada(s), ${failed.length} não: ${motivosDe(failed)}` };
+  }
+  return { ok: true, conteudo, detalhe: "" };
+}
+
+function motivosDe(failed: Lote["failed"]) {
+  const motivos = [...new Set(failed.map((item) => item.message))];
+  const texto = motivos.slice(0, 3).join(" ");
+  return motivos.length > 3 ? `${texto} (e mais ${motivos.length - 3})` : texto;
 }
 
 function itensDoLote(corpo: unknown) {

@@ -36,7 +36,7 @@ export const INTERFERENCIAS = [
   "- A taxa de juros do empréstimo fica no contrato. A prestação que entra na sobra é o valor em centavos; a taxa não é somada de novo.",
   "- Pagar pelo extrato: a única usa o valor da linha. Fixa, parcela e empréstimo com valor diferente usam o que a pessoa escolheu naquele mês. Extra só entra se a linha for positiva.",
   "- Acumular uma linha do extrato cria uma única nova e soma na sobra. Não entra numa série que já existe.",
-  "- Sessão de valor guarda uma única viva. Sessão de acúmulo guarda única, extra, parcela, empréstimo e fixa. Fixa, parcela ou empréstimo numa sessão de valor é recusado. Sessão ligada a uma meta, e qualquer sessão do grupo Metas, não aceita fixa, parcela nem empréstimo: o valor separado entra como única.",
+  "- Sessão de valor guarda uma única viva por mês, ou uma parcela, empréstimo ou fixa que ocupa cada mês em que vence; mês já ocupado recusa outra, e extra é recusada. Sessão de acúmulo guarda única, extra, parcela, empréstimo e fixa. Sessão ligada a uma meta, e qualquer sessão do grupo Metas, não aceita fixa, parcela nem empréstimo: o valor separado entra como única.",
   "- Extra é sempre entrada. Parcela é sempre saída. Fixa e empréstimo podem ser entrada ou saída.",
   "- Separar valor para uma meta cria uma saída única na sessão da meta e reduz a sobra daquele mês. Aprovar a divisão da sobra é na tela de Metas, não no plano.",
   "- Transferência entre contas da pessoa (transfer) muda o saldo das contas e não entra na sobra. A fixa segue para o ano seguinte sem a pessoa fazer nada.",

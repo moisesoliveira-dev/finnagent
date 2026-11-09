@@ -77,14 +77,15 @@ export class ExtratosController {
         year: z.coerce.number().int().min(2000).max(2100),
         month: z.coerce.number().int().min(1).max(12),
         abrir: z.enum(["pendente"]).optional(),
-        pagina: z.coerce.number().int().min(1).max(100).optional(),
+        // 0: todas as linhas sem lançamento numa resposta só, até LINHAS_DA_CONFERENCIA_DE_UMA_VEZ.
+        pagina: z.coerce.number().int().min(0).max(100).optional(),
         busca: z.string().trim().min(2).max(120).optional(),
       })
       .safeParse({ year, month, abrir, pagina, busca });
     if (!pedido.success) {
       const campo = pedido.error.issues[0]?.path[0];
       if (campo === "busca") throw new BadRequestException("A busca precisa ter de 2 a 120 letras.");
-      if (campo === "pagina") throw new BadRequestException("Informe uma página de 1 a 100.");
+      if (campo === "pagina") throw new BadRequestException("Informe uma página de 0 a 100.");
       throw new BadRequestException("Informe o mês.");
     }
     const { year: ano, month: mes } = pedido.data;

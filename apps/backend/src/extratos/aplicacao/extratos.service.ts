@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { REGRA_SEM_AJUSTE, ehSerie, erroDoTipoDaLinha } from "@finnagent/contracts";
 import {
+  LINHAS_DA_CONFERENCIA_DE_UMA_VEZ,
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
   type DiferencaDoPagamento,
   type TipoDaLinha,
@@ -287,10 +288,18 @@ export class ExtratosService {
     });
     const pending = lines.filter((linha) => !linha.entryId && !linha.ignored).length;
     const resposta = { year, month, pending, checked: lines.length > 0 && pending === 0, lines };
-    if (!pagina) return resposta;
+    if (pagina === undefined) return resposta;
     // Com busca, só as linhas desses nomes; `pending` continua sendo o total sem lançamento do mês.
     const termos = termosDaBusca(busca);
     const semLancamento = lines.filter((linha) => !linha.entryId && !linha.ignored && casaComABusca(linha.description, termos));
+    // Página 0: tudo de uma vez, para quem lê o mês inteiro (o assistente) não precisar de uma chamada por página.
+    if (pagina === 0) {
+      return {
+        ...resposta,
+        lines: semLancamento.slice(0, LINHAS_DA_CONFERENCIA_DE_UMA_VEZ),
+        page: { number: 1, size: LINHAS_DA_CONFERENCIA_DE_UMA_VEZ, total: semLancamento.length },
+      };
+    }
     const inicio = (pagina - 1) * LINHAS_DA_CONFERENCIA_POR_PAGINA;
     return {
       ...resposta,

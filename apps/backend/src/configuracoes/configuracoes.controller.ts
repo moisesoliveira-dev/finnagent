@@ -4,17 +4,25 @@ import {
   Controller,
   Get,
   Headers,
+  Patch,
   Post,
   Put,
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { AJUSTES_DE_DIA_UTIL } from "@finnagent/contracts";
 import { z } from "zod";
 import { ConfiguracoesService } from "./aplicacao/configuracoes.service.js";
 import { interpretarConfiguracao } from "./dominio/pedido.js";
 import { BancoIndisponivel, PedidoInvalido } from "../grupos/dominio/erros.js";
 
 const tenantId = z.uuid();
+const padroesDeVencimento = z.object({
+  fixa_entrada: z.enum(AJUSTES_DE_DIA_UTIL),
+  fixa_saida: z.enum(AJUSTES_DE_DIA_UTIL),
+  parcela: z.enum(AJUSTES_DE_DIA_UTIL),
+  emprestimo: z.enum(AJUSTES_DE_DIA_UTIL),
+});
 const retornoGoogle = z.object({
   code: z.string().trim().min(1).max(2048),
   state: z.string().trim().min(1).max(80),
@@ -35,6 +43,21 @@ export class ConfiguracoesController {
     const pedido = interpretarConfiguracao(body);
     if (typeof pedido === "string") throw new BadRequestException(pedido);
     return this.executar(() => this.configuracoes.salvar(this.tenant(tenant), pedido));
+  }
+
+  /** Os padrões de vencimento sozinhos: é a única parte das configurações que o assistente alcança. */
+  @Get("configuracoes/vencimentos")
+  vencimentos(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(async () => ({ vencimentos: (await this.configuracoes.obter(this.tenant(tenant))).vencimentos }));
+  }
+
+  @Patch("configuracoes/vencimentos")
+  salvarVencimentos(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = padroesDeVencimento.safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Informe o ajuste das quatro categorias.");
+    return this.executar(async () => ({
+      vencimentos: (await this.configuracoes.salvarVencimentos(this.tenant(tenant), pedido.data)).vencimentos,
+    }));
   }
 
   @Get("configuracoes/google/conectar")

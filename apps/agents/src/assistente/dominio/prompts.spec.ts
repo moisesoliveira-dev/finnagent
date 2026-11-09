@@ -10,7 +10,7 @@ describe("prompt do consultor", () => {
     expect(prompt).toContain("pela ferramenta propor_plano");
     expect(prompt).toContain("Nunca chame direto uma ferramenta que muda o sistema: o sistema recusa");
     expect(prompt).toContain('escreva "@passo:N"');
-    expect(prompt).toContain("Depois de executado, o resultado já traz o efeito no mês");
+    expect(prompt).toContain("Depois de executado, o resultado traz o que cada passo devolveu");
     // O que muda a cada chamada fica no fim, para o prefixo fixo entrar no cache do provedor.
     expect(prompt.indexOf("Hoje é 2026-10-28")).toBeGreaterThan(prompt.indexOf("Responda sempre em português"));
     expect(prompt).toContain("Hoje é 2026-10-28, no fuso America/Sao_Paulo. Você conversa com Ana.");
@@ -52,7 +52,7 @@ describe("prompt do consultor", () => {
   });
 
   it("só propõe a divisão da sobra das metas, e as preferências entram por último", () => {
-    expect(prompt).toContain("quem aprova cada parte é a pessoa, na tela de Metas, e você não tem como aprovar");
+    expect(prompt).toContain("cada parte só é separada quando a pessoa aprova");
     expect(prompt).toContain("ofereça ajuda para organizar o financeiro");
     expect(prompt).not.toContain("Preferências da pessoa");
     // As preferências entram depois das regras; só a linha do dia (que muda sempre) vem depois delas, pelo cache.
@@ -61,11 +61,22 @@ describe("prompt do consultor", () => {
     expect(comPreferencias.indexOf("Preferências da pessoa")).toBeGreaterThan(comPreferencias.indexOf("Responda sempre em português"));
   });
 
-  it("lê todas as páginas da conferência antes de propor e conta o que sobrou depois de lançar", () => {
+  it("lê a conferência inteira numa chamada antes de propor e conta o que sobrou depois de lançar", () => {
     const texto = promptDoConsultor(contexto, "");
-    expect(texto).toContain("leia todas as páginas");
-    expect(texto).toContain("Nunca proponha com só a primeira página");
-    expect(texto).toContain("remaining");
-    expect(texto).toContain("Só diga que terminou quando não sobrou nenhuma");
+    expect(texto).toContain("consultar_conferencia com todas true");
+    expect(texto).toContain("nunca a partir de uma página só");
+    expect(texto).toContain("Mês citado sem ano é o do ano atual");
+    expect(texto).toContain("failed lista as que não entraram com o motivo");
+    expect(texto).toContain("Nunca diga que lançou tudo sem conferir esses números");
+    expect(texto).toContain("Só diga que terminou quando failed está vazio e remaining é zero");
+  });
+
+  it("alcança as telas da pessoa e sabe o que fica de fora", () => {
+    expect(prompt).toContain("Você alcança tudo o que a pessoa faz nas telas de Hoje, Finanças, Contas");
+    expect(prompt).toContain("Fora do seu alcance ficam só perfil, senha, sessões de acesso, usuários, os provedores de IA");
+    expect(prompt).toContain("consultar_contas lista todas");
+    expect(prompt).toContain("ignorar_linhas tira da conferência");
+    expect(prompt).toContain("desfazer_pagamento desfaz um registrado à mão");
+    expect(prompt).toContain("consultar_notificacoes");
   });
 });

@@ -1523,6 +1523,9 @@ export const ESQUEMA_DO_TIPO_DA_LINHA = z
 /** Linhas sem lançamento que a conferência entrega por página ao consultor. A tela pede o mês inteiro. */
 export const LINHAS_DA_CONFERENCIA_POR_PAGINA = 10;
 
+/** Com `pagina` 0, a conferência devolve as linhas sem lançamento de uma vez, até este tanto. */
+export const LINHAS_DA_CONFERENCIA_DE_UMA_VEZ = 200;
+
 export type ConferenciaResposta = {
   year: number;
   month: number;
@@ -3006,6 +3009,15 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     rotulo: (args) => `Apagou ${args.resumo}`,
   }),
   ferramenta({
+    nome: "desfazer_pagamento",
+    agentes: ["financas"],
+    descricao:
+      "Desfaz um pagamento registrado numa parcela ou num empréstimo: a ocorrência volta a pendente. O paymentId vem das ocorrências em consultar_lancamentos (campo paymentId). Pagamento vindo do extrato se desfaz por desfazer_cruzamento.",
+    destrutiva: true,
+    esquema: z.object({ id: idDoSistema, paymentId: idDoSistema, resumo: resumoDoQueApaga }),
+    rotulo: (args) => `Desfez ${args.resumo}`,
+  }),
+  ferramenta({
     nome: "adiantar_parcelas",
     agentes: ["financas"],
     descricao: "Adianta as parcelas restantes de um parcelamento.",
@@ -3255,6 +3267,19 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     rotulo: (args) => `Anotou a tarefa ${entreAspas(args.title)}`,
   }),
   ferramenta({
+    nome: "editar_tarefa",
+    agentes: ["agenda"],
+    descricao: "Muda o texto, o dia ou a repetição de uma tarefa da aba Hoje. Mande todos os campos, com os valores atuais nos que não mudam (eles vêm de consultar_hoje).",
+    esquema: z.object({
+      id: idDoSistema,
+      title: z.string().trim().min(1).max(160),
+      date: dataDoSistema,
+      parentId: idDoSistema.nullable().optional(),
+      repeat: z.enum(REPETICOES_DE_TAREFA).nullable().optional(),
+    }),
+    rotulo: (args) => `Editou a tarefa ${entreAspas(args.title)}`,
+  }),
+  ferramenta({
     nome: "concluir_tarefa",
     agentes: ["agenda"],
     descricao: "Marca uma tarefa da aba Hoje como feita (done true) ou reabre (done false). O id vem de consultar_hoje. Marcar a atividade marca as subatividades; a última subatividade fecha a atividade.",
@@ -3333,6 +3358,15 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     rotulo: () => "Reorganizou a prioridade das metas",
   }),
   ferramenta({
+    nome: "aprovar_parte_da_meta",
+    agentes: ["metas"],
+    descricao:
+      "Aprova a parte da sobra deste mês que a divisão reservou para a meta: o valor é separado agora, numa saída na sessão dela. Antes, a divisão precisa existir (dividir_sobra_das_metas) e consultar_metas mostra o valor pendente. Mexe com dinheiro: entra no plano para a pessoa aprovar.",
+    exigeConfirmacao: true,
+    esquema: peloId,
+    rotulo: () => "Aprovou a parte da meta",
+  }),
+  ferramenta({
     nome: "separar_valor_da_meta",
     agentes: ["metas"],
     descricao:
@@ -3373,12 +3407,13 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_conferencia",
     agentes: ["extratos"],
-    descricao: `Linhas do mês ainda sem lançamento, ${LINHAS_DA_CONFERENCIA_POR_PAGINA} por página, com a categoria e o valor de cada candidato. pagina começa em 1. page.total é quantas linhas existem (ou quantas casam com a busca) e pending é o total sem lançamento do mês. Com busca, traz só as linhas desses nomes, em vez de ler todas as páginas.`,
+    descricao: `Linhas do mês ainda sem lançamento, com a categoria e o valor de cada candidato. Com todas true, vêm todas as linhas sem lançamento de uma vez (até ${LINHAS_DA_CONFERENCIA_DE_UMA_VEZ}): use isso quando o pedido é sobre o mês inteiro. Sem todas, vêm ${LINHAS_DA_CONFERENCIA_POR_PAGINA} por página, pagina a partir de 1. page.total é quantas linhas existem (ou quantas casam com a busca) e pending é o total sem lançamento do mês. Com busca, traz só as linhas desses nomes.`,
     leitura: true,
     esquema: z.object({
       year: anoDoSistema,
       month: mesDoSistema,
-      pagina: z.number().int().min(1).max(100).optional().describe("Página, a partir de 1."),
+      todas: z.boolean().optional().describe("true: todas as linhas sem lançamento do mês numa chamada só, sem paginar."),
+      pagina: z.number().int().min(1).max(100).optional().describe("Página, a partir de 1. Ignorada com todas true."),
       busca: z
         .string()
         .trim()
@@ -3388,6 +3423,49 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
         .describe('Nomes a procurar na descrição da linha, separados por "|". Ex.: "uber|99". Sem acento e sem diferenciar maiúsculas.'),
     }),
     rotulo: (args) => `Consultou a conferência de ${args.month}/${args.year}`,
+  }),
+  ferramenta({
+    nome: "ignorar_linhas",
+    agentes: ["extratos"],
+    descricao:
+      "Marca linhas do extrato como sem importância (ignored true): saem da conferência e não viram lançamento. Com ignored false, voltam. Serve para linha repetida, estorno já tratado ou movimento que a pessoa não quer controlar.",
+    esquema: z.object({
+      items: z.array(z.object({ statementId: idDoSistema, line: z.number().int().min(1) })).min(1).max(500),
+      ignored: z.boolean(),
+    }),
+    rotulo: (args) => (args.ignored ? `Ignorou ${args.items.length} linha(s) do extrato` : `Reativou ${args.items.length} linha(s) do extrato`),
+  }),
+  ferramenta({
+    nome: "dividir_linha",
+    agentes: ["extratos"],
+    descricao:
+      "Divide uma linha do extrato em partes, cada uma lançada na própria sessão, no valor da parte. As partes somam o valor da linha, em centavos com sinal (saída negativa). Sem tipo, a parte vira única; com tipo, segue o tipo.",
+    esquema: z.object({
+      statementId: idDoSistema,
+      line: z.number().int().min(1),
+      parts: z
+        .array(
+          z.object({
+            cents: z.number().int().describe("Centavos com sinal: negativo para saída, positivo para entrada."),
+            sessionId: idDoSistema,
+            nome: z.string().trim().min(1).max(160).optional().describe("O nome do lançamento desta parte."),
+            tipo: ESQUEMA_DO_TIPO_DA_LINHA.optional(),
+          }),
+        )
+        .min(2)
+        .max(12),
+    }),
+    rotulo: (args) => `Dividiu a linha ${args.line} em ${args.parts.length} partes`,
+  }),
+  ferramenta({
+    nome: "desfazer_conferencia",
+    agentes: ["extratos"],
+    descricao:
+      "Desfaz toda a conferência da conta: as linhas cruzadas e divididas voltam a sem lançamento, as ignoradas voltam, os nomes lembrados são esquecidos e os lançamentos que nasceram do extrato são apagados. Só quando a pessoa pedir para recomeçar a conferência do zero.",
+    destrutiva: true,
+    exigeConfirmacao: true,
+    esquema: z.object({ resumo: resumoDoQueApaga }),
+    rotulo: () => "Desfez toda a conferência",
   }),
   ferramenta({
     nome: "cruzar_linha",
@@ -3427,7 +3505,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "acumular_linhas",
     agentes: ["extratos"],
     descricao:
-      "Lança várias linhas, cada uma na sua sessão, com o valor do extrato e já pagas. Sem tipo, cada uma vira uma única; com tipo, segue o tipo. Não use para fixa, parcela ou empréstimo que já existem.",
+      'Lança várias linhas, cada uma na sua sessão, com o valor do extrato e já pagas. Sem tipo, cada uma vira uma única; com tipo, segue o tipo. Não use para fixa, parcela ou empréstimo que já existem. Formato: { "items": [{ "statementId": "...", "line": 12, "sessionId": "..." }, ...] }. O resultado diz quantas foram lançadas (launched), quais falharam e por quê (failed) e quantas linhas ainda ficaram sem lançamento no mês (remaining).',
     esquema: z.object({
       items: z
         .array(
@@ -3476,6 +3554,119 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  // Contas e cartões
+  ferramenta({
+    nome: "consultar_contas",
+    agentes: todosLeem,
+    descricao: "Lista as contas (banco, carteira) e os cartões de crédito da pessoa, com ids, tipo e saldo inicial.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou as contas",
+  }),
+  ferramenta({
+    nome: "criar_conta",
+    agentes: ["financas", "extratos"],
+    descricao: "Cria uma conta (conta) ou um cartão de crédito (cartao). openingCents é o saldo no dia em que a pessoa passou a controlar a conta aqui, em centavos com sinal; no cartão, costuma ser 0.",
+    esquema: z.object({
+      name: z.string().trim().min(1).max(80),
+      kind: z.enum(TIPOS_DE_CONTA).describe("conta (banco, carteira) ou cartao (cartão de crédito)."),
+      openingCents: z.number().int().optional().describe("Saldo inicial em centavos, com sinal. Padrão 0."),
+    }),
+    rotulo: (args) => `Criou a conta ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "editar_conta",
+    agentes: ["financas"],
+    descricao: "Renomeia uma conta ou cartão, muda o tipo ou o saldo inicial. Mande todos os campos, com os valores atuais nos que não mudam.",
+    esquema: z.object({
+      id: idDoSistema,
+      name: z.string().trim().min(1).max(80),
+      kind: z.enum(TIPOS_DE_CONTA),
+      openingCents: z.number().int(),
+    }),
+    rotulo: (args) => `Editou a conta ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "excluir_conta",
+    agentes: ["financas"],
+    descricao: "Apaga uma conta ou cartão. Os lançamentos ligados a ela ficam sem conta; os extratos dela precisam ser apagados antes.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  // Feriados e vencimentos
+  ferramenta({
+    nome: "consultar_feriados",
+    agentes: ["financas", "agenda", "analise"],
+    descricao: "Os feriados do ano (nacionais, bancários, facultativos e os locais da conta) e a lista dos feriados locais cadastrados, com ids.",
+    leitura: true,
+    esquema: z.object({ year: anoDoSistema.optional().describe("Sem ano, é o ano de hoje.") }),
+    rotulo: (args) => (args.year ? `Consultou os feriados de ${args.year}` : "Consultou os feriados"),
+  }),
+  ferramenta({
+    nome: "criar_feriado_local",
+    agentes: ["financas", "agenda"],
+    descricao: "Cadastra um feriado da cidade ou do estado, que repete todo ano no mesmo dia. Ele passa a contar como dia não útil: os vencimentos pendentes com regra são recalculados.",
+    esquema: z.object({
+      nome: z.string().trim().min(1).max(60),
+      dia: diaDoSistema,
+      mes: mesDoSistema,
+    }),
+    rotulo: (args) => `Cadastrou o feriado ${entreAspas(args.nome)}`,
+  }),
+  ferramenta({
+    nome: "excluir_feriado_local",
+    agentes: ["financas", "agenda"],
+    descricao: "Tira um feriado local da conta. Os vencimentos pendentes com regra são recalculados.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Tirou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "consultar_padroes_de_vencimento",
+    agentes: ["financas"],
+    descricao: "O ajuste padrão da conta quando um vencimento cai em fim de semana ou feriado, por categoria: fixa de entrada, fixa de saída, parcela e empréstimo. Vale para o lançamento criado sem dueRule.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou os padrões de vencimento",
+  }),
+  ferramenta({
+    nome: "atualizar_padroes_de_vencimento",
+    agentes: ["financas"],
+    descricao:
+      "Muda o ajuste padrão por categoria: manter (a data como está), antecipar (dia útil anterior), adiar (dia útil seguinte) ou adiar_no_mes (dia útil seguinte, sem sair do mês). Mande as quatro categorias, com o valor atual nas que não mudam.",
+    esquema: z.object({
+      // Os mesmos valores de AJUSTES_DE_DIA_UTIL, que é definido depois deste catálogo.
+      fixa_entrada: z.enum(["manter", "antecipar", "adiar", "adiar_no_mes"]),
+      fixa_saida: z.enum(["manter", "antecipar", "adiar", "adiar_no_mes"]),
+      parcela: z.enum(["manter", "antecipar", "adiar", "adiar_no_mes"]),
+      emprestimo: z.enum(["manter", "antecipar", "adiar", "adiar_no_mes"]),
+    }),
+    rotulo: () => "Atualizou os padrões de vencimento",
+  }),
+  // Notificações
+  ferramenta({
+    nome: "consultar_notificacoes",
+    agentes: ["analise", "financas", "agenda"],
+    descricao: "A central de notificações da pessoa: os avisos recentes (vencimentos, atrasos, gastos, tarefas, metas, limites), com id, texto, tela de destino e se já foram lidos.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou as notificações",
+  }),
+  ferramenta({
+    nome: "marcar_notificacao_lida",
+    agentes: ["analise", "financas", "agenda"],
+    descricao: "Marca uma notificação como lida.",
+    esquema: peloId,
+    rotulo: () => "Marcou a notificação como lida",
+  }),
+  ferramenta({
+    nome: "marcar_notificacoes_lidas",
+    agentes: ["analise", "financas", "agenda"],
+    descricao: "Marca todas as notificações como lidas.",
+    esquema: vazio,
+    rotulo: () => "Marcou todas as notificações como lidas",
   }),
   // Análise
   ferramenta({
@@ -3560,6 +3751,8 @@ export const FERRAMENTAS_QUE_CRIAM: ReadonlySet<string> = new Set([
   "criar_compromisso",
   "criar_meta",
   "importar_extrato",
+  "criar_conta",
+  "criar_feriado_local",
 ]);
 
 export const ESQUEMA_PLANO = z.object({

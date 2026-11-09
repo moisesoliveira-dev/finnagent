@@ -138,6 +138,29 @@ describe("executor das ferramentas", () => {
     expect(lote.failed[0]?.message).toBe("Banco fora do ar.");
     expect(lote.remaining).toEqual([{ year: 2026, month: 10, lines: 8 }]);
   });
+
+  it("o lote com parte das linhas de fora é feito com ressalva, e com nenhuma lançada é falha", async () => {
+    const extrato = "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a02";
+    const items = [1, 2, 3].map((line) => ({ statementId: extrato, line, sessionId: sessao }));
+    responder = () => ({
+      status: 201,
+      corpo: { launched: 2, failed: [{ statementId: extrato, line: 3, message: "Escolha a conta." }], remaining: [{ year: 2026, month: 8, lines: 1 }] },
+    });
+    const parcial = await new ExecutorHttp().executar({ id: "c10", nome: "acumular_linhas", args: { items } }, credencial);
+    expect(parcial.ok).toBe(true);
+    expect(parcial.detalhe).toBe("2 lançada(s), 1 não: Escolha a conta.");
+    expect(parcial.conteudo).toContain('"remaining":[{"year":2026,"month":8,"lines":1}]');
+
+    responder = () => ({
+      status: 201,
+      corpo: { launched: 0, failed: items.map((item) => ({ ...item, message: "Esta sessão Fixo já tem transação em agosto de 2026." })), remaining: [{ year: 2026, month: 8, lines: 3 }] },
+    });
+    const nada = await new ExecutorHttp().executar({ id: "c11", nome: "acumular_linhas", args: { items } }, credencial);
+    expect(nada.ok).toBe(false);
+    expect(nada.detalhe).toContain("Nenhuma linha entrou: Esta sessão Fixo já tem transação em agosto de 2026.");
+    expect(nada.conteudo).toContain("Nenhuma linha foi lançada.");
+    expect(nada.conteudo).toContain('"launched":0');
+  });
 });
 
 describe("rotas das ferramentas", () => {
@@ -146,12 +169,22 @@ describe("rotas das ferramentas", () => {
     expect(Object.keys(ROTAS_DAS_FERRAMENTAS).sort()).toEqual(catalogo);
   });
 
-  it("nenhuma rota alcança perfil, configurações, usuários, dados, autenticação ou a própria IA", () => {
-    const exemplo = { id: sessao, number: 1, year: 2026, month: 10, day: 1, scope: "mes" };
+  it("nenhuma rota alcança perfil, usuários, dados, autenticação, o Google ou a própria IA", () => {
+    const exemplo = { id: sessao, number: 1, year: 2026, month: 10, day: 1, scope: "mes", paymentId: sessao };
     for (const rota of Object.values(ROTAS_DAS_FERRAMENTAS)) {
       const caminho = rota.caminho(exemplo);
-      expect(caminho).not.toMatch(/^(perfil|configuracoes|usuarios|dados|auth|ia|assistente|calendarios)(\/|$)/);
+      expect(caminho).not.toMatch(/^(perfil|usuarios|dados|auth|ia|assistente|calendarios)(\/|$)/);
+      // Das configurações, só os padrões de vencimento.
+      if (caminho.startsWith("configuracoes")) expect(caminho).toBe("configuracoes/vencimentos");
+      expect(caminho).not.toMatch(/google|dispositivos|preferencias/);
     }
+  });
+
+  it("a conferência inteira vai numa chamada só, pela página 0", () => {
+    const tudo = montarUrl("http://x:1", ROTAS_DAS_FERRAMENTAS.consultar_conferencia, { year: 2026, month: 8, todas: true, pagina: 3 });
+    expect(tudo.toString()).toBe("http://x:1/extratos/conferencia?year=2026&month=8&pagina=0");
+    const pagina = montarUrl("http://x:1", ROTAS_DAS_FERRAMENTAS.consultar_conferencia, { year: 2026, month: 8 });
+    expect(pagina.toString()).toBe("http://x:1/extratos/conferencia?year=2026&month=8&pagina=1");
   });
 
   it("toda ferramenta que apaga ou cancela pede o resumo para a confirmação", () => {
