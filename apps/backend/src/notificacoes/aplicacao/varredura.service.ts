@@ -24,6 +24,7 @@ import {
   avisosDeGasto,
   vencimentosDeAmanha,
   avisoDeConferencia,
+  avisoDeConferenciaDesfeita,
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
@@ -38,6 +39,18 @@ import { NotificacoesService } from "./notificacoes.service.js";
 const extratoImportado = z.object({
   id: z.uuid(),
   status: z.enum(STATUS_EXTRATO),
+});
+
+// O evento "desfazer-conferencia" também sai ao reativar e ao esquecer nomes; só o de conclusão vira aviso.
+const conferenciaDesfeita = z.object({
+  concluido: z.literal(true),
+  lines: z.number().int().min(0),
+  reactivated: z.number().int().min(0),
+  names: z.number().int().min(0),
+  orphans: z.number().int().min(0),
+  // Em desenvolvimento o usuário é "sem-login", sem uuid: o aviso não pode cair por isso.
+  userId: z.string().min(1).nullable(),
+  falhou: z.string().optional(),
 });
 
 /**
@@ -129,6 +142,13 @@ export class VarreduraService {
     const extrato = (await this.extratos.listar(tenantId)).statements.find((item) => item.id === lido.data.id);
     if (!extrato || extrato.format !== "ocr") return;
     await this.notificacoes.notificar(tenantId, avisoDeExtratoLido({ ...extrato, status: lido.data.status }));
+  }
+
+  /** O desfazer da conferência que rodou na fila terminou: avisa quem pediu. */
+  async conferenciaDesfeita(tenantId: string, payload: unknown, chave: string) {
+    const lido = conferenciaDesfeita.safeParse(payload);
+    if (!lido.success) return;
+    await this.notificacoes.notificar(tenantId, avisoDeConferenciaDesfeita(lido.data, chave));
   }
 
   /** Os compromissos do mês de hoje e, se a antecedência passar do fim do mês, os do mês seguinte. */

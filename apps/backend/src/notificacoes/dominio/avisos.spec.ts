@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   avisoDeConferencia,
+  avisoDeConferenciaDesfeita,
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
@@ -164,6 +165,15 @@ describe("avisos que viram notificação", () => {
     expect(avisoDeExtratoLido({ ...extrato, status: "processando" })).toEqual([]);
     expect(avisoDeExtratoLido({ ...extrato, status: "importado" })[0]).toMatchObject({ titulo: "Extrato lido", destino: { tela: "conferencia" } });
     expect(avisoDeExtratoLido({ ...extrato, status: "falhou" })[0]).toMatchObject({ destino: { tela: "extratos" } });
+  });
+
+  it("a conferência desfeita pela fila avisa quem pediu, com a contagem, e a falha diz o motivo", () => {
+    const [aviso] = avisoDeConferenciaDesfeita({ lines: 12, reactivated: 1, names: 0, orphans: 2, userId: "u1" }, "k1");
+    expect(aviso).toMatchObject({ tipo: "extratos", titulo: "Conferência desfeita", destino: { tela: "conferencia", id: null }, chave: "desfazer-conferencia:k1", userId: "u1" });
+    expect(aviso?.texto).toBe("12 linhas voltaram a pendente, 1 reativada, 0 nomes esquecidos e 2 lançamentos soltos apagados.");
+    const [falha] = avisoDeConferenciaDesfeita({ lines: 0, reactivated: 0, names: 0, orphans: 0, userId: null, falhou: "Banco fora do ar." }, "k2");
+    expect(falha).toMatchObject({ titulo: "Não foi possível desfazer a conferência", texto: "Banco fora do ar. Tente de novo em Configurações." });
+    expect(falha).not.toHaveProperty("userId");
   });
 
   it("avisa a meta alcançada uma vez e não pede mais nada dela", () => {
