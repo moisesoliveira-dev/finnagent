@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import type { AgendaGoogle, Configuracoes, EstadoGoogle, Preferencias } from "@finnagent/contracts";
+import type { AgendaGoogle, Configuracoes, EstadoGoogle, PadroesDeVencimento, Preferencias } from "@finnagent/contracts";
 import { PedidoInvalido } from "../../grupos/dominio/erros.js";
 import { redirectPermitido, urlDeAutorizacao } from "../dominio/google.js";
 import { dataDoWorkflow } from "../dominio/pedido.js";
@@ -27,6 +27,12 @@ export class ConfiguracoesService {
     if (!data) throw new PedidoInvalido("Informe uma data válida.");
     const salvas = await this.configuracoes.salvar(tenantId, preferencias, data);
     return this.completar(tenantId, salvas);
+  }
+
+  /** Muda só os padrões de vencimento. Os segredos ficam como estão: vazio no pedido quer dizer "manter". */
+  async salvarVencimentos(tenantId: string, vencimentos: PadroesDeVencimento): Promise<Configuracoes> {
+    const atual = await this.obter(tenantId);
+    return this.salvar(tenantId, { ...atual, vencimentos, limparSegredoGoogle: false, limparChaveIa: false });
   }
 
   async iniciarGoogle(tenantId: string, redirectUri: string) {

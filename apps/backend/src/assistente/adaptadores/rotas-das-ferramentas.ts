@@ -70,8 +70,9 @@ function compromisso(args: Args, fuso: string) {
 }
 
 /**
- * A ferramenta e a rota da API que ela usa. Só o que está aqui é executado: perfil, senha, usuários,
- * configurações e exportar/importar não têm entrada, então a IA não alcança essas telas.
+ * A ferramenta e a rota da API que ela usa. Só o que está aqui é executado: perfil, senha, sessões de acesso,
+ * usuários, provedores de IA, a conexão com o Google e exportar, importar e zerar dados não têm entrada, então a
+ * IA não alcança essas telas. Das configurações, só os padrões de vencimento.
  */
 export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   listar_grupos_e_sessoes: { metodo: "GET", caminho: () => "grupos" },
@@ -80,6 +81,11 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     metodo: "POST",
     caminho: () => "tarefas",
     corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), title: a.title, date: a.date ?? diaNoFuso(fuso), ...(a.parentId ? { parentId: a.parentId } : {}), ...(a.repeat && !a.parentId ? { repeat: a.repeat } : {}) }),
+  },
+  editar_tarefa: {
+    metodo: "PATCH",
+    caminho: (a) => `tarefas/${id(a.id)}`,
+    corpo: (a) => ({ title: a.title, date: a.date, parentId: a.parentId ?? null, repeat: a.parentId ? null : (a.repeat ?? null) }),
   },
   concluir_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/concluir`, corpo: (a) => ({ done: a.done }) },
   mover_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/mover`, corpo: (a) => ({ parentId: a.parentId ?? null, beforeId: a.beforeId ?? null }) },
@@ -118,6 +124,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     caminho: (a) => `lancamentos/${id(a.id)}/pagamentos`,
     corpo: (a) => ({ date: a.date, cents: a.cents, ...(a.diferenca ? { diferenca: a.diferenca } : {}) }),
   },
+  desfazer_pagamento: { metodo: "DELETE", caminho: (a) => `lancamentos/${id(a.id)}/pagamentos/${id(a.paymentId)}` },
   adiantar_parcelas: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/parcelas/adiantar` },
   cancelar_parcelas: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/parcelas/cancelar` },
   adiantar_emprestimo: { metodo: "POST", caminho: (a) => `lancamentos/${id(a.id)}/emprestimo/adiantar` },
@@ -208,6 +215,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     }),
   },
   organizar_prioridade_das_metas: { metodo: "PUT", caminho: () => "metas/ordem", corpo: (a) => ({ ids: a.ids }) },
+  aprovar_parte_da_meta: { metodo: "POST", caminho: (a) => `metas/${id(a.id)}/aprovar` },
   separar_valor_da_meta: { metodo: "POST", caminho: (a) => `metas/${id(a.id)}/separar`, corpo: (a) => ({ cents: a.cents }) },
   criar_meta: {
     metodo: "POST",
@@ -231,8 +239,16 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   consultar_conferencia: {
     metodo: "GET",
     caminho: () => "extratos/conferencia",
-    consulta: (a) => ({ year: a.year, month: a.month, pagina: a.pagina ?? 1, ...(a.busca ? { busca: a.busca } : {}) }),
+    // pagina 0: todas as linhas sem lançamento de uma vez.
+    consulta: (a) => ({ year: a.year, month: a.month, pagina: a.todas ? 0 : (a.pagina ?? 1), ...(a.busca ? { busca: a.busca } : {}) }),
   },
+  ignorar_linhas: { metodo: "POST", caminho: () => "extratos/ignorar", corpo: (a) => ({ items: a.items, ignored: a.ignored }) },
+  dividir_linha: {
+    metodo: "POST",
+    caminho: () => "extratos/dividir",
+    corpo: (a) => ({ statementId: a.statementId, line: a.line, parts: a.parts }),
+  },
+  desfazer_conferencia: { metodo: "POST", caminho: () => "extratos/conferencia/desfazer-tudo" },
   cruzar_linha: {
     metodo: "POST",
     caminho: () => "extratos/cruzamentos",
@@ -262,6 +278,30 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   },
   reprocessar_extrato: { metodo: "POST", caminho: (a) => `extratos/${id(a.id)}/reprocessar` },
   excluir_extrato: { metodo: "DELETE", caminho: (a) => `extratos/${id(a.id)}` },
+  consultar_contas: { metodo: "GET", caminho: () => "contas" },
+  criar_conta: {
+    metodo: "POST",
+    caminho: () => "contas",
+    corpo: (a, _fuso, idGerado) => ({ id: idGerado ?? randomUUID(), name: a.name, kind: a.kind, openingCents: a.openingCents ?? 0 }),
+  },
+  editar_conta: {
+    metodo: "PATCH",
+    caminho: (a) => `contas/${id(a.id)}`,
+    corpo: (a) => ({ name: a.name, kind: a.kind, openingCents: a.openingCents }),
+  },
+  excluir_conta: { metodo: "DELETE", caminho: (a) => `contas/${id(a.id)}` },
+  consultar_feriados: { metodo: "GET", caminho: () => "feriados", consulta: (a) => ({ year: a.year }) },
+  criar_feriado_local: { metodo: "POST", caminho: () => "feriados", corpo: (a) => ({ nome: a.nome, dia: a.dia, mes: a.mes }) },
+  excluir_feriado_local: { metodo: "DELETE", caminho: (a) => `feriados/${id(a.id)}` },
+  consultar_padroes_de_vencimento: { metodo: "GET", caminho: () => "configuracoes/vencimentos" },
+  atualizar_padroes_de_vencimento: {
+    metodo: "PATCH",
+    caminho: () => "configuracoes/vencimentos",
+    corpo: (a) => ({ fixa_entrada: a.fixa_entrada, fixa_saida: a.fixa_saida, parcela: a.parcela, emprestimo: a.emprestimo }),
+  },
+  consultar_notificacoes: { metodo: "GET", caminho: () => "notificacoes" },
+  marcar_notificacao_lida: { metodo: "POST", caminho: (a) => `notificacoes/${id(a.id)}/lida` },
+  marcar_notificacoes_lidas: { metodo: "POST", caminho: () => "notificacoes/lidas" },
   consultar_painel: {
     metodo: "GET",
     caminho: () => "painel",

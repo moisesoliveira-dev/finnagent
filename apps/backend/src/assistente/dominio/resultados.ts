@@ -2,7 +2,11 @@ import type {
   AgendaResposta,
   BaseResposta,
   ConferenciaResposta,
+  ContasResposta,
+  Feriado,
+  FeriadoLocal,
   GruposResposta,
+  NotificacoesResposta,
   PainelResposta,
   VinculoCruzado,
 } from "@finnagent/contracts";
@@ -48,6 +52,9 @@ const FORMATOS: Record<string, (corpo: never) => string | null> = {
   listar_grupos_e_sessoes: (corpo: GruposResposta) => grupos(corpo),
   consultar_conferencia: (corpo: ConferenciaResposta) => conferencia(corpo),
   consultar_agenda: (corpo: AgendaResposta) => agenda(corpo),
+  consultar_contas: (corpo: ContasResposta) => contas(corpo),
+  consultar_feriados: (corpo: { feriados: Feriado[]; locais: FeriadoLocal[] }) => feriados(corpo),
+  consultar_notificacoes: (corpo: NotificacoesResposta) => notificacoes(corpo),
 };
 
 function reais(cents: number) {
@@ -139,6 +146,30 @@ function conferencia(corpo: ConferenciaResposta) {
     }
     if (linha.names?.length) partes.push(`nomes já dados: ${linha.names.join(", ")}`);
     linhas.push(`- ${partes.join(" · ")}`);
+  }
+  return linhas.join("\n");
+}
+
+function contas(corpo: ContasResposta) {
+  if (!Array.isArray(corpo.accounts)) return null;
+  if (!corpo.accounts.length) return "Nenhuma conta cadastrada.";
+  return ["Contas:", ...corpo.accounts.map((conta) => `- ${conta.id} · ${conta.name} · ${conta.kind === "cartao" ? "cartão de crédito" : "conta"} · saldo inicial ${reais(conta.openingCents)}`)].join("\n");
+}
+
+function feriados(corpo: { feriados: Feriado[]; locais: FeriadoLocal[] }) {
+  if (!Array.isArray(corpo.feriados) || !Array.isArray(corpo.locais)) return null;
+  const linhas = ["Feriados do ano:", ...corpo.feriados.map((item) => `- ${item.data} · ${item.nome} · ${item.tipo}`)];
+  linhas.push(corpo.locais.length ? "Feriados locais da conta (com id):" : "Nenhum feriado local cadastrado.");
+  for (const local of corpo.locais) linhas.push(`- ${local.id} · ${local.nome} · dia ${local.dia}/${local.mes}`);
+  return linhas.join("\n");
+}
+
+function notificacoes(corpo: NotificacoesResposta) {
+  if (!Array.isArray(corpo.itens)) return null;
+  if (!corpo.itens.length) return "Nenhuma notificação.";
+  const linhas = [`Notificações: ${corpo.itens.length} (${corpo.naoLidas} não lidas).`];
+  for (const item of corpo.itens) {
+    linhas.push(`- ${item.id} · ${item.criadaEm.slice(0, 16)} · ${item.tipo} · ${item.titulo}: ${item.texto} · tela ${item.destino.tela}${item.lidaEm ? " · lida" : " · não lida"}`);
   }
   return linhas.join("\n");
 }

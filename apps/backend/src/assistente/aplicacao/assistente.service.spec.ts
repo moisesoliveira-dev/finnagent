@@ -330,6 +330,45 @@ describe("orquestrador do assistente", () => {
     expect(conversas.dados.get(id)?.pendencia).toBeNull();
   });
 
+  it("o relato do plano traz o que cada passo devolveu, e o lote de linhas vai com o que falhou e o que sobrou", async () => {
+    const executor = new Executor();
+    const lote = '{"launched":2,"failed":[{"statementId":"x","line":3,"message":"Escolha a conta."}],"remaining":[{"year":2026,"month":8,"lines":1}]}';
+    executor.executar = async (chamada, credencial) => {
+      executor.chamadas.push({ chamada, credencial });
+      if (chamada.nome === "acumular_linhas") return { ok: true, conteudo: lote, detalhe: "2 lançada(s), 1 não: Escolha a conta." };
+      return { ok: true, conteudo: "Feito.", detalhe: "" };
+    };
+    const extrato = "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a02";
+    const passos = [
+      { ferramenta: "criar_grupo", descricao: "Criar o grupo Casa", args: { name: "Casa" } },
+      {
+        ferramenta: "acumular_linhas",
+        descricao: "Lançar as linhas de agosto",
+        args: { items: [1, 2, 3].map((line) => ({ statementId: extrato, line, sessionId: "6b0ad7c9-1d51-4d34-9d0b-5a3a1f0a9a01" })) },
+      },
+    ];
+    const motor = new Motor([{ final: chamadas("coordenador", [plano(passos)]) }, { final: resposta("coordenador", "Lancei.") }]);
+    // As linhas existem no extrato: o plano é medido contra elas antes de ser mostrado.
+    const comLinhas: RealidadeDaConta = {
+      ...realidade,
+      linhasDoExtrato: async (_tenant, chaves) =>
+        new Map(chaves.map((chave) => [`${chave.statementId}:${chave.line}`, { date: `2026-08-0${chave.line}`, cents: -1000, description: "Mercado", entryId: null }])),
+    };
+    const assistente = new AssistenteService(conversas, motor, executor, contexto, ia(), comLinhas);
+    await assistente.conversar(quem, { texto: "lance tudo de agosto" }, emitir);
+    const id = [...conversas.dados.keys()][0] as string;
+    expect(conversas.dados.get(id)?.pendencia?.aguardando.tipo).toBe("plano");
+    await assistente.conversar(quem, { conversationId: id, resposta: { perguntaId: "p1", escolha: APROVAR_PLANO } }, emitir);
+    const relato = motor.pedidos[1].mensagens.find((item) => item.role === "tool" && item.toolCallId === "p1")?.content ?? "";
+    expect(relato).toContain("todos os passos foram feitos");
+    // "Feito." não acrescenta nada; o lote vai inteiro.
+    expect(relato).toMatch(/Passo 1 \(criar_grupo\): feito, id [^.]+\.\n/);
+    expect(relato).toContain(`Passo 2 (acumular_linhas): feito. Resultado: ${lote}`);
+    expect(relato).toContain("Se algum resultado trouxer failed ou remaining maior que zero");
+    const acoes = eventos.flatMap((evento) => (evento.tipo === "acao" ? [evento.acao] : []));
+    expect(acoes.find((item) => item.ferramenta === "acumular_linhas" && item.estado === "feita")?.detalhe).toBe("2 lançada(s), 1 não: Escolha a conta.");
+  });
+
   it("para no primeiro passo que falha e não faz os seguintes", async () => {
     const executor = new Executor();
     executor.executar = async (chamada, credencial) => {

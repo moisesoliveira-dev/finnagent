@@ -86,6 +86,17 @@ export type Quem = { tenantId: string; userId: string; token: string };
 
 const AVISO_DE_LIMITE = "Parei aqui para não fazer coisas demais de uma vez. Diga se devo continuar.";
 
+/** Quanto do resultado de cada passo feito entra no relato do plano. O lote de linhas vai inteiro: ele diz o que falhou. */
+const LIMITE_DO_RESULTADO_DO_PASSO = 600;
+const LIMITE_DO_RESULTADO_DO_LOTE = 6_000;
+
+function resultadoDoPasso(ferramenta: string, conteudo: string) {
+  const texto = conteudo.trim();
+  if (!texto || texto === "Feito." || texto === '{"ok":true}') return "";
+  const limite = ferramenta === "acumular_linhas" ? LIMITE_DO_RESULTADO_DO_LOTE : LIMITE_DO_RESULTADO_DO_PASSO;
+  return texto.length > limite ? `${texto.slice(0, limite)}…` : texto;
+}
+
 /** O turno em andamento: o que a tela vê (partes) e o que o modelo vê (transcrição). */
 class Turno {
   agente: AgenteIa | null;
@@ -625,10 +636,16 @@ export class AssistenteService {
         ferramenta: passo.ferramenta,
         rotulo,
         estado: resultado.ok ? "feita" : "falhou",
-        detalhe: resultado.ok ? "" : resultado.detalhe,
+        // Feito com ressalva (parte das linhas não entrou) também traz detalhe.
+        detalhe: resultado.detalhe,
       });
       if (resultado.ok) {
-        relato.push(`Passo ${numero} (${passo.ferramenta}): feito${FERRAMENTAS_QUE_CRIAM.has(passo.ferramenta) ? `, id ${passo.idGerado}` : ""}.`);
+        // O que o sistema devolveu vai junto: no lote de linhas é o que diz quantas entraram, quais falharam e
+        // quantas ainda sobram no mês. Sem isso, o modelo dizia "pronto" com linhas de fora.
+        const devolvido = resultadoDoPasso(passo.ferramenta, resultado.conteudo);
+        relato.push(
+          `Passo ${numero} (${passo.ferramenta}): feito${FERRAMENTAS_QUE_CRIAM.has(passo.ferramenta) ? `, id ${passo.idGerado}` : ""}.${devolvido ? ` Resultado: ${devolvido}` : ""}`,
+        );
       } else {
         falhou = numero;
         relato.push(`Passo ${numero} (${passo.ferramenta}): falhou. ${resultado.conteudo}`);
@@ -643,7 +660,7 @@ export class AssistenteService {
       : "";
     const fecho = falhou
       ? "Explique o que faltou."
-      : "Diga em até três frases o que foi feito, o que você supôs e o efeito no mês; só consulte de novo se precisar de outro detalhe.";
+      : "Diga em até três frases o que foi feito, o que você supôs e o efeito no mês; só consulte de novo se precisar de outro detalhe. Se algum resultado trouxer failed ou remaining maior que zero, diga quantas linhas não entraram e por quê, e proponha outro plano para elas se a pessoa pediu todas.";
     return [cabeca, ...relato, efeito, fecho].filter(Boolean).join("\n");
   }
 
