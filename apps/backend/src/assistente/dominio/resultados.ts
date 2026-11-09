@@ -153,7 +153,14 @@ function conferencia(corpo: ConferenciaResposta) {
 function contas(corpo: ContasResposta) {
   if (!Array.isArray(corpo.accounts)) return null;
   if (!corpo.accounts.length) return "Nenhuma conta cadastrada.";
-  return ["Contas:", ...corpo.accounts.map((conta) => `- ${conta.id} · ${conta.name} · ${conta.kind === "cartao" ? "cartão de crédito" : "conta"} · saldo inicial ${reais(conta.openingCents)}`)].join("\n");
+  const linhas = ["Contas:"];
+  for (const conta of corpo.accounts) {
+    linhas.push(`- ${conta.id} · ${conta.name} · ${conta.kind === "cartao" ? "cartão de crédito" : "conta"} · saldo inicial ${reais(conta.openingCents)}`);
+    for (const caixinha of (corpo.boxes ?? []).filter((item) => item.accountId === conta.id)) {
+      linhas.push(`  - caixinha ${caixinha.id} · ${caixinha.name} · saldo inicial ${reais(caixinha.openingCents)} · sessão ${caixinha.sessionId}${caixinha.goalId ? ` · meta ${caixinha.goalId}` : ""}`);
+    }
+  }
+  return linhas.join("\n");
 }
 
 function feriados(corpo: { feriados: Feriado[]; locais: FeriadoLocal[] }) {

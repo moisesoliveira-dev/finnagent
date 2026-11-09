@@ -1,4 +1,4 @@
-import type { Extrato, ExtratosResposta, FormatoExtrato, LinhaExtrato, MapeamentoExtrato } from "@finnagent/contracts";
+import type { ConferenciaDesfeitaAviso, Extrato, ExtratosResposta, FormatoExtrato, LinhaExtrato, MapeamentoExtrato } from "@finnagent/contracts";
 import type { LeituraExtrato } from "../dominio/ler-extrato.js";
 
 export const EXTRATOS_REPOSITORIO = Symbol("EXTRATOS_REPOSITORIO");
@@ -139,6 +139,12 @@ export type ExtratosRepositorio = {
   esquecerTudo(tenantId: string): Promise<number>;
   /** Os lançamentos que nasceram do extrato e nenhuma linha usa mais. */
   lancamentosSoltosDoExtrato(tenantId: string): Promise<string[]>;
+  /** As linhas sem lançamento e não ignoradas, de todos os meses importados. */
+  linhasLivres(tenantId: string): Promise<{ statementId: string; line: number; date: string; cents: number; description: string }[]>;
+  /** As descrições das linhas já ligadas a cada lançamento: as chaves que a série já conhece. */
+  descricoesDosLancamentos(tenantId: string, entryIds: string[]): Promise<{ entryId: string; description: string }[]>;
+  /** Grava no outbox que o desfazer terminou (ou falhou): a central avisa a pessoa a partir desse evento. */
+  registrarConferenciaDesfeita(tenantId: string, aviso: ConferenciaDesfeitaAviso): Promise<void>;
   /** As linhas ligadas (inteiras ou em parte) aos lançamentos pedidos, ou aos de uma sessão ou de um grupo. */
   linhasDosLancamentos(tenantId: string, onde: OndeEstaoOsLancamentos): Promise<LinhaDoExtrato[]>;
   /** Esquece as associações de descrição que apontam para a sessão. */

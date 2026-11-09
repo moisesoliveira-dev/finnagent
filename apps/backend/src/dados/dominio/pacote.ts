@@ -153,6 +153,17 @@ const meta = z.object({
   savedCents: inteiro,
   dueYear: inteiro.nullable(),
   dueMonth: inteiro.nullable(),
+  // Pacotes antigos não traziam a sessão nem a ordem da meta.
+  sessionId: idOuNulo.default(null),
+  position: inteiro.default(0),
+});
+const caixinha = z.object({
+  id,
+  accountId: id,
+  name: texto,
+  openingCents: inteiro.default(0),
+  sessionId: id,
+  goalId: idOuNulo.default(null),
 });
 const preferencias = z.object({
   name: texto,
@@ -196,6 +207,7 @@ const dados = z.object({
   statementLineParts: lista(parteDeLinha),
   statementNames: lista(nomeDeExtrato),
   goals: lista(meta),
+  accountBoxes: lista(caixinha),
   holidays: lista(feriadoLocal),
   preferences: preferencias.nullable().default(null),
   workflow: fluxo.nullable().default(null),
@@ -230,7 +242,12 @@ function referenciasConsistentes(dados: DadosDoPacote) {
   const lancamentos = new Set(dados.entries.map((item) => item.id));
   const contas = new Set(dados.accounts.map((item) => item.id));
   const extratos = new Set(dados.statements.map((item) => item.id));
+  const metas = new Set(dados.goals.map((item) => item.id));
   return (
+    dados.accountBoxes.every(
+      (item) => contas.has(item.accountId) && sessoes.has(item.sessionId) && (!item.goalId || metas.has(item.goalId)),
+    ) &&
+    dados.goals.every((item) => !item.sessionId || sessoes.has(item.sessionId)) &&
     dados.sessions.every((item) => grupos.has(item.groupId)) &&
     dados.sessionAdditions.every((item) => sessoes.has(item.sessionId)) &&
     dados.entries.every((item) => sessoes.has(item.sessionId) && (!item.accountId || contas.has(item.accountId))) &&
@@ -263,6 +280,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
   const compromissos = novoMapa(dados.appointments);
   const contas = novoMapa(dados.accounts);
   const extratos = novoMapa(dados.statements);
+  const metas = novoMapa(dados.goals);
   const de = (mapa: Map<string, string>, antigo: string | null) =>
     antigo === null ? null : (mapa.get(antigo) ?? null);
   const para = (mapa: Map<string, string>, antigo: string) => mapa.get(antigo) as string;
@@ -326,7 +344,14 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       sessionId: para(sessoes, item.sessionId),
       entryId: de(lancamentos, item.entryId),
     })),
-    goals: dados.goals.map((item) => ({ ...item, id: randomUUID() })),
+    goals: dados.goals.map((item) => ({ ...item, id: para(metas, item.id), sessionId: de(sessoes, item.sessionId) })),
+    accountBoxes: dados.accountBoxes.map((item) => ({
+      ...item,
+      id: randomUUID(),
+      accountId: para(contas, item.accountId),
+      sessionId: para(sessoes, item.sessionId),
+      goalId: de(metas, item.goalId),
+    })),
     holidays: dados.holidays.map((item) => ({ ...item, id: randomUUID() })),
   };
 }

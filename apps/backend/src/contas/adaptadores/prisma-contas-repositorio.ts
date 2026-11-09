@@ -28,8 +28,10 @@ export class PrismaContasRepositorio implements ContasRepositorio {
 
   async atualizar(tenantId: string, id: string, pedido: PedidoDeConta) {
     return this.banco().$transaction(async (tx) => {
-      if (!(await tx.account.findFirst({ where: { id, tenantId }, select: { id: true } }))) return "ausente" as const;
+      const atual = await tx.account.findFirst({ where: { id, tenantId }, select: { id: true, _count: { select: { boxes: true } } } });
+      if (!atual) return "ausente" as const;
       if (await nomeOcupado(tx, tenantId, pedido.name, id)) return "nome-ocupado" as const;
+      if (pedido.kind === "cartao" && atual._count.boxes > 0) return "com-caixinhas" as const;
       await tx.account.updateMany({ where: { id, tenantId }, data: pedido });
       const salva = await tx.account.findFirstOrThrow({ where: { id, tenantId }, select: selecao });
       await gravarOutbox(tx, tenantId, "atualizar-conta", id, { id, ...pedido }, marcaDe(pedido));
@@ -39,9 +41,10 @@ export class PrismaContasRepositorio implements ContasRepositorio {
 
   async excluir(tenantId: string, id: string) {
     return this.banco().$transaction(async (tx) => {
-      const atual = await tx.account.findFirst({ where: { id, tenantId }, select: { id: true, _count: { select: { statements: true } } } });
+      const atual = await tx.account.findFirst({ where: { id, tenantId }, select: { id: true, _count: { select: { statements: true, boxes: true } } } });
       if (!atual) return "ausente" as const;
       if (atual._count.statements > 0) return "com-extratos" as const;
+      if (atual._count.boxes > 0) return "com-caixinhas" as const;
       // Os lançamentos perdem a conta (SetNull na relação) e continuam na sobra.
       await tx.account.deleteMany({ where: { id, tenantId } });
       await gravarOutbox(tx, tenantId, "remover-conta", id, { id });

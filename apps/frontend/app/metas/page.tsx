@@ -4,6 +4,7 @@ import { motion, Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { calcularMeta, type CalculoMeta, type Meta, type MetasResposta } from "@finnagent/contracts";
 import { CampoValor } from "../financas/campo-valor";
+import { CaixinhaDaMeta } from "./caixinha-da-meta";
 import { reaisParaCentavos } from "../financas/reais";
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
@@ -412,7 +413,7 @@ export default function MetasPage() {
                 {(() => {
                   const pendentes = dados.goals.filter((meta) => {
                     const parte = dados.division[meta.id];
-                    return meta.sessionId && parte && !parte.approved && parte.cents > 0;
+                    return (meta.sessionId || meta.box) && parte && !parte.approved && parte.cents > 0;
                   });
                   return pendentes.length ? (
                     <div className="flex flex-wrap items-center gap-3">
@@ -482,7 +483,7 @@ export default function MetasPage() {
                         </span>
                         {dados.division[meta.id]?.approved ? (
                           <Chip tone="ok">Separada</Chip>
-                        ) : meta.sessionId && (dados.division[meta.id]?.cents ?? 0) > 0 ? (
+                        ) : (meta.sessionId || meta.box) && (dados.division[meta.id]?.cents ?? 0) > 0 ? (
                           <Button disabled={salvando} onClick={() => void aprovar([meta])}>
                             Aprovar
                           </Button>
@@ -501,8 +502,9 @@ export default function MetasPage() {
                         <p key={frase}>{frase}</p>
                       ))}
                     </div>
+                    <CaixinhaDaMeta meta={meta} onMudou={carregar} />
                     <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
-                      {meta.sessionId && !calculo.alcancada ? (
+                      {(meta.sessionId || meta.box) && !calculo.alcancada ? (
                         <Button onClick={() => abrirSeparar(meta, dados.suggested[meta.id] ?? 0)}>Separar valor</Button>
                       ) : (
                         <span />
@@ -783,7 +785,14 @@ export default function MetasPage() {
         <form onSubmit={separar}>
           <div className="dialog-corpo grid gap-4">
             <div className="grid gap-1">
-              <Rotulo htmlFor="meta-separar" dica="Sai da sobra e fica na sessão da meta, como saída.">
+              <Rotulo
+                htmlFor="meta-separar"
+                dica={
+                  separando?.box
+                    ? `Sai da sobra e de ${separando.box.accountName || "a conta"}, e entra na caixinha ${separando.box.name}.`
+                    : "Sai da sobra e fica na sessão da meta, como saída."
+                }
+              >
                 Quanto separar
               </Rotulo>
               <CampoValor id="meta-separar" className={field} required value={valorSeparado} onChange={setValorSeparado} />
@@ -806,6 +815,10 @@ export default function MetasPage() {
             Excluir esta meta?
           </h2>
           <p>{apagando?.name}</p>
+          <p className="text-sm text-ink-2">
+            A sessão da meta sai de Finanças, e o que foi separado para ela volta para a sobra.
+            {apagando?.box ? ` A caixinha ${apagando.box.name} continua na conta, sem a meta.` : ""}
+          </p>
         </div>
         <div className="dialog-acoes">
             <Button

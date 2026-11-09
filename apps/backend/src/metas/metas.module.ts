@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ContasModule } from "../contas/contas.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
 import { GruposModule } from "../grupos/grupos.module.js";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
@@ -8,7 +9,7 @@ import { MetasController } from "./metas.controller.js";
 import { METAS_REPOSITORIO } from "./portas/metas-repositorio.js";
 
 @Module({
-  imports: [PersistenciaModule, FinancasModule, GruposModule],
+  imports: [PersistenciaModule, FinancasModule, GruposModule, ContasModule],
   controllers: [MetasController],
   exports: [MetasService],
   providers: [

@@ -48,6 +48,12 @@ export class ExclusoesController {
     return this.executar(() => this.exclusoes.sessao(this.tenant(tenant), this.id(id, "Sessão não encontrada.")));
   }
 
+  @Delete("metas/:id")
+  @HttpCode(204)
+  meta(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {
+    return this.executar(() => this.exclusoes.meta(this.tenant(tenant), this.id(id, "Meta inválida.")));
+  }
+
   @Delete("grupos/:id")
   @HttpCode(204)
   grupo(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string) {

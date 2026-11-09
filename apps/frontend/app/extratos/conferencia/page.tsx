@@ -9,10 +9,15 @@ import {
   type AcumuloEmLote,
   type ConferenciaResposta,
   type DiferencaDoPagamento,
+  type EscolhaDaLinhaNaSerie,
   type Grupo,
   type GruposResposta,
   type LinhaConferencia,
+  type PreviaDaSerie,
   type Sessao,
+  type SerieComLinhas,
+  type SerieLancada,
+  type SeriesComLinhasResposta,
   type TipoDaLinha,
   type ValorDoMes,
 } from "@finnagent/contracts";
@@ -30,6 +35,7 @@ import { useToast } from "../../../components/ui/toast";
 import { BuscaSessao } from "./busca-sessao";
 import { DialogoDeDivisao, NomesLembrados } from "./divisao";
 import { DialogoDeNovaSessao, type PedidoDeNovaSessao } from "./nova-sessao";
+import { DialogoDaSerie, type PedidoDaSerie } from "./serie";
 import { RASCUNHO_UNICO, TipoDaLinhaCampos, rascunhoAceito, tipoDoRascunho, type RascunhoDoTipo } from "./tipo-da-linha";
 import { ROTULO_CATEGORIA, tomDaCategoria } from "../../financas/rotulos";
 
@@ -140,6 +146,10 @@ export default function Conferencia() {
   const [conta, setConta] = useState("");
   const [arquivo, setArquivo] = useState("");
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>({});
+  // A mesma compra em outros meses importados: a série que vai nascer de uma linha, ou uma que já existe.
+  const [serieNova, setSerieNova] = useState<{ linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; nome?: string; pedido: PedidoDaSerie } | null>(null);
+  const [serieExistente, setSerieExistente] = useState<{ serie: SerieComLinhas; pedido: PedidoDaSerie } | null>(null);
+  const [series, setSeries] = useState<SerieComLinhas[]>([]);
   const pedido = `${year}-${month}`;
   const manual = useRef(false);
   const aplicado = useRef("");
@@ -192,6 +202,21 @@ export default function Conferencia() {
       ativo = false;
     };
   }, [pedido, year, month, toast]);
+
+  // As parcelas e recorrentes com linhas livres em outros meses. Volta a buscar depois de cada lançamento.
+  useEffect(() => {
+    let ativo = true;
+    api<SeriesComLinhasResposta>("/api/extratos/series")
+      .then((resposta) => {
+        if (ativo) setSeries(resposta.series);
+      })
+      .catch(() => {
+        if (ativo) setSeries([]);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [versaoDasSessoes]);
 
   useEffect(() => {
     let ativo = true;
@@ -357,7 +382,7 @@ export default function Conferencia() {
     }
   }
 
-  async function acumular(linha: LinhaConferencia, decisao?: { valor?: ValorDoMes; emPartes?: boolean }) {
+  async function acumular(linha: LinhaConferencia, decisao?: { valor?: ValorDoMes; emPartes?: boolean }, semSerie = false) {
     const chave = chaveDa(linha);
     const sessionId = sessaoDa(linha);
     if (!sessionId) {
@@ -373,6 +398,40 @@ export default function Conferencia() {
     if ("erro" in tipo) {
       toast.erro(tipo.erro);
       return;
+    }
+    // Parcela, empréstimo ou recorrente: se a mesma compra aparece em outros meses importados, a pessoa vê todos
+    // antes, para lançar juntos.
+    const categoria = tipo.tipo?.category;
+    if (!semSerie && !decisao && tipo.tipo && (categoria === "installment" || categoria === "loan" || categoria === "fixed")) {
+      setOcupado(chave);
+      try {
+        const previa = await api<PreviaDaSerie>("/api/extratos/series/previa", {
+          method: "POST",
+          body: JSON.stringify({ statementId: linha.statementId, line: linha.line, tipo: tipo.tipo }),
+        });
+        if (previa.meses.flatMap((mes) => mes.lines).length > 1) {
+          setSerieNova({
+            linha,
+            sessionId,
+            tipo: tipo.tipo,
+            ...nomeParaEnviar(linha),
+            pedido: {
+              modo: "nova",
+              titulo: `${nomeDa(linha) || linha.description} aparece em outros meses`,
+              tipo: ROTULO_CATEGORIA[tipo.tipo.category],
+              categoria: tipo.tipo.category,
+              total: categoria === "fixed" ? null : (tipo.tipo.installments ?? null),
+              meses: previa.meses,
+              origem: chave,
+            },
+          });
+          return;
+        }
+      } catch {
+        // Sem a prévia, a linha segue sozinha, como antes.
+      } finally {
+        setOcupado("");
+      }
     }
     setOcupado(chave);
     try {
@@ -399,6 +458,73 @@ export default function Conferencia() {
     } finally {
       setOcupado("");
     }
+  }
+
+  function avisarSerie(resultado: SerieLancada) {
+    if (resultado.failed.length === 0) {
+      toast.sucesso(resultado.launched === 1 ? "1 linha lançada na série." : `${resultado.launched} linhas lançadas juntas na série.`);
+      return;
+    }
+    toast.alerta(`${resultado.launched} lançadas. ${resultado.failed.length} não entraram: ${resultado.failed[0]?.message ?? ""}`);
+  }
+
+  async function lancarSerieNova(escolhaDasLinhas: EscolhaDaLinhaNaSerie[]) {
+    if (!serieNova) return;
+    const { linha, sessionId, tipo, nome } = serieNova;
+    setOcupado("serie");
+    try {
+      const resultado = await api<SerieLancada>("/api/extratos/series", {
+        method: "POST",
+        body: JSON.stringify({ statementId: linha.statementId, line: linha.line, sessionId, tipo, ...(nome ? { nome } : {}), linhas: escolhaDasLinhas }),
+      });
+      avisarSerie(resultado);
+      setSerieNova(null);
+      setTipos((atual) => {
+        const proximo = { ...atual };
+        delete proximo[chaveDa(linha)];
+        return proximo;
+      });
+      setVersaoDasSessoes((versao) => versao + 1);
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível lançar a série.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
+  async function juntarASerie(escolhaDasLinhas: EscolhaDaLinhaNaSerie[]) {
+    if (!serieExistente) return;
+    setOcupado("serie");
+    try {
+      const resultado = await api<SerieLancada>(`/api/extratos/series/${serieExistente.serie.entryId}/linhas`, {
+        method: "POST",
+        body: JSON.stringify({ linhas: escolhaDasLinhas }),
+      });
+      avisarSerie(resultado);
+      setSerieExistente(null);
+      setVersaoDasSessoes((versao) => versao + 1);
+      await carregar(year, month);
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível juntar as linhas à série.");
+    } finally {
+      setOcupado("");
+    }
+  }
+
+  function abrirSerie(serie: SerieComLinhas) {
+    setSerieExistente({
+      serie,
+      pedido: {
+        modo: "existente",
+        titulo: `${serie.name} aparece em outros meses`,
+        tipo: ROTULO_CATEGORIA[serie.category],
+        categoria: serie.category,
+        total: null,
+        meses: serie.meses,
+        origem: null,
+      },
+    });
   }
 
   function avisarLote(resultado: AcumuloEmLote) {
@@ -610,6 +736,32 @@ export default function Conferencia() {
                 ? "Mês conferido. Toda linha do extrato tem lançamento."
                 : `${dados.pending} ${dados.pending === 1 ? "linha ainda não tem" : "linhas ainda não têm"} lançamento. Cruze com um lançamento ou escolha uma sessão para lançar: o mês só fica conferido quando não sobrar nenhuma.`}
             </p>
+          ) : null}
+          {series.length ? (
+            <section aria-labelledby="series-em-outros-meses" className="grid min-w-0 gap-3 border border-brand bg-brand-soft p-4">
+              <div className="grid gap-1">
+                <h2 id="series-em-outros-meses" className="font-display text-lg text-brand">
+                  Parcelas e recorrentes com linhas em outros meses
+                </h2>
+                <p className="text-sm">A mesma compra aparece em meses importados que ainda não têm lançamento. Abra para lançar juntas.</p>
+              </div>
+              <ul className="grid min-w-0 gap-2">
+                {series.map((serie) => {
+                  const quantas = serie.meses.reduce((soma, mes) => soma + mes.lines.length, 0);
+                  return (
+                    <li key={serie.entryId} className="flex min-w-0 flex-wrap items-center justify-between gap-3 border border-line bg-surface px-4 py-3">
+                      <span className="grid min-w-0 gap-1">
+                        <span className="truncate font-medium">{serie.name}</span>
+                        <span className="text-sm text-ink-2">
+                          {ROTULO_CATEGORIA[serie.category]} · {serie.groupName} / {serie.sessionName} · {quantas} {quantas === 1 ? "linha" : "linhas"} em {serie.meses.length} {serie.meses.length === 1 ? "mês" : "meses"}
+                        </span>
+                      </span>
+                      <Button onClick={() => abrirSerie(serie)}>Ver e lançar</Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           ) : null}
           {linhas.length ? (
             <Cascata className="grid min-w-0 gap-px border border-line bg-line desk:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
@@ -1080,6 +1232,24 @@ export default function Conferencia() {
           setSessoesAbertas((atual) => [...atual, { ...sessao, grupo: grupo.name }]);
           setVersaoDasSessoes((atual) => atual + 1);
           setNovaSessao(null);
+        }}
+      />
+      <DialogoDaSerie
+        pedido={serieNova?.pedido ?? serieExistente?.pedido ?? null}
+        ocupado={ocupado === "serie"}
+        onConfirmar={(escolhaDasLinhas) => void (serieNova ? lancarSerieNova(escolhaDasLinhas) : juntarASerie(escolhaDasLinhas))}
+        onSoEsta={
+          serieNova
+            ? () => {
+                const linha = serieNova.linha;
+                setSerieNova(null);
+                void acumular(linha, undefined, true);
+              }
+            : undefined
+        }
+        onFechar={() => {
+          setSerieNova(null);
+          setSerieExistente(null);
         }}
       />
       <DialogoDaFixa

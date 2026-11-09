@@ -112,6 +112,8 @@ export class PrismaMetasRepositorio implements MetasRepositorio {
       const apagadas = await tx.goal.deleteMany({ where: { id, tenantId } });
       if (apagadas.count === 0) return false;
       await tx.goalAllocation.deleteMany({ where: { goalId: id, tenantId } });
+      // A caixinha da meta continua na conta, só sem a meta.
+      await tx.accountBox.updateMany({ where: { goalId: id, tenantId }, data: { goalId: null } });
       await gravarOutbox(tx, tenantId, "excluir-meta", id, { id });
       return true;
     });

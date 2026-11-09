@@ -31,6 +31,7 @@ export class AgendadorDeNotificacoes implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.consumidores.registrar("criar-notificacao", (evento) => this.notificacoes.entregarDoEvento(evento.tenantId, evento.payload));
     this.consumidores.registrar("importar-extrato", (evento) => this.varredura.extratoImportado(evento.tenantId, evento.payload));
+    this.consumidores.registrar("desfazer-conferencia", (evento) => this.varredura.conferenciaDesfeita(evento.tenantId, evento.payload, evento.idempotencyKey));
 
     const url = process.env.REDIS_URL;
     if (!url || !this.prisma.ativo) return;

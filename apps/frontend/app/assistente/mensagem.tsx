@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   INFO_DOS_AGENTES,
   TEXTO_SO_COM_ANEXO,
@@ -15,7 +15,7 @@ import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { Icone } from "../../components/ui/icone";
 import { campo, cn, focusRing } from "../../components/ui/cn";
-import { curvaCheia, mola } from "../../components/ui/movimento";
+import { Expandir, curvaCheia, mola, useCurva } from "../../components/ui/movimento";
 import { tamanhoDoAnexo } from "./anexos";
 import { CartaoDePlano } from "./plano";
 import { TextoFormatado } from "./texto-formatado";
@@ -82,6 +82,50 @@ const ICONE_DA_ACAO = {
   cancelada: { classe: "text-ink-2", caminho: "M6 12h12" },
 } as const;
 
+/** O estado da ação: girando enquanto roda, ✓ feita, ✕ falhou, – cancelada. */
+function IconeDaAcao({ estado }: { estado: AcaoDoAssistente["estado"] }) {
+  return (
+    <span className="grid size-4 shrink-0 place-items-center">
+      <AnimatePresence mode="wait" initial={false}>
+        {estado === "executando" ? (
+          <motion.span
+            key="girando"
+            aria-hidden
+            className="size-3 rounded-full border-2 border-pending-line border-t-pending"
+            animate={{ rotate: 360 }}
+            // A saída tem transição própria: herdando o giro infinito, ela nunca terminaria e o ✓ não entraria.
+            exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+          />
+        ) : (
+          <motion.svg
+            key={estado}
+            viewBox="0 0 24 24"
+            className={cn("size-4", ICONE_DA_ACAO[estado].classe)}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            aria-hidden
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={mola}
+          >
+            <motion.path
+              d={ICONE_DA_ACAO[estado].caminho}
+              strokeLinecap="round"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 0.3 }}
+            />
+          </motion.svg>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+}
+
+const ESTADO_PARA_LEITOR = { executando: "em andamento", feita: "feito", falhou: "falhou", cancelada: "cancelado" } as const;
+
 function Acao({ acao }: { acao: AcaoDoAssistente }) {
   return (
     <motion.li
@@ -93,49 +137,94 @@ function Acao({ acao }: { acao: AcaoDoAssistente }) {
       )}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <span className="grid size-4 shrink-0 place-items-center">
-          <AnimatePresence mode="wait" initial={false}>
-            {acao.estado === "executando" ? (
-              <motion.span
-                key="girando"
-                aria-hidden
-                className="size-3 rounded-full border-2 border-pending-line border-t-pending"
-                animate={{ rotate: 360 }}
-                // A saída tem transição própria: herdando o giro infinito, ela nunca terminaria e o ✓ não entraria.
-                exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.12 } }}
-                transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
-              />
-            ) : (
-              <motion.svg
-                key={acao.estado}
-                viewBox="0 0 24 24"
-                className={cn("size-4", ICONE_DA_ACAO[acao.estado].classe)}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                aria-hidden
-                initial={{ scale: 0.4, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={mola}
-              >
-                <motion.path
-                  d={ICONE_DA_ACAO[acao.estado].caminho}
-                  strokeLinecap="round"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 0.3 }}
-                />
-              </motion.svg>
-            )}
-          </AnimatePresence>
-        </span>
+        <IconeDaAcao estado={acao.estado} />
         <span className={cn("min-w-0 truncate", acao.estado === "cancelada" && "text-ink-2 line-through")}>{acao.rotulo}</span>
-        <span className="sr-only">
-          {{ executando: "em andamento", feita: "feito", falhou: "falhou", cancelada: "cancelado" }[acao.estado]}
-        </span>
+        <span className="sr-only">{ESTADO_PARA_LEITOR[acao.estado]}</span>
       </span>
       {acao.detalhe ? <span className="pl-6 text-ink-2">{acao.detalhe}</span> : null}
     </motion.li>
+  );
+}
+
+/** A ação que o resumo mostra: a que está rodando agora, ou a última que aconteceu. */
+function acaoEmFoco(itens: AcaoDoAssistente[]) {
+  return [...itens].reverse().find((item) => item.estado === "executando") ?? itens[itens.length - 1]!;
+}
+
+/**
+ * Várias ações seguidas viram uma linha só: ela mostra a ação em foco, trocando conforme as próximas chegam, e
+ * abre a lista inteira no clique. Uma ação sozinha aparece como sempre. A falha não se esconde: o resumo fica com a
+ * borda vermelha e diz quantas falharam.
+ */
+function ListaDeAcoes({ itens }: { itens: AcaoDoAssistente[] }) {
+  const [aberta, setAberta] = useState(false);
+  const curva = useCurva();
+  const lista = useId();
+  if (itens.length === 1) {
+    return (
+      <ul className="grid gap-1" aria-label="Ações do assistente">
+        <Acao acao={itens[0]!} />
+      </ul>
+    );
+  }
+  const foco = acaoEmFoco(itens);
+  const rodando = itens.some((item) => item.estado === "executando");
+  const falharam = itens.filter((item) => item.estado === "falhou").length;
+  const feitas = itens.filter((item) => item.estado === "feita").length;
+  return (
+    <motion.div layout {...entrada} className="grid min-w-0 gap-1">
+      <button
+        type="button"
+        aria-expanded={aberta}
+        aria-controls={lista}
+        onClick={() => setAberta((atual) => !atual)}
+        className={cn(
+          "flex min-h-10 w-full min-w-0 items-center gap-2 border bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-surface-2",
+          falharam ? "border-neg" : "border-line",
+          focusRing,
+        )}
+      >
+        <IconeDaAcao estado={rodando ? "executando" : falharam ? "falhou" : foco.estado} />
+        <span className="relative min-w-0 flex-1 overflow-hidden">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={`${foco.id}:${foco.estado}`}
+              className="block truncate"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={curva}
+            >
+              {foco.rotulo}
+            </motion.span>
+          </AnimatePresence>
+        </span>
+        <span className="etiqueta shrink-0 text-ink-2">
+          {rodando ? `${feitas}/${itens.length}` : `${itens.length} ações`}
+        </span>
+        {falharam ? (
+          <Chip tone="neg" className="shrink-0">
+            {falharam} {falharam === 1 ? "falhou" : "falharam"}
+          </Chip>
+        ) : null}
+        <motion.span
+          aria-hidden
+          className="grid size-4 shrink-0 place-items-center text-ink-2"
+          animate={{ rotate: aberta ? 90 : -90 }}
+          transition={mola}
+        >
+          <Icone name="chevron" />
+        </motion.span>
+        <span className="sr-only">{aberta ? "Esconder as ações" : "Mostrar todas as ações"}</span>
+      </button>
+      <Expandir aberto={aberta} id={lista}>
+        <ul className="grid gap-1" aria-label="Ações do assistente">
+          {itens.map((acao) => (
+            <Acao key={acao.id} acao={acao} />
+          ))}
+        </ul>
+      </Expandir>
+    </motion.div>
   );
 }
 
@@ -353,11 +442,7 @@ export function Mensagem({
       <div className="grid min-w-0 gap-3 pl-6">
         {grupos.map((grupo, posicao) =>
           grupo.tipo === "acoes" ? (
-            <ul key={`acoes-${posicao}`} className="grid gap-1" aria-label="Ações do assistente">
-              {grupo.itens.map((acao) => (
-                <Acao key={acao.id} acao={acao} />
-              ))}
-            </ul>
+            <ListaDeAcoes key={`acoes-${posicao}`} itens={grupo.itens} />
           ) : (
             <Parte
               key={`parte-${grupo.indice}`}

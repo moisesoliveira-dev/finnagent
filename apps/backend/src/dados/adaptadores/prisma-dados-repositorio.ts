@@ -38,6 +38,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           statementLineParts,
           statementNames,
           goals,
+          accountBoxes,
           holidays,
           preferencia,
           workflow,
@@ -59,6 +60,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           tx.statementLinePart.findMany(onde),
           tx.statementName.findMany(onde),
           tx.goal.findMany({ ...onde, orderBy: { id: "asc" } }),
+          tx.accountBox.findMany({ ...onde, orderBy: { id: "asc" } }),
           tx.holiday.findMany({ ...onde, orderBy: { id: "asc" } }),
           tx.preference.findUnique({ where: { tenantId } }),
           tx.workflow.findUnique({ where: { tenantId } }),
@@ -85,6 +87,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           statementLineParts: statementLineParts.map(({ tenantId: _, ...resto }) => resto),
           statementNames: statementNames.map(({ tenantId: _, ...resto }) => resto),
           goals: goals.map(({ tenantId: _, ...resto }) => resto),
+          accountBoxes: accountBoxes.map(({ tenantId: _, ...resto }) => resto),
           holidays: holidays.map(({ id, name, day, month }) => ({ id, name, day, month })),
           preferences: preferencia
             ? {
@@ -177,6 +180,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
         );
         await gravar(dados.statementNames.length, (data) => tx.statementName.createMany({ data }), com(dados.statementNames));
         await gravar(dados.goals.length, (data) => tx.goal.createMany({ data }), com(dados.goals));
+        await gravar(dados.accountBoxes.length, (data) => tx.accountBox.createMany({ data }), com(dados.accountBoxes));
         await gravar(dados.holidays.length, (data) => tx.holiday.createMany({ data }), com(dados.holidays));
         // Credenciais do Google e chave da IA são de quem usa a conta; só as preferências vêm do arquivo.
         if (dados.preferences) {
@@ -224,6 +228,7 @@ async function apagar(tx: Prisma.TransactionClient, tenantId: string) {
   await tx.statementLinePart.deleteMany(onde);
   await tx.statementLine.deleteMany(onde);
   await tx.statement.deleteMany(onde);
+  await tx.accountBox.deleteMany(onde);
   await tx.account.deleteMany(onde);
   await tx.appointment.deleteMany(onde);
   await tx.entry.deleteMany(onde);

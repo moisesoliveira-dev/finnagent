@@ -507,8 +507,13 @@ export function Painel() {
     setTransferindo(true);
     try {
       const resposta = await fetch("/api/extratos/conferencia/desfazer-tudo", { method: "POST" });
-      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string; lines?: number; reactivated?: number; names?: number; orphans?: number };
+      const corpo = (await resposta.json().catch(() => ({}))) as { message?: string; queued?: boolean; lines?: number; reactivated?: number; names?: number; orphans?: number };
       if (!resposta.ok) throw new Error(corpo.message || "Não foi possível desfazer a conferência.");
+      // Com a fila, o desfazer roda em segundo plano: a central avisa quando terminar.
+      if (corpo.queued) {
+        toast.sucesso("Começou a desfazer a conferência. Você recebe uma notificação quando terminar.");
+        return;
+      }
       toast.sucesso(
         `Conferência desfeita: ${corpo.lines ?? 0} linhas voltaram a pendentes, ${corpo.reactivated ?? 0} reativadas, ${corpo.names ?? 0} nomes esquecidos e ${(corpo.orphans ?? 0) + 0} lançamentos soltos apagados.`,
       );
@@ -994,7 +999,7 @@ export function Painel() {
               <Linha
                 id="desfazer-conferencia"
                 titulo="Desfazer a conferência dos extratos"
-                dica="Volta cada linha dos extratos a sem lançamento, como no dia da importação: o que a linha criou some, o que ela pagou reabre, as ignoradas voltam e os nomes lembrados são esquecidos. Os extratos ficam."
+                dica="Volta cada linha dos extratos a sem lançamento, como no dia da importação: o que a linha criou some, o que ela pagou reabre, as ignoradas voltam e os nomes lembrados são esquecidos. Os extratos ficam. Roda em segundo plano, e a central avisa quando terminar."
                 grupo
               >
                 <Button
@@ -1089,7 +1094,7 @@ export function Painel() {
                 : confirmacao === "recomecar"
                   ? "Lançamentos, grupos, sessões, compromissos, extratos, metas e o histórico saem. Ficam a conta, a aparência, os vencimentos, os feriados, os usuários e a inteligência artificial. Não pode ser desfeito."
                   : confirmacao === "desfazer-conferencia"
-                    ? "Toda linha cruzada ou dividida volta a sem lançamento: o lançamento que nasceu dela é apagado e o que ela pagou volta a pendente. As linhas ignoradas voltam à conferência, e os nomes lembrados e as associações de descrição são esquecidos. Os extratos e as linhas ficam, como no dia da importação. Não pode ser desfeito."
+                    ? "Toda linha cruzada ou dividida volta a sem lançamento: o lançamento que nasceu dela é apagado e o que ela pagou volta a pendente. As linhas ignoradas voltam à conferência, e os nomes lembrados e as associações de descrição são esquecidos. Os extratos e as linhas ficam, como no dia da importação. Leva alguns segundos por linha e roda em segundo plano: a central avisa quando terminar. Não pode ser desfeito."
                     : "Todos os seus dados seriam apagados e essa ação não pode ser desfeita."}
           </p>
           {exigePalavra ? (

@@ -3,6 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { GRUPO_DAS_METAS, alocarSobra, sobraAcumulada, totaisDoMes, type Meta, type MetasResposta } from "@finnagent/contracts";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
+import { CaixinhasService } from "../../contas/aplicacao/caixinhas.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { valorSeparado } from "../dominio/guardado.js";
 import {
@@ -19,6 +20,7 @@ export class MetasService {
     @Inject(METAS_REPOSITORIO) private readonly metas: MetasRepositorio,
     private readonly financas: FinancasService,
     private readonly grupos: GruposService,
+    private readonly caixinhas: CaixinhasService,
   ) {}
 
   async listar(tenantId: string): Promise<MetasResposta> {
@@ -68,7 +70,7 @@ export class MetasService {
     if (marcou === "ja-aprovada") throw new Conflito("Essa meta já foi aprovada neste mês.");
     if (marcou === "sem-divisao") throw new Conflito("Defina a porcentagem desta meta antes de aprovar.");
     try {
-      await this.lancarSeparado(tenantId, meta.sessionId, meta.name, cents);
+      await this.lancarSeparado(tenantId, meta, cents);
     } catch (error) {
       await this.metas.reabrir(tenantId, id, year, month);
       throw error;
@@ -85,14 +87,27 @@ export class MetasService {
     // A sobra e o prazo contam a partir de hoje, não do início do workflow.
     const { year, month } = await this.hoje(tenantId);
     const gravadas = await this.metas.listar(tenantId);
-    // O que a meta guarda é o que a sessão dela acumulou. Meta antiga, sem sessão, segue com o valor gravado.
-    const goals = gravadas.map((meta) =>
-      meta.sessionId ? { ...meta, savedCents: valorSeparado(painel.entries, meta.sessionId) } : meta,
-    );
-    // Tudo no grupo Metas é valor separado, inclusive o de meta já excluída, cuja sessão segue como histórico.
+    const hoje = await this.financas.hoje(tenantId);
+    const caixinhas = await this.caixinhas.dasMetas(tenantId, painel.entries, hoje);
+    // O que a meta guarda é o que a sessão dela acumulou, mais o saldo da caixinha ligada a ela. Meta antiga, sem
+    // sessão, segue com o valor gravado.
+    const goals: Meta[] = gravadas.map((meta) => {
+      const caixinha = caixinhas.get(meta.id);
+      const box = caixinha
+        ? { id: caixinha.id, name: caixinha.name, accountId: caixinha.accountId, accountName: caixinha.accountName, saldoCents: caixinha.saldoCents }
+        : null;
+      const separado = meta.sessionId ? valorSeparado(painel.entries, meta.sessionId) : meta.savedCents;
+      return { ...meta, savedCents: separado + (box?.saldoCents ?? 0), box };
+    });
+    // Tudo no grupo Metas é valor separado, inclusive o de meta já excluída, cuja sessão segue como histórico. Na
+    // caixinha de uma meta, a aplicação e o resgate (os lançamentos com conta) também são valor separado; o rendimento
+    // dela é entrada do mês, como qualquer rendimento.
     const sessoes = new Set(goals.flatMap((meta) => (meta.sessionId ? [meta.sessionId] : [])));
-    const ehDeMeta = (entry: { sessionId: string; groupName: string }) =>
-      sessoes.has(entry.sessionId) || entry.groupName.toLowerCase() === GRUPO_DAS_METAS.toLowerCase();
+    const dasCaixinhas = new Set([...caixinhas.values()].map((caixinha) => caixinha.sessionId));
+    const ehDeMeta = (entry: { sessionId: string; groupName: string; accountId?: string | null }) =>
+      sessoes.has(entry.sessionId) ||
+      entry.groupName.toLowerCase() === GRUPO_DAS_METAS.toLowerCase() ||
+      (dasCaixinhas.has(entry.sessionId) && Boolean(entry.accountId));
     const dasMetas = painel.entries.filter(ehDeMeta);
     const dasOutras = painel.entries.filter((entry) => !ehDeMeta(entry));
     const monthSurplusCents = totaisDoMes(dasOutras, painel.workflow, year, month - 1).sobra;
@@ -117,16 +132,20 @@ export class MetasService {
 
     const sessionId = await this.sessaoDaMeta(tenantId, pedido.name);
     const criada = await this.gravar(tenantId, { ...pedido, sessionId });
-    if (pedido.savedCents > 0) await this.lancarSeparado(tenantId, sessionId, pedido.name, pedido.savedCents);
+    if (pedido.savedCents > 0) await this.lancarSeparado(tenantId, criada, pedido.savedCents);
     return criada;
+  }
+
+  /** Liga a meta a uma caixinha (o saldo dela soma no guardado e o separado vai para ela), ou desfaz com null. */
+  async ligarCaixinha(tenantId: string, id: string, boxId: string | null) {
+    await this.caixinhas.ligarMeta(tenantId, id, boxId);
   }
 
   /** Separa um valor para a meta: uma saída lançada na sessão dela. */
   async separar(tenantId: string, id: string, cents: number) {
     const meta = (await this.metas.listar(tenantId)).find((item) => item.id === id);
     if (!meta) throw new NaoEncontrado("Meta não encontrada.");
-    if (!meta.sessionId) throw new Conflito("Essa meta não tem sessão. Crie uma meta nova.");
-    await this.lancarSeparado(tenantId, meta.sessionId, meta.name, cents);
+    await this.lancarSeparado(tenantId, meta, cents);
   }
 
   /** A ordem de prioridade das metas: a primeira da lista recebe antes da sobra do mês. */
@@ -141,17 +160,15 @@ export class MetasService {
     return metas.find((meta) => meta.sessionId !== null && sessionIds.includes(meta.sessionId)) ?? null;
   }
 
+  /**
+   * Apaga a meta e devolve o que foi apagado. A sessão dela é encerrada por quem chama (Exclusões), que antes solta
+   * as linhas de extrato ligadas a ela.
+   */
   async excluir(tenantId: string, id: string) {
     const meta = (await this.metas.listar(tenantId)).find((item) => item.id === id);
     const apagou = await this.metas.excluir(tenantId, id);
-    if (!apagou) throw new NaoEncontrado("Meta não encontrada.");
-    // A sessão da meta é encerrada, só se nunca recebeu valor; com lançamentos, segue aberta no grupo Metas como histórico.
-    if (meta?.sessionId) {
-      const { entries } = await this.financas.listar(tenantId);
-      if (!entries.some((entry) => entry.sessionId === meta.sessionId)) {
-        await this.grupos.removerSessao(tenantId, meta.sessionId).catch(() => undefined);
-      }
-    }
+    if (!apagou || !meta) throw new NaoEncontrado("Meta não encontrada.");
+    return meta;
   }
 
   private async gravar(tenantId: string, pedido: NovaMeta): Promise<Meta> {
@@ -184,11 +201,21 @@ export class MetasService {
     return sessionId;
   }
 
-  private async lancarSeparado(tenantId: string, sessionId: string, meta: string, cents: number) {
+  /**
+   * Separa o valor para a meta. Com caixinha ligada, o dinheiro vai de verdade para ela: uma aplicação que sai da
+   * conta e da sobra. Sem caixinha, uma saída na sessão da meta.
+   */
+  private async lancarSeparado(tenantId: string, meta: Pick<Meta, "id" | "name" | "sessionId">, cents: number) {
+    const caixinha = (await this.caixinhas.listar(tenantId)).find((item) => item.goalId === meta.id);
+    if (caixinha) {
+      await this.caixinhas.movimentar(tenantId, caixinha.id, { tipo: "aplicacao", cents, date: await this.financas.hoje(tenantId) });
+      return;
+    }
+    if (!meta.sessionId) throw new Conflito("Essa meta não tem sessão. Crie uma meta nova.");
     await this.financas.registrar(tenantId, {
       id: randomUUID(),
-      sessionId,
-      name: `Separado para ${meta}`.slice(0, 160),
+      sessionId: meta.sessionId,
+      name: `Separado para ${meta.name}`.slice(0, 160),
       description: "",
       justification: "",
       date: await this.financas.hoje(tenantId),

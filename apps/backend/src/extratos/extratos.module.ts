@@ -4,6 +4,7 @@ import { AgendaModule } from "../agenda/agenda.module.js";
 import { ConfiguracoesModule } from "../configuracoes/configuracoes.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
+import { FilaDeConferencia } from "./adaptadores/fila-de-conferencia.js";
 import { HttpOrganizadorDeExtrato } from "./adaptadores/http-organizador-de-extrato.js";
 import { PrismaExtratosRepositorio } from "./adaptadores/prisma-extratos-repositorio.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
@@ -21,6 +22,7 @@ import { ORGANIZADOR_DE_EXTRATO } from "./portas/organizador-de-extrato.js";
     HttpOrganizadorDeExtrato,
     { provide: ORGANIZADOR_DE_EXTRATO, useExisting: HttpOrganizadorDeExtrato },
     ExtratosService,
+    FilaDeConferencia,
   ],
 })
 export class ExtratosModule {}

@@ -219,6 +219,26 @@ export function avisoDeConferencia(quantas: number, hoje: string): PedidoDeNotif
 }
 
 /** O fim da leitura de um extrato por imagem ou PDF, que corre depois do envio. */
+/** O desfazer da conferência, que roda na fila, terminou ou falhou: avisa só quem pediu (ou todos, se não se sabe quem). */
+export function avisoDeConferenciaDesfeita(
+  aviso: { lines: number; reactivated: number; names: number; orphans: number; userId: string | null; falhou?: string },
+  chave: string,
+): PedidoDeNotificacao[] {
+  const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+  return [
+    {
+      tipo: "extratos",
+      titulo: aviso.falhou ? "Não foi possível desfazer a conferência" : "Conferência desfeita",
+      texto: aviso.falhou
+        ? `${aviso.falhou} Tente de novo em Configurações.`
+        : `${plural(aviso.lines, "linha voltou", "linhas voltaram")} a pendente, ${plural(aviso.reactivated, "reativada", "reativadas")}, ${plural(aviso.names, "nome esquecido", "nomes esquecidos")} e ${plural(aviso.orphans, "lançamento solto apagado", "lançamentos soltos apagados")}.`,
+      destino: { tela: "conferencia", id: null },
+      chave: `desfazer-conferencia:${chave}`,
+      ...(aviso.userId ? { userId: aviso.userId } : {}),
+    },
+  ];
+}
+
 export function avisoDeExtratoLido(extrato: {
   id: string;
   filename: string;
