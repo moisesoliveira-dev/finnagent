@@ -5,7 +5,10 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import type { CaixinhasRepositorio } from "../portas/caixinhas-repositorio.js";
 
-const selecao = { id: true, accountId: true, name: true, openingCents: true, sessionId: true, goalId: true } as const;
+const selecao = { id: true, accountId: true, name: true, openingCents: true, openingOn: true, sessionId: true, goalId: true } as const;
+type Row = { id: string; accountId: string; name: string; openingCents: number; openingOn: Date | null; sessionId: string; goalId: string | null };
+const caixinhaDe = (row: Row): Caixinha => ({ ...row, openingOn: row.openingOn ? row.openingOn.toISOString().slice(0, 10) : null });
+const dataDe = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00.000Z`) : null);
 type Transacao = Parameters<Parameters<PrismaService["$transaction"]>[0]>[0];
 
 @Injectable()
@@ -13,25 +16,27 @@ export class PrismaCaixinhasRepositorio implements CaixinhasRepositorio {
   constructor(private readonly prisma: PrismaService) {}
 
   async listar(tenantId: string) {
-    return this.banco().accountBox.findMany({ where: { tenantId }, orderBy: [{ accountId: "asc" }, { name: "asc" }], select: selecao });
+    const rows = await this.banco().accountBox.findMany({ where: { tenantId }, orderBy: [{ accountId: "asc" }, { name: "asc" }], select: selecao });
+    return rows.map(caixinhaDe);
   }
 
   async obter(tenantId: string, id: string) {
-    return this.banco().accountBox.findFirst({ where: { id, tenantId }, select: selecao });
+    const row = await this.banco().accountBox.findFirst({ where: { id, tenantId }, select: selecao });
+    return row ? caixinhaDe(row) : null;
   }
 
   async criar(tenantId: string, caixinha: Caixinha) {
     return this.banco().$transaction(async (tx) => {
       const atual = await tx.accountBox.findFirst({ where: { id: caixinha.id, tenantId }, select: selecao });
-      if (atual) return mesma(atual, caixinha) ? atual : ("identificador" as const);
+      if (atual) return mesma(caixinhaDe(atual), caixinha) ? caixinhaDe(atual) : ("identificador" as const);
       const conta = await tx.account.findFirst({ where: { id: caixinha.accountId, tenantId }, select: { kind: true } });
       if (!conta) return "conta-ausente" as const;
       if (conta.kind === "cartao") return "cartao" as const;
       const falha = await validar(tx, tenantId, caixinha.accountId, caixinha.name, caixinha.goalId);
       if (falha) return falha;
-      const criada = await tx.accountBox.create({ data: { tenantId, ...caixinha }, select: selecao });
+      const criada = await tx.accountBox.create({ data: { tenantId, ...caixinha, openingOn: dataDe(caixinha.openingOn) }, select: selecao });
       await gravarOutbox(tx, tenantId, "criar-caixinha", caixinha.id, caixinha, marcaDe(caixinha));
-      return criada;
+      return caixinhaDe(criada);
     });
   }
 
@@ -41,9 +46,10 @@ export class PrismaCaixinhasRepositorio implements CaixinhasRepositorio {
       if (!atual) return "ausente" as const;
       const falha = await validar(tx, tenantId, atual.accountId, pedido.name, pedido.goalId, id);
       if (falha) return falha;
-      await tx.accountBox.updateMany({ where: { id, tenantId }, data: pedido });
+      const { openingOn, ...resto } = pedido;
+      await tx.accountBox.updateMany({ where: { id, tenantId }, data: { ...resto, ...(openingOn !== undefined ? { openingOn: dataDe(openingOn) } : {}) } });
       await gravarOutbox(tx, tenantId, "atualizar-caixinha", id, { id, ...pedido }, marcaDe(pedido));
-      return tx.accountBox.findFirstOrThrow({ where: { id, tenantId }, select: selecao });
+      return caixinhaDe(await tx.accountBox.findFirstOrThrow({ where: { id, tenantId }, select: selecao }));
     });
   }
 
@@ -65,7 +71,7 @@ export class PrismaCaixinhasRepositorio implements CaixinhasRepositorio {
       if (!atual) return "ausente" as const;
       await tx.accountBox.deleteMany({ where: { id, tenantId } });
       await gravarOutbox(tx, tenantId, "excluir-caixinha", id, { id });
-      return atual;
+      return caixinhaDe(atual);
     });
   }
 
@@ -88,5 +94,11 @@ async function validar(tx: Transacao, tenantId: string, accountId: string, name:
 }
 
 function mesma(atual: Caixinha, pedido: Caixinha) {
-  return atual.accountId === pedido.accountId && atual.name === pedido.name && atual.openingCents === pedido.openingCents && atual.goalId === pedido.goalId;
+  return (
+    atual.accountId === pedido.accountId &&
+    atual.name === pedido.name &&
+    atual.openingCents === pedido.openingCents &&
+    atual.openingOn === pedido.openingOn &&
+    atual.goalId === pedido.goalId
+  );
 }

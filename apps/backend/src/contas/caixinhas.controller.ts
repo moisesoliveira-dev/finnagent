@@ -18,17 +18,21 @@ import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../g
 import { CaixinhasService } from "./aplicacao/caixinhas.service.js";
 
 const tenantId = z.uuid();
+const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const caixinha = z.object({
   name: z.string().trim().min(1).max(60),
   openingCents: z.number().int().min(0).max(2_147_483_647).default(0),
+  // Ausente: hoje na criação, a data gravada na edição. null: sem data.
+  openingOn: dataIso.nullable().optional(),
   goalId: z.uuid().nullable().default(null),
 });
+const saldo = z.object({ saldoCents: z.number().int().min(0).max(2_147_483_647), date: dataIso });
 const criarCaixinha = caixinha.extend({ id: z.uuid() });
 const movimento = z
   .object({
     tipo: z.enum(MOVIMENTOS_DA_CAIXINHA),
     cents: z.number().int().gte(-2_147_483_647).lte(2_147_483_647).refine((valor) => valor !== 0),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    date: dataIso,
   })
   .refine((pedido) => pedido.tipo === "rendimento" || pedido.cents > 0, { path: ["cents"] });
 
@@ -60,6 +64,14 @@ export class CaixinhasController {
     return this.executar(() => this.caixinhas.excluir(this.tenant(tenant), id));
   }
 
+  @Post("caixinhas/:id/saldo")
+  informarSaldo(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    if (!z.uuid().safeParse(id).success) throw new NotFoundException("Caixinha não encontrada.");
+    const pedido = saldo.safeParse(body);
+    if (!pedido.success) throw new BadRequestException(this.mensagem(pedido.error.issues[0]?.path[0]));
+    return this.executar(() => this.caixinhas.informarSaldo(this.tenant(tenant), id, pedido.data));
+  }
+
   @Post("caixinhas/:id/movimentos")
   movimentar(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
     if (!z.uuid().safeParse(id).success) throw new NotFoundException("Caixinha não encontrada.");
@@ -71,6 +83,8 @@ export class CaixinhasController {
   private mensagem(campo: PropertyKey | undefined) {
     if (campo === "name") return "Dê um nome à caixinha.";
     if (campo === "openingCents") return "Informe o saldo inicial da caixinha.";
+    if (campo === "openingOn") return "Informe a data do saldo inicial (AAAA-MM-DD).";
+    if (campo === "saldoCents") return "Informe o saldo que a caixinha mostra, sem sinal.";
     if (campo === "goalId") return "Meta inválida.";
     if (campo === "cents") return "Informe o valor. Aplicação e resgate são positivos; rendimento negativo é perda.";
     if (campo === "date") return "Informe a data.";

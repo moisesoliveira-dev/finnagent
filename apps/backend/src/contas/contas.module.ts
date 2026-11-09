@@ -2,7 +2,9 @@ import { Module } from "@nestjs/common";
 import { FinancasModule } from "../financas/financas.module.js";
 import { GruposModule } from "../grupos/grupos.module.js";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
+import { FilaDasSobras } from "./adaptadores/fila-das-sobras.js";
 import { PrismaCaixinhasRepositorio } from "./adaptadores/prisma-caixinhas-repositorio.js";
+import { SobrasService } from "./aplicacao/sobras.service.js";
 import { PrismaContasRepositorio } from "./adaptadores/prisma-contas-repositorio.js";
 import { CaixinhasService } from "./aplicacao/caixinhas.service.js";
 import { ContasService } from "./aplicacao/contas.service.js";
@@ -14,7 +16,7 @@ import { CONTAS_REPOSITORIO } from "./portas/contas-repositorio.js";
 @Module({
   imports: [PersistenciaModule, FinancasModule, GruposModule],
   controllers: [ContasController, CaixinhasController],
-  exports: [ContasService, CaixinhasService],
+  exports: [ContasService, CaixinhasService, SobrasService],
   providers: [
     PrismaContasRepositorio,
     { provide: CONTAS_REPOSITORIO, useExisting: PrismaContasRepositorio },
@@ -22,6 +24,8 @@ import { CONTAS_REPOSITORIO } from "./portas/contas-repositorio.js";
     { provide: CAIXINHAS_REPOSITORIO, useExisting: PrismaCaixinhasRepositorio },
     ContasService,
     CaixinhasService,
+    SobrasService,
+    FilaDasSobras,
   ],
 })
 export class ContasModule {}

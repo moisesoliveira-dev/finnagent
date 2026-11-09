@@ -19,26 +19,49 @@ export type PedidoDeConta = Conta | null;
 /** Cria ou edita uma conta: nome, tipo (conta ou cartão) e o saldo inicial. */
 export function DialogoDeConta({
   pedido,
+  hoje,
+  tipoInicial = "conta",
   onFechar,
   onSalvo,
 }: {
   pedido: PedidoDeConta | undefined;
+  hoje: string;
+  /** O tipo já escolhido ao criar: o "Comece por aqui" abre direto no cartão. */
+  tipoInicial?: TipoDeConta;
   onFechar: () => void;
   onSalvo: (conta: Conta) => Promise<void> | void;
 }) {
   return (
     <Dialogo aberto={pedido !== undefined} aria-labelledby="titulo-conta" onClose={onFechar}>
-      {pedido !== undefined ? <Corpo key={pedido?.id ?? "nova"} conta={pedido} onFechar={onFechar} onSalvo={onSalvo} /> : null}
+      {pedido !== undefined ? <Corpo key={pedido?.id ?? `nova-${tipoInicial}`} conta={pedido} hoje={hoje} tipoInicial={tipoInicial} onFechar={onFechar} onSalvo={onSalvo} /> : null}
     </Dialogo>
   );
 }
 
-function Corpo({ conta, onFechar, onSalvo }: { conta: Conta | null; onFechar: () => void; onSalvo: (conta: Conta) => Promise<void> | void }) {
+function Corpo({
+  conta,
+  hoje,
+  tipoInicial,
+  onFechar,
+  onSalvo,
+}: {
+  conta: Conta | null;
+  hoje: string;
+  tipoInicial: TipoDeConta;
+  onFechar: () => void;
+  onSalvo: (conta: Conta) => Promise<void> | void;
+}) {
   const toast = useToast();
   const [name, setName] = useState(conta?.name ?? "");
-  const [kind, setKind] = useState<TipoDeConta>(conta?.kind ?? "conta");
+  const [kind, setKind] = useState<TipoDeConta>(conta?.kind ?? tipoInicial);
   const [opening, setOpening] = useState(conta ? centavosParaReais(conta.openingCents) : "");
+  // Conta antiga sem data continua sem data até a pessoa escolher uma.
+  const [openingOn, setOpeningOn] = useState(conta ? (conta.openingOn ?? "") : hoje);
+  const [closingDay, setClosingDay] = useState(conta?.closingDay ? String(conta.closingDay) : "");
+  const [dueDay, setDueDay] = useState(conta?.dueDay ? String(conta.dueDay) : "");
+  const [limite, setLimite] = useState(conta?.limitCents ? centavosParaReais(conta.limitCents) : "");
   const [salvando, setSalvando] = useState(false);
+  const cartao = kind === "cartao";
 
   async function salvar(event: React.FormEvent) {
     event.preventDefault();
@@ -48,9 +71,27 @@ function Corpo({ conta, onFechar, onSalvo }: { conta: Conta | null; onFechar: ()
       toast.erro("Informe o saldo inicial.");
       return;
     }
+    const limitCents = limite.trim() ? reaisParaCentavos(limite) : null;
+    if (cartao && limite.trim() && (limitCents == null || limitCents < 0)) {
+      toast.erro("Informe o limite do cartão.");
+      return;
+    }
+    const dia = (texto: string) => (texto.trim() ? Number(texto) : null);
+    if (cartao && ((closingDay && !(Number(closingDay) >= 1 && Number(closingDay) <= 28)) || (dueDay && !(Number(dueDay) >= 1 && Number(dueDay) <= 28)))) {
+      toast.erro("Os dias de fechamento e vencimento vão de 1 a 28.");
+      return;
+    }
     setSalvando(true);
     try {
-      const corpo = { name: name.trim(), kind, openingCents };
+      const corpo = {
+        name: name.trim(),
+        kind,
+        openingCents,
+        openingOn: openingOn || null,
+        closingDay: cartao ? dia(closingDay) : null,
+        dueDay: cartao ? dia(dueDay) : null,
+        limitCents: cartao ? limitCents : null,
+      };
       const salva = conta
         ? await api<Conta>(`/api/contas/${conta.id}`, { method: "PATCH", body: JSON.stringify(corpo) })
         : await api<Conta>("/api/contas", { method: "POST", body: JSON.stringify({ id: crypto.randomUUID(), ...corpo }) });
@@ -92,13 +133,46 @@ function Corpo({ conta, onFechar, onSalvo }: { conta: Conta | null; onFechar: ()
           <div className="grid gap-1">
             <Rotulo
               htmlFor="conta-saldo"
-              dica="Quanto havia na conta quando você começou a controlar aqui. No cartão, deixe zero ou o que já está na fatura."
+              dica="Quanto havia na conta no dia ao lado. No cartão, a fatura em aberto nesse dia, em negativo, ou zero."
             >
               Saldo inicial
             </Rotulo>
             <CampoValor id="conta-saldo" className={field} value={opening} onChange={setOpening} />
           </div>
         </div>
+        <div className="grid gap-1">
+          <Rotulo
+            htmlFor="conta-data"
+            dica="Só o que acontece a partir deste dia conta no saldo. Extratos de antes entram na sobra e no histórico, sem dobrar o saldo. Vazio: tudo conta."
+          >
+            Saldo em
+          </Rotulo>
+          <input id="conta-data" type="date" className={field} value={openingOn} onChange={(event) => setOpeningOn(event.target.value)} />
+        </div>
+        {cartao ? (
+          <>
+            <div className="dialog-par">
+              <div className="grid gap-1">
+                <Rotulo htmlFor="conta-fechamento" dica="O dia do mês em que a fatura fecha. Compras depois dele vão para a fatura seguinte.">
+                  Fecha dia
+                </Rotulo>
+                <input id="conta-fechamento" type="number" inputMode="numeric" min={1} max={28} className={field} value={closingDay} onChange={(event) => setClosingDay(event.target.value)} />
+              </div>
+              <div className="grid gap-1">
+                <Rotulo htmlFor="conta-vencimento" dica="O dia do mês em que a fatura vence. Se vem antes do fechamento, é no mês seguinte.">
+                  Vence dia
+                </Rotulo>
+                <input id="conta-vencimento" type="number" inputMode="numeric" min={1} max={28} className={field} value={dueDay} onChange={(event) => setDueDay(event.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-1">
+              <Rotulo htmlFor="conta-limite" dica="O limite do cartão. O sistema avisa aos 80% e ao estourar. Vazio: sem limite.">
+                Limite
+              </Rotulo>
+              <CampoValor id="conta-limite" className={field} value={limite} onChange={setLimite} />
+            </div>
+          </>
+        ) : null}
       </div>
       <div className="dialog-acoes">
         <Button type="button" variant="quiet" onClick={onFechar} disabled={salvando}>

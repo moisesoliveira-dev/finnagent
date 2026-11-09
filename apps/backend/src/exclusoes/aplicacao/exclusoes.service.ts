@@ -21,9 +21,14 @@ export class ExclusoesService {
     private readonly caixinhas: CaixinhasService,
   ) {}
 
+  /** Apaga o lançamento. Se ele é um lado de uma transferência, o outro lado sai junto. */
   async lancamento(tenantId: string, id: string) {
-    await this.extratos.liberarLinhas(tenantId, { entryIds: [id] }, new Set([id]));
-    await this.financas.excluir(tenantId, id);
+    const { entries } = await this.financas.listar(tenantId, true);
+    const alvo = entries.find((entry) => entry.id === id);
+    const par = alvo?.pairId ? entries.find((entry) => entry.pairId === alvo.pairId && entry.id !== id) : undefined;
+    const ids = par ? [id, par.id] : [id];
+    await this.extratos.liberarLinhas(tenantId, { entryIds: ids }, new Set(ids));
+    for (const alvoId of ids) await this.financas.excluir(tenantId, alvoId);
   }
 
   async ocorrencia(tenantId: string, id: string, numero: number) {
@@ -68,6 +73,11 @@ export class ExclusoesService {
   private async semMeta(tenantId: string, sessionIds: string[], inicio: string, daCaixinha: string) {
     const meta = await this.metas.metaDasSessoes(tenantId, sessionIds);
     if (meta) throw new Conflito(`${inicio} "${meta.name}". Exclua a meta em Metas.`);
+    // A sessão das sobras é do sistema: apagar faria a sobra de cada mês sumir até ser recalculada.
+    const { entries } = await this.financas.listar(tenantId);
+    if (entries.some((entry) => entry.carryOf && sessionIds.includes(entry.sessionId))) {
+      throw new Conflito(`${daCaixinha.startsWith("Esse grupo") ? "Esse grupo tem a sessão das sobras" : "Essa sessão guarda as sobras de cada mês"}. Ela é recalculada sozinha e não pode ser apagada.`);
+    }
     // A sessão de uma caixinha guarda o rendimento e os movimentos dela: sai junto com a caixinha, em Contas.
     const caixinha = await this.caixinhas.daSessao(tenantId, sessionIds);
     if (caixinha) throw new Conflito(`${daCaixinha} "${caixinha.name}". Exclua a caixinha em Contas.`);

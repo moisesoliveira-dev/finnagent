@@ -250,6 +250,13 @@ export class ExtratosController {
     return this.executar(() => this.extratos.ignorar(this.tenant(tenant), pedido.data.items, pedido.data.ignored));
   }
 
+  @Post("extratos/transferir")
+  transferir(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z.object({ statementId: z.uuid(), line: z.number().int().min(1), accountId: z.uuid() }).safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha a linha e a outra conta da transferência.");
+    return this.executar(() => this.extratos.transferirLinha(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.accountId));
+  }
+
   @Post("extratos/acumular")
   acumular(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
     const pedido = z

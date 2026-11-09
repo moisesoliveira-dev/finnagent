@@ -5,6 +5,7 @@ import {
   LINHAS_DA_CONFERENCIA_DE_UMA_VEZ,
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
   type DiferencaDoPagamento,
+  type TransferenciaDaLinha,
   type EscolhaDaLinhaNaSerie,
   type PreviaDaSerie,
   type SerieLancada,
@@ -23,6 +24,7 @@ import {
 } from "@finnagent/contracts";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { IaService } from "../../assistente/aplicacao/ia.service.js";
+import { ContasService } from "../../contas/aplicacao/contas.service.js";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import type { PedidoLancamento } from "../../financas/dominio/pedido.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
@@ -128,6 +130,7 @@ export class ExtratosService {
     @Inject(ORGANIZADOR_DE_EXTRATO) private readonly organizador: OrganizadorDeExtrato,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
     private readonly financas: FinancasService,
+    private readonly contas: ContasService,
     private readonly agenda: AgendaService,
     private readonly ia: IaService,
     private readonly anexos: AnexosService,
@@ -182,7 +185,15 @@ export class ExtratosService {
     if (resultado === "duplicado") throw new Conflito("Já existe um extrato desta conta neste período.");
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outro extrato.");
     if (resultado === "conta-ausente") throw new NaoEncontrado("Conta não encontrada.");
+    await this.alcancarMesDoExtrato(tenantId, resultado.startDate);
     return resultado;
+  }
+
+  /** Um extrato de antes do início do workflow puxa o início para o mês dele: a sobra passa a enxergar esse mês. */
+  private async alcancarMesDoExtrato(tenantId: string, startDate: string | null) {
+    if (!startDate) return;
+    const [year, month] = startDate.split("-").map(Number) as [number, number];
+    await this.financas.recuarInicioDoWorkflow(tenantId, year, month).catch(() => undefined);
   }
 
   /** Importa o arquivo que a pessoa anexou no chat, com o que ela escreveu sobre ele. */
@@ -442,6 +453,8 @@ export class ExtratosService {
       await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
       throw error;
     }
+    // O lançamento que a linha pagou é desta conta: sem conta, ele ganha a do extrato e entra no saldo dela.
+    if (!entry.accountId && gravada.accountId) await this.financas.definirConta(tenantId, entryId, gravada.accountId).catch(() => undefined);
     // Recorrente paga no valor do extrato: os meses seguintes, ainda pendentes, passam a prever esse valor.
     if (entry.category === "fixed" && !daSessaoFixa && centavos === gravada.cents && centavos !== planejado) {
       await this.financas.seguirValorDaSerie(tenantId, entryId, centavos).catch(() => undefined);
@@ -511,7 +524,7 @@ export class ExtratosService {
       (typeof solta === "object" && solta.created) || (await this.extratos.lancamentoSoltoDoExtrato(tenantId, entryId));
     if (apagar) {
       try {
-        await this.financas.excluir(tenantId, entryId);
+        await this.excluirCriado(tenantId, entryId);
       } catch (error) {
         if (tolerante) return { year, month };
         await this.cruzar(tenantId, statementId, line, entryId, gravada.description, undefined, true).catch(() => undefined);
@@ -625,6 +638,85 @@ export class ExtratosService {
   }
 
   /**
+   * A linha é uma transferência entre contas da pessoa: saída da conta do extrato para `accountId`, ou entrada vinda
+   * dela. Nasce o par de lançamentos fora da sobra, a linha cruza com o lado dela, e a linha espelho no extrato da
+   * outra conta (mesmo valor, sinal trocado, até três dias de diferença) cruza com o outro lado.
+   */
+  async transferirLinha(tenantId: string, statementId: string, line: number, accountId: string): Promise<TransferenciaDaLinha> {
+    const lida = await this.extratos.obterLinha(tenantId, statementId, line);
+    if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
+    const gravada = { ...lida, date: lida.date };
+    if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (gravada.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
+    if (!gravada.cents) throw new PedidoInvalido("A linha não tem valor.");
+    if (!gravada.accountId) throw new Conflito("O extrato desta linha não tem conta.");
+    if (gravada.accountId === accountId) throw new Conflito("Escolha a outra conta da transferência.");
+    const { accounts } = await this.contas.listar(tenantId);
+    const desta = accounts.find((conta) => conta.id === gravada.accountId);
+    const outra = accounts.find((conta) => conta.id === accountId);
+    if (!desta || !outra) throw new NaoEncontrado("Conta não encontrada.");
+    const saindo = gravada.cents < 0;
+    const [origem, destino] = saindo ? [desta, outra] : [outra, desta];
+    const par = await this.contas.criarPar(tenantId, {
+      origem,
+      destino,
+      cents: Math.abs(gravada.cents),
+      date: gravada.date,
+      description: gravada.description,
+      nomeDaSaida: `Transferência para ${destino.name}`,
+      nomeDaEntrada: `Transferência de ${origem.name}`,
+    });
+    const meuLado = saindo ? par.saida : par.entrada;
+    const outroLado = saindo ? par.entrada : par.saida;
+    try {
+      await this.cruzar(tenantId, statementId, line, meuLado.id, gravada.description, undefined, true);
+      await this.financas.pagarPeloExtrato(tenantId, meuLado.id, gravada.date, gravada.cents, { paymentId: idDoPagamentoDaLinha(statementId, line) });
+    } catch (error) {
+      await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
+      await this.financas.excluir(tenantId, par.saida.id).catch(() => undefined);
+      await this.financas.excluir(tenantId, par.entrada.id).catch(() => undefined);
+      throw error;
+    }
+    const espelho = await this.linhaEspelho(tenantId, gravada, outra.id);
+    if (espelho) {
+      try {
+        await this.cruzar(tenantId, espelho.statementId, espelho.line, outroLado.id, espelho.description, undefined, true);
+        await this.financas.pagarPeloExtrato(tenantId, outroLado.id, espelho.date, espelho.cents, { paymentId: idDoPagamentoDaLinha(espelho.statementId, espelho.line) });
+      } catch {
+        await this.extratos.desfazerCruzamento(tenantId, espelho.statementId, espelho.line).catch(() => undefined);
+        return { pairId: par.pairId, espelho: null };
+      }
+    }
+    return { pairId: par.pairId, espelho: espelho ? { statementId: espelho.statementId, line: espelho.line } : null };
+  }
+
+  /** A linha livre do extrato da outra conta com o mesmo valor e sinal trocado, a mais perto em data (até três dias). */
+  private async linhaEspelho(tenantId: string, gravada: LinhaGravada, outraContaId: string) {
+    const { statements } = await this.extratos.listar(tenantId);
+    const daOutra = new Set(statements.filter((item) => item.accountId === outraContaId).map((item) => item.id));
+    if (daOutra.size === 0) return null;
+    const dias = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+    const livres = await this.extratos.linhasLivres(tenantId);
+    return (
+      livres
+        .filter((linha) => daOutra.has(linha.statementId) && linha.cents === -gravada.cents && dias(linha.date, gravada.date) <= 3)
+        .sort((a, b) => dias(a.date, gravada.date) - dias(b.date, gravada.date))[0] ?? null
+    );
+  }
+
+  /** Apaga o lançamento criado por uma linha. Se ele é um lado de uma transferência, o outro lado e a linha dele saem junto. */
+  private async excluirCriado(tenantId: string, entryId: string) {
+    const { entries } = await this.financas.listar(tenantId, true);
+    const alvo = entries.find((entry) => entry.id === entryId);
+    const par = alvo?.pairId ? entries.find((entry) => entry.pairId === alvo.pairId && entry.id !== entryId) : undefined;
+    if (par) {
+      await this.liberarLinhas(tenantId, { entryIds: [par.id] }, new Set([entryId, par.id]));
+      await this.financas.excluir(tenantId, par.id).catch(() => undefined);
+    }
+    await this.financas.excluir(tenantId, entryId);
+  }
+
+  /**
    * O lançamento que nasce de uma linha (ou de uma parte dela), na data do extrato, do tipo que a pessoa escolheu.
    * Única e extra nascem pagas: só têm esta ocorrência. Parcela, empréstimo e recorrente nascem pendentes, com as
    * mesmas regras das Finanças (prioridade, compromisso, regra de vencimento), e a ocorrência desta linha é paga em
@@ -708,6 +800,7 @@ export class ExtratosService {
             );
           });
           await this.financas.pagarPeloExtrato(tenantId, fixa.entryId, gravada.date, parte.cents, { paymentId: idDoPagamentoDaLinha(statementId, line, indice) });
+          if (gravada.accountId) await this.financas.definirConta(tenantId, fixa.entryId, gravada.accountId).catch(() => undefined);
           feitas.push({ entryId: fixa.entryId, cents: parte.cents, created: false });
           continue;
         }

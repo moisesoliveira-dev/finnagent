@@ -4,6 +4,9 @@ import {
   ocorrenciasDoLancamento,
   type CanalDeNotificacao,
   type Compromisso,
+  type Conta,
+  type Fatura,
+  type LimiteDoCartao,
   type DestinoDaNotificacao,
   type Lancamento,
   type MetasResposta,
@@ -335,6 +338,82 @@ export function avisosDeLimite(usos: UsoDoLimite[], mes: string): PedidoDeNotifi
     }
   }
   return pedidos;
+}
+
+/** Os dias de `de` até `ate` (AAAA-MM-DD). */
+function diasAte(de: string, ate: string) {
+  return Math.round((Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * As faturas dos cartões: a aberta que fecha em até dois dias, a fechada que vence em até três dias ou hoje, e a
+ * vencida sem pagamento. E o limite do cartão, nas marcas de 80% e 100%. Uma vez por fatura (ou por mês, no limite).
+ */
+export function avisosDeCartao(cartoes: Array<{ conta: Conta; faturas: Fatura[]; limite: LimiteDoCartao }>, hoje: string): PedidoDeNotificacao[] {
+  const pedidos: PedidoDeNotificacao[] = [];
+  const mes = hoje.slice(0, 7);
+  for (const { conta, faturas, limite } of cartoes) {
+    const destino = { tela: "contas" as const, id: conta.id };
+    for (const fatura of faturas) {
+      const falta = fatura.totalCents - fatura.paidCents;
+      if (fatura.status === "aberta") {
+        const dias = diasAte(hoje, fatura.closingDate);
+        if (dias <= 2 && fatura.totalCents > 0) {
+          pedidos.push({
+            tipo: "vencimentos",
+            titulo: `Fatura do ${conta.name} fecha ${dias === 0 ? "hoje" : dias === 1 ? "amanhã" : `em ${dias} dias`}`,
+            texto: `${dinheiro(fatura.totalCents)} até agora. Vence em ${dataCurta(fatura.dueDate)}.`,
+            destino,
+            chave: `fatura:fecha:${conta.id}:${fatura.month}`,
+          });
+        }
+      } else if (fatura.status === "fechada") {
+        const dias = diasAte(hoje, fatura.dueDate);
+        if (dias <= 3) {
+          pedidos.push({
+            tipo: "vencimentos",
+            titulo: `Fatura do ${conta.name} vence ${dias === 0 ? "hoje" : dias === 1 ? "amanhã" : `em ${dias} dias`}`,
+            texto: `${dinheiro(falta)} a pagar${fatura.paidCents > 0 ? ` (já pagou ${dinheiro(fatura.paidCents)})` : ""}.`,
+            destino,
+            chave: `fatura:vence:${conta.id}:${fatura.month}`,
+          });
+        }
+      } else if (fatura.status === "vencida") {
+        pedidos.push({
+          tipo: "vencimentos",
+          titulo: `Fatura do ${conta.name} venceu`,
+          texto: `${dinheiro(falta)} em aberto desde ${dataCurta(fatura.dueDate)}.`,
+          destino,
+          chave: `fatura:vencida:${conta.id}:${fatura.month}`,
+        });
+      }
+    }
+    if (limite.percent !== null && conta.limitCents) {
+      if (limite.percent >= 100) {
+        pedidos.push({
+          tipo: "limites",
+          titulo: `${conta.name} estourou o limite`,
+          texto: `${dinheiro(limite.usadoCents)} de ${dinheiro(conta.limitCents)} (${limite.percent}%).`,
+          destino,
+          chave: `cartao:limite:100:${conta.id}:${mes}`,
+        });
+      } else if (limite.percent >= AVISO_DO_LIMITE_EM) {
+        pedidos.push({
+          tipo: "limites",
+          titulo: `${conta.name} perto do limite`,
+          texto: `${dinheiro(limite.usadoCents)} de ${dinheiro(conta.limitCents)} (${limite.percent}%). Restam ${dinheiro(limite.disponivelCents ?? 0)}.`,
+          destino,
+          chave: `cartao:limite:${AVISO_DO_LIMITE_EM}:${conta.id}:${mes}`,
+        });
+      }
+    }
+  }
+  return pedidos;
+}
+
+function dataCurta(iso: string) {
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
 }
 
 /** O plano do consultor que ficou esperando a aprovação. Avisa só quem abriu a conversa. */

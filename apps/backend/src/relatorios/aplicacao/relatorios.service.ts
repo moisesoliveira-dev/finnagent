@@ -10,7 +10,8 @@ export class RelatoriosService {
   async listar(tenantId: string, year?: number): Promise<RelatorioResposta> {
     const painel = await this.financas.listar(tenantId);
     const ano = year ?? painel.workflow.year;
-    const relatorio = montarRelatorio(painel.entries, painel.workflow, ano);
+    // O relatório mostra o dinheiro de cada mês: a sobra levada do mês anterior não é entrada nem gasto dele.
+    const relatorio = montarRelatorio(painel.entries.filter((entry) => !entry.carryOf), painel.workflow, ano);
     if (!relatorio) throw new PedidoInvalido("Esse ano é anterior ao início do workflow.");
     return relatorio;
   }

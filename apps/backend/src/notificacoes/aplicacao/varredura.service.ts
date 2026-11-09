@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ANTECEDENCIA_MS, STATUS_EXTRATO, usoDosLimites, type Compromisso } from "@finnagent/contracts";
+import { ANTECEDENCIA_MS, STATUS_EXTRATO, faturasDoCartao, limiteDoCartao, usoDosLimites, type Compromisso } from "@finnagent/contracts";
 import { z } from "zod";
 import { AgendaService } from "../../agenda/aplicacao/agenda.service.js";
 import { AssistenteService } from "../../assistente/aplicacao/assistente.service.js";
@@ -15,6 +15,8 @@ import { HojeService } from "../../hoje/aplicacao/hoje.service.js";
 import { diaNoFuso } from "../../financas/dominio/vista.js";
 import { log } from "../../log.js";
 import { MetasService } from "../../metas/aplicacao/metas.service.js";
+import { ContasService } from "../../contas/aplicacao/contas.service.js";
+import { SobrasService } from "../../contas/aplicacao/sobras.service.js";
 import {
   ESPERA_DO_PLANO_MS,
   HORA_DO_AVISO_DAS_TAREFAS,
@@ -28,6 +30,7 @@ import {
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
+  avisosDeCartao,
   avisosDeLimite,
   horaNoFuso,
   lembretesNaJanela,
@@ -75,6 +78,8 @@ export class VarreduraService {
     private readonly assistente: AssistenteService,
     private readonly grupos: GruposService,
     private readonly hojeDoDia: HojeService,
+    private readonly contas: ContasService,
+    private readonly sobras: SobrasService,
     @Inject(CONFIGURACOES_REPOSITORIO) private readonly configuracoes: ConfiguracoesRepositorio,
   ) {}
 
@@ -111,6 +116,8 @@ export class VarreduraService {
       this.avisosDaNoite.set(tenantId, hoje);
     }
 
+    // Na virada do mês, a sobra do mês que acabou entra no novo, mesmo sem nenhum lançamento mudar.
+    await this.sobras.atualizar(tenantId).catch(() => undefined);
     if (horaNoFuso(conta.timezone, agora) >= HORA_DOS_AVISOS_DO_DIA && this.avisosDoDia.get(tenantId) !== hoje) {
       const [ano, mes] = hoje.split("-").map(Number) as [number, number];
       const base = await this.financas.listar(tenantId);
@@ -119,6 +126,12 @@ export class VarreduraService {
       pedidos.push(...atrasados(base.entries, hoje));
       pedidos.push(...avisoDeConferencia(await this.extratos.semConferir(tenantId, ano, mes), hoje));
       pedidos.push(...avisosDasMetas(await this.metas.listar(tenantId), hoje));
+      // As faturas e o limite dos cartões.
+      const { accounts } = await this.contas.listar(tenantId);
+      const cartoes = accounts
+        .filter((conta) => conta.kind === "cartao")
+        .map((conta) => ({ conta, faturas: faturasDoCartao(conta, base.entries, hoje), limite: limiteDoCartao(conta, base.entries, hoje) }));
+      pedidos.push(...avisosDeCartao(cartoes, hoje));
       this.avisosDoDia.set(tenantId, hoje);
     }
     // O limite é conferido a cada passada: o aviso sai no dia em que a sessão passa da marca, não só às 8h.

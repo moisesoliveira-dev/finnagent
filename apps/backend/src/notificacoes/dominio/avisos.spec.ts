@@ -15,6 +15,7 @@ import {
   avisoDeExtratoLido,
   avisoDePlano,
   avisosDasMetas,
+  avisosDeCartao,
   avisosDeLimite,
   atrasados,
   avisoDeTarefas,
@@ -305,5 +306,30 @@ describe("preferências e entrega", () => {
     expect(lidas.canais.metas.central).toBe(false);
     expect(lidas.canais.extratos).toEqual(PREFERENCIAS_DE_NOTIFICACAO_PADRAO.canais.extratos);
     expect(lidas.silencio).toEqual(PREFERENCIAS_DE_NOTIFICACAO_PADRAO.silencio);
+  });
+});
+
+describe("avisos do cartão", () => {
+  const conta = { id: "k1", name: "Nubank", kind: "cartao", openingCents: 0, openingOn: null, closingDay: 25, dueDay: 5, limitCents: 100_000 } as const;
+  const fatura = (month: string, status: "aberta" | "fechada" | "vencida" | "paga", dueDate: string, closingDate: string) => ({ month, closingDate, dueDate, totalCents: 50_000, paidCents: 0, status, itens: 3 });
+
+  it("avisa a fatura que fecha, a que vence, a vencida e o limite, uma vez cada", () => {
+    const pedidos = avisosDeCartao(
+      [
+        {
+          conta,
+          faturas: [fatura("2026-09", "vencida", "2026-10-05", "2026-09-25"), fatura("2026-10", "fechada", "2026-11-11", "2026-10-25"), fatura("2026-11", "aberta", "2026-12-05", "2026-11-10")],
+          limite: { usadoCents: 85_000, disponivelCents: 15_000, percent: 85 },
+        },
+      ],
+      "2026-11-09",
+    );
+    expect(pedidos.map((p) => [p.chave, p.titulo])).toEqual([
+      ["fatura:vencida:k1:2026-09", "Fatura do Nubank venceu"],
+      ["fatura:vence:k1:2026-10", "Fatura do Nubank vence em 2 dias"],
+      ["fatura:fecha:k1:2026-11", "Fatura do Nubank fecha amanhã"],
+      ["cartao:limite:80:k1:2026-11", "Nubank perto do limite"],
+    ]);
+    expect(pedidos.every((p) => p.destino.tela === "contas" && p.destino.id === "k1")).toBe(true);
   });
 });

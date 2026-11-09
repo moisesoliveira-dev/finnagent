@@ -112,6 +112,10 @@ model Entry {
   accountId          String?             @map("account_id")
   // Transferência entre contas da própria pessoa: muda o saldo das contas, não a sobra do mês.
   transfer           Boolean             @default(false)
+  // Os dois lados de uma transferência (sai de uma conta, entra na outra) dividem este id.
+  pairId             String?             @map("pair_id")
+  // A sobra de um mês levada para o seguinte: o mês (AAAA-MM) de onde ela veio. O sistema cria e recalcula.
+  carryOf            String?             @map("carry_of")
   // Empréstimo: de quem é e o total combinado. O saldo é o total menos o que já foi pago.
   counterparty       String              @default("")
   principalCents     Int?                @map("principal_cents")
@@ -131,6 +135,8 @@ model Entry {
   @@index([tenantId])
   @@index([coveredById])
   @@index([accountId])
+  @@index([pairId])
+  @@unique([tenantId, carryOf])
   @@map("entries")
 }
 
@@ -257,8 +263,14 @@ model Account {
   name         String
   // conta: banco, carteira. cartao: cartão de crédito, cujas compras viram a fatura.
   kind         String      @default("conta")
-  // O saldo no dia em que a pessoa começou a controlar a conta aqui.
+  // O saldo no dia em que a pessoa começou a controlar a conta aqui, e esse dia. Só o que acontece a partir dele
+  // conta no saldo; sem data, tudo conta (contas de antes da data existir).
   openingCents Int         @default(0) @map("opening_cents")
+  openingOn    DateTime?   @map("opening_on") @db.Date
+  // Cartão: o dia em que a fatura fecha, o dia em que vence e o limite. Sem fechamento e vencimento, não há fatura.
+  closingDay   Int?        @map("closing_day")
+  dueDay       Int?        @map("due_day")
+  limitCents   Int?        @map("limit_cents")
   statements   Statement[]
   entries      Entry[]
   boxes        AccountBox[]
@@ -276,9 +288,10 @@ model AccountBox {
   tenantId     String  @map("tenant_id")
   accountId    String  @map("account_id")
   name         String
-  // O que já estava na caixinha quando a pessoa começou a controlar aqui.
-  openingCents Int     @default(0) @map("opening_cents")
-  sessionId    String  @map("session_id")
+  // O que já estava na caixinha quando a pessoa começou a controlar aqui, e esse dia.
+  openingCents Int       @default(0) @map("opening_cents")
+  openingOn    DateTime? @map("opening_on") @db.Date
+  sessionId    String    @map("session_id")
   goalId       String? @map("goal_id")
   account      Account @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: Restrict)
 
