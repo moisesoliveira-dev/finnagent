@@ -169,3 +169,22 @@ Arquivos:
 - `apps/agents/src/assistente/dominio/prompts.ts`
 - `apps/frontend/app/contas/caixinhas.tsx`
 - `apps/frontend/app/api/contas/[id]/caixinhas/route.ts`
+
+## A IA lê os saldos e o patrimônio
+
+O que foi feito:
+
+- `ContasService.saldos` e `GET contas/saldos`, com o tipo `SaldosResposta` em contracts: o patrimônio de hoje (contas + caixinhas − cartões), o saldo de hoje e o previsto do fim do mês de cada conta (no cartão, o lançado e a fatura prevista), o saldo e o rendimento do mês de cada caixinha e a evolução do patrimônio nos últimos seis meses.
+- Ferramenta nova da IA `consultar_saldos`, que todos os agentes leem, servida por essa rota. O resultado chega à IA formatado em `resultados.ts`.
+- Prompt da IA: usar `consultar_saldos` quando a pessoa perguntar quanto tem; `consultar_contas` só traz o saldo inicial.
+
+Motivo: as ações das telas de Contas já estavam com a IA, mas ela só enxergava o saldo inicial, não o saldo de hoje, as caixinhas nem o patrimônio.
+
+Verificação: no ambiente local, `GET contas/saldos` devolveu patrimônio −11.572,16, igual ao saldo do Nubank na tela, a caixinha com saldo 0 e seis meses de evolução. Testes do backend (531) e tsc do backend e do agents limpos.
+
+Arquivos:
+
+- `packages/contracts/src/index.ts`
+- `apps/backend/src/contas/` (`aplicacao/contas.service.ts`, `contas.controller.ts`)
+- `apps/backend/src/assistente/` (`adaptadores/rotas-das-ferramentas.ts`, `dominio/resultados.ts`)
+- `apps/agents/src/assistente/dominio/prompts.ts`
