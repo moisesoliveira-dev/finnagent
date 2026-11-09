@@ -5,10 +5,16 @@ import { ExclusoesService } from "./exclusoes.service.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 
-function montar(opcoes: { metaDaSessao?: string; caixinhaDaSessao?: string; sessaoDaMetaApagada?: string; sincronizadoNaOcorrencia?: boolean } = {}) {
+function montar(opcoes: { metaDaSessao?: string; caixinhaDaSessao?: string; sessaoDaMetaApagada?: string; sincronizadoNaOcorrencia?: boolean; par?: boolean; sessaoDasSobras?: string } = {}) {
   const chamadas: string[] = [];
   let tentativas = 0;
   const financas = {
+    listar: async () => ({
+      entries: [
+        ...(opcoes.par ? [{ id: "e1", pairId: "p1" }, { id: "e2", pairId: "p1" }, { id: "e3", pairId: null }] : []),
+        ...(opcoes.sessaoDasSobras ? [{ id: "sobra", sessionId: opcoes.sessaoDasSobras, carryOf: "2026-10" }] : []),
+      ],
+    }),
     excluir: async (_t: string, id: string) => void chamadas.push(`excluir:${id}`),
     excluirOcorrencia: async (_t: string, id: string) => {
       tentativas += 1;
@@ -62,10 +68,26 @@ describe("apagar leva em conta o estado do resto", () => {
     expect(chamadas).toEqual(['liberar:{"groupId":"g1"}:', "removerGrupo:g1"]);
   });
 
+  it("apagar um lado da transferência apaga o outro; lançamento sem par sai sozinho", async () => {
+    const { servico, chamadas } = montar({ par: true });
+    await servico.lancamento(TENANT, "e1");
+    expect(chamadas).toEqual(['liberar:{"entryIds":["e1","e2"]}:e1,e2', "excluir:e1", "excluir:e2"]);
+    chamadas.length = 0;
+    await servico.lancamento(TENANT, "e3");
+    expect(chamadas).toEqual(['liberar:{"entryIds":["e3"]}:e3', "excluir:e3"]);
+  });
+
   it("a meta apagada leva a sessão dela, mesmo com valor separado, soltando antes as linhas do extrato", async () => {
     const { servico, chamadas } = montar({ sessaoDaMetaApagada: "s1" });
     await servico.meta(TENANT, "m1");
     expect(chamadas).toEqual(["excluirMeta:m1", 'liberar:{"sessionId":"s1"}:', "removerSessao:s1", "esquecer:s1"]);
+  });
+
+  it("não apaga a sessão das sobras nem o grupo dela", async () => {
+    const { servico, chamadas } = montar({ sessaoDasSobras: "s2" });
+    await expect(servico.sessao(TENANT, "s2")).rejects.toThrow("Essa sessão guarda as sobras de cada mês");
+    await expect(servico.grupo(TENANT, "g2")).rejects.toThrow("Esse grupo tem a sessão das sobras");
+    expect(chamadas).toEqual([]);
   });
 
   it("não apaga por Grupos a sessão nem o grupo de uma caixinha", async () => {

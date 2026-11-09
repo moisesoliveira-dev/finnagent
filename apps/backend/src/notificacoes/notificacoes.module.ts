@@ -18,6 +18,7 @@ import { VarreduraService } from "./aplicacao/varredura.service.js";
 import { NotificacoesController } from "./notificacoes.controller.js";
 import { PUSH_DO_CELULAR, PUSH_DO_NAVEGADOR } from "./portas/canal-de-push.js";
 import { NOTIFICACOES_REPOSITORIO } from "./portas/notificacoes-repositorio.js";
+import { ContasModule } from "../contas/contas.module.js";
 
 /**
  * A central de notificações. Lê as outras slices pelos serviços delas e nenhuma delas depende desta:
@@ -35,6 +36,7 @@ import { NOTIFICACOES_REPOSITORIO } from "./portas/notificacoes-repositorio.js";
     AssistenteModule,
     GruposModule,
     HojeModule,
+    ContasModule,
   ],
   controllers: [NotificacoesController],
   providers: [
