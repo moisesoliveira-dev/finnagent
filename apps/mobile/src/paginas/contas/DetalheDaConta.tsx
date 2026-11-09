@@ -1,6 +1,10 @@
 import { IonButton, IonButtons, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import {
+  ROTULO_DO_STATUS_DA_FATURA,
   ROTULO_DO_TIPO_DE_CONTA,
+  faturasDoCartao,
+  limiteDoCartao,
+  resumoDaCaixinha,
   resumoDaConta,
   type ContasResposta,
   type ExtratosResposta,
@@ -9,7 +13,7 @@ import {
 } from "@finnagent/contracts";
 import { chevronBack, walletOutline } from "ionicons/icons";
 import { Link, useParams } from "react-router-dom";
-import { MESES, reais, rotuloDoMes } from "../../api/formato";
+import { MESES, MESES_CURTOS, dataCurta, reais, rotuloDoMes } from "../../api/formato";
 import { diaEMes } from "../../api/arquivo";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
 import { Pagina } from "../../componentes/Pagina";
@@ -48,6 +52,10 @@ export function DetalheDaConta() {
   const doMes = conta ? movimentosDoMes(conta, entries, mes.ano, mes.mes) : null;
   const extratosDaConta = conta ? (extratos.dados?.statements ?? []).filter((item) => item.accountId === conta.id).sort((a, b) => b.importedAt.localeCompare(a.importedAt)) : [];
   const cartao = conta?.kind === "cartao";
+  const caixinhas = conta ? (contas.dados?.boxes ?? []).filter((item) => item.accountId === conta.id) : [];
+  const faturas = conta && cartao ? [...faturasDoCartao(conta, entries, hoje)].reverse() : [];
+  const limite = conta && cartao ? limiteDoCartao(conta, entries, hoje) : null;
+  const chaveDoMes = `${mes.ano}-${String(mes.mes).padStart(2, "0")}`;
   const tem = Boolean(contas.dados && financas.dados);
 
   return (
@@ -85,11 +93,74 @@ export function DetalheDaConta() {
                 <Dinheiro cents={resumo.previstoCents} />
               </div>
               <div className="secao" style={{ gap: 4 }}>
-                <span className="etiqueta">Saldo inicial</span>
+                <span className="etiqueta">{conta.openingOn ? `Saldo em ${dataCurta(conta.openingOn)}` : "Saldo inicial"}</span>
                 <Dinheiro cents={conta.openingCents} />
               </div>
+              {limite && conta.limitCents ? (
+                <div className="secao" style={{ gap: 4 }}>
+                  <span className="etiqueta">Limite disponível ({limite.percent}% usado)</span>
+                  <Dinheiro cents={limite.disponivelCents ?? 0} />
+                </div>
+              ) : null}
             </div>
           </Bloco>
+
+          {cartao ? (
+            <Bloco className="secao">
+              <div className="titulo-do-dia">
+                <span className="etiqueta">Faturas</span>
+                <span className="etiqueta">{conta.closingDay && conta.dueDay ? `Fecha dia ${conta.closingDay} · vence dia ${conta.dueDay}` : ""}</span>
+              </div>
+              {!conta.closingDay || !conta.dueDay ? <p className="fraco">Informe o fechamento e o vencimento do cartão pelo site para ver as faturas.</p> : null}
+              {faturas.length > 0 ? (
+                <div className="lista">
+                  {faturas.map((fatura) => (
+                    <div key={fatura.month} className="linha">
+                      <div className="texto" style={{ flex: 1 }}>
+                        <span>
+                          {MESES_CURTOS[Number(fatura.month.slice(5, 7)) - 1]} de {fatura.month.slice(0, 4)}
+                        </span>
+                        <span className="etiqueta">
+                          Vence {dataCurta(fatura.dueDate)} · {fatura.itens === 1 ? "1 compra" : `${fatura.itens} compras`}
+                          {fatura.paidCents > 0 ? ` · pago ${reais(fatura.paidCents)}` : ""}
+                        </span>
+                      </div>
+                      <span className="texto" style={{ textAlign: "right" }}>
+                        <Dinheiro cents={-fatura.totalCents} />
+                        <span className={`chip ${fatura.status === "paga" ? "ok" : fatura.status === "vencida" ? "neg" : ""}`}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </Bloco>
+          ) : null}
+
+          {!cartao && caixinhas.length > 0 ? (
+            <Bloco className="secao">
+              <div className="titulo-do-dia">
+                <span className="etiqueta">Caixinhas desta conta</span>
+                <span className="etiqueta">Rendeu em {MESES_CURTOS[mes.mes - 1]}</span>
+              </div>
+              <div className="lista">
+                {caixinhas.map((caixinha) => {
+                  const resumoDela = resumoDaCaixinha(caixinha, entries, hoje, chaveDoMes);
+                  return (
+                    <div key={caixinha.id} className="linha">
+                      <div className="texto" style={{ flex: 1 }}>
+                        <span>{caixinha.name}</span>
+                        <span className="etiqueta">{caixinha.goalId ? "Guarda uma meta · " : ""}no total rendeu {reais(resumoDela.rendimentoTotalCents)}</span>
+                      </div>
+                      <span className="texto" style={{ textAlign: "right" }}>
+                        <Dinheiro cents={resumoDela.saldoCents} />
+                        <span className="saldo-corrido">{reais(resumoDela.rendimentoDoMesCents)}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Bloco>
+          ) : null}
 
           <Bloco className="secao">
             <SeletorDeMes mes={mes} direcao={direcao} aoMudar={mudar} />
@@ -104,7 +175,7 @@ export function DetalheDaConta() {
                 ) : (
                   <div className="lista">
                     {doMes.movimentos.map((item) => (
-                      <div key={item.chave} className={`linha${item.pendente ? " prevista" : ""}`}>
+                      <div key={item.chave} className={`linha${item.pendente || item.foraDoSaldo ? " prevista" : ""}`}>
                         <time className="dia" dateTime={item.date}>
                           {item.date.slice(8, 10)}
                         </time>
@@ -112,6 +183,7 @@ export function DetalheDaConta() {
                           <span>{item.descricao}</span>
                           <span className="etiqueta">
                             {item.pendente ? "Previsto · " : ""}
+                            {item.foraDoSaldo ? "Antes do saldo inicial · " : ""}
                             {item.detalhe}
                           </span>
                         </div>
