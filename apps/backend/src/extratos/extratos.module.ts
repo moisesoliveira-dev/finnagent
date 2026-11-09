@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AssistenteModule } from "../assistente/assistente.module.js";
 import { AgendaModule } from "../agenda/agenda.module.js";
 import { ConfiguracoesModule } from "../configuracoes/configuracoes.module.js";
+import { ContasModule } from "../contas/contas.module.js";
 import { FinancasModule } from "../financas/financas.module.js";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
 import { FilaDeConferencia } from "./adaptadores/fila-de-conferencia.js";
@@ -13,7 +14,7 @@ import { EXTRATOS_REPOSITORIO } from "./portas/extratos-repositorio.js";
 import { ORGANIZADOR_DE_EXTRATO } from "./portas/organizador-de-extrato.js";
 
 @Module({
-  imports: [PersistenciaModule, FinancasModule, AgendaModule, ConfiguracoesModule, AssistenteModule],
+  imports: [PersistenciaModule, FinancasModule, AgendaModule, ConfiguracoesModule, AssistenteModule, ContasModule],
   exports: [ExtratosService],
   controllers: [ExtratosController],
   providers: [

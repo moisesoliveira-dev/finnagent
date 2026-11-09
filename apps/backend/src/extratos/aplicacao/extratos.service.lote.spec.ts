@@ -115,6 +115,8 @@ function montar(
       return { id: `00000000-0000-4000-8000-0000000000f${criadas.length}` };
     },
     obterAberto: async () => lancamentoDaFixa,
+    // O desfazer olha o par da transferência; estes lançamentos não têm par.
+    listar: async () => ({ workflow: { year: 2026, month: 3, day: 1 }, entries: [] }),
     pagarPeloExtrato: async (_tenant: string, entryId: string, _date: string, cents: number) => {
       pagas.push({ entryId, cents });
     },
@@ -130,6 +132,7 @@ function montar(
     null as never,
     null as never,
     financas as never,
+    { listar: async () => ({ accounts: [], boxes: [] }) } as never,
     null as never,
     null as never,
     { obter: async (_tenant: string, id: string) => anexos.get(id) ?? null } as never,

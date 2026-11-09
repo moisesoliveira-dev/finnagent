@@ -37,6 +37,7 @@ import { DialogoDeDivisao, NomesLembrados } from "./divisao";
 import { DialogoDeNovaSessao, type PedidoDeNovaSessao } from "./nova-sessao";
 import { DialogoDaSerie, type PedidoDaSerie } from "./serie";
 import { RASCUNHO_UNICO, TipoDaLinhaCampos, rascunhoAceito, tipoDoRascunho, type RascunhoDoTipo } from "./tipo-da-linha";
+import { TransferenciaDaLinha } from "./transferencia-da-linha";
 import { ROTULO_CATEGORIA, tomDaCategoria } from "../../financas/rotulos";
 
 const field = campo;
@@ -135,6 +136,7 @@ export default function Conferencia() {
   const [tipos, setTipos] = useState<Record<string, RascunhoDoTipo>>({});
   // A linha aberta no modal de dividir.
   const [divisao, setDivisao] = useState<LinhaConferencia | null>(null);
+  const [transferencia, setTransferencia] = useState<LinhaConferencia | null>(null);
   // Sobe depois de cada lançamento: uma sessão Fixo vira "já lançada" assim que recebe a primeira parte.
   const [versaoDasSessoes, setVersaoDasSessoes] = useState(0);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
@@ -1082,6 +1084,9 @@ export default function Conferencia() {
                                     <Button variant="quiet" disabled={ocupado !== ""} onClick={() => setDivisao(linha)}>
                                       Dividir
                                     </Button>
+                                    <Button variant="quiet" disabled={ocupado !== ""} onClick={() => setTransferencia(linha)}>
+                                      Transferência
+                                    </Button>
                                   </div>
                                   <TipoDaLinhaCampos
                                     rotulo={`Tipo do lançamento de ${linha.description || "a linha"}`}
@@ -1222,6 +1227,7 @@ export default function Conferencia() {
         onFechar={() => setDivisao(null)}
         onCriarSessao={(termo, escolher) => setNovaSessao({ nome: termo || divisao?.description || "", escolher })}
       />
+      <TransferenciaDaLinha linha={transferencia} onFechar={() => setTransferencia(null)} onFeito={() => carregar(year, month)} />
       <DialogoDeNovaSessao
         pedido={novaSessao}
         grupos={grupos}
