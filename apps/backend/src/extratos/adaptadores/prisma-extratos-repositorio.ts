@@ -27,7 +27,7 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async listar(tenantId: string) {
     const db = this.banco();
     const [accounts, rows] = await Promise.all([
-      db.account.findMany({ where: { tenantId }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, openingCents: true } }),
+      db.account.findMany({ where: { tenantId }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, openingCents: true, openingOn: true, closingDay: true, dueDay: true, limitCents: true } }),
       db.statement.findMany({
         where: { tenantId },
         orderBy: { importedAt: "desc" },
@@ -35,7 +35,11 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
       }),
     ]);
     return {
-      accounts: accounts.map((conta) => ({ ...conta, kind: TIPOS_DE_CONTA.find((item) => item === conta.kind) ?? "conta" })),
+      accounts: accounts.map((conta) => ({
+        ...conta,
+        kind: TIPOS_DE_CONTA.find((item) => item === conta.kind) ?? "conta",
+        openingOn: conta.openingOn ? conta.openingOn.toISOString().slice(0, 10) : null,
+      })),
       statements: rows.map(extratoDe),
     };
   }

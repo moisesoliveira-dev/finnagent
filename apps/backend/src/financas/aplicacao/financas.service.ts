@@ -61,13 +61,23 @@ export class FinancasService {
   ) {}
 
   async listar(tenantId: string, incluirEncerradas = false): Promise<FinancasResposta> {
-    await this.financas.garantirWorkflow(tenantId);
+    await this.financas.garantirWorkflow(tenantId, await this.hoje(tenantId));
     return this.financas.listar(tenantId, incluirEncerradas);
   }
 
   async listarNoMes(tenantId: string, year: number, month: number) {
-    await this.financas.garantirWorkflow(tenantId);
+    await this.financas.garantirWorkflow(tenantId, await this.hoje(tenantId));
     return this.financas.listarNoMes(tenantId, year, month);
+  }
+
+  /** Um extrato de um mês anterior ao início do workflow puxa o início para esse mês, para a sobra enxergá-lo. */
+  recuarInicioDoWorkflow(tenantId: string, year: number, month: number) {
+    return this.financas.recuarInicioDoWorkflow(tenantId, year, month);
+  }
+
+  /** O lançamento pago por uma linha de extrato passa a ser da conta do extrato, se ainda não tinha conta. */
+  definirConta(tenantId: string, id: string, accountId: string) {
+    return this.um(this.financas.definirConta(tenantId, id, accountId));
   }
 
   async obterAberto(tenantId: string, id: string) {

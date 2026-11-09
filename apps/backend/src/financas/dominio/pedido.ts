@@ -43,6 +43,10 @@ export type PedidoLancamento = {
   coveredById?: string | null;
   accountId?: string | null;
   transfer?: boolean;
+  /** Os dois lados de uma transferência dividem este id. */
+  pairId?: string | null;
+  /** A sobra do mês AAAA-MM levada para o seguinte. Só o sistema manda. */
+  carryOf?: string | null;
   /** Empréstimo: de quem é e o total combinado. */
   counterparty?: string;
   principalCents?: number | null;

@@ -63,16 +63,38 @@ import type {
 export class PrismaFinancasRepositorio implements FinancasRepositorio {
   constructor(private readonly prisma: PrismaService) {}
 
-  async garantirWorkflow(tenantId: string) {
+  async garantirWorkflow(tenantId: string, hoje: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.workflow.findUnique({ where: { tenantId } });
       if (atual) return { year: atual.year, month: atual.month, day: atual.day };
-      const criado = await tx.workflow.create({
-        data: { tenantId, ...WORKFLOW_INICIAL },
-      });
-      await gravarOutbox(tx, tenantId, "definir-workflow", tenantId, WORKFLOW_INICIAL);
+      // A sobra começa no mês em que a pessoa entrou. Importar um extrato anterior recua o início.
+      const [year, month] = hoje.split("-").map(Number) as [number, number];
+      const inicial = { year, month, day: 1 };
+      const criado = await tx.workflow.create({ data: { tenantId, ...inicial } });
+      await gravarOutbox(tx, tenantId, "definir-workflow", tenantId, inicial);
       return { year: criado.year, month: criado.month, day: criado.day };
+    });
+  }
+
+  async recuarInicioDoWorkflow(tenantId: string, year: number, month: number) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await tx.workflow.findUnique({ where: { tenantId } });
+      const comeca = atual ? atual.year * 12 + atual.month : Number.POSITIVE_INFINITY;
+      if (atual && comeca <= year * 12 + month) return { year: atual.year, month: atual.month, day: atual.day };
+      const novo = { year, month, day: 1 };
+      await tx.workflow.upsert({ where: { tenantId }, create: { tenantId, ...novo }, update: novo });
+      await gravarOutbox(tx, tenantId, "definir-workflow", tenantId, novo, marcaDe(novo));
+      return novo;
+    });
+  }
+
+  async definirConta(tenantId: string, id: string, accountId: string) {
+    return this.alterar(tenantId, id, "definir-conta", async (tx, atual) => {
+      if (atual.accountId) return {};
+      await tx.entry.updateMany({ where: { id, tenantId }, data: { accountId } });
+      return { accountId };
     });
   }
 
@@ -943,6 +965,8 @@ type FalhaCurta = "categoria" | "encerrada" | "concluida" | "bloqueada" | "ausen
 
 type Linha = {
   id: string;
+  pairId: string | null;
+  carryOf: string | null;
   sessionId: string;
   type: string;
   description: string;
@@ -1056,6 +1080,8 @@ function gravacao(pedido: Parameters<typeof atributos>[0]) {
     coveredById: pedido.coveredById ?? null,
     accountId: pedido.accountId ?? null,
     transfer: pedido.transfer ?? false,
+    pairId: pedido.pairId ?? null,
+    carryOf: pedido.carryOf ?? null,
   };
 }
 
@@ -1159,6 +1185,8 @@ function lancamentoDe(row: Linha, opcoes?: { semGrade?: boolean }): Lancamento {
     coveredById: row.coveredById,
     accountId: row.accountId,
     transfer: row.transfer,
+    pairId: row.pairId,
+    carryOf: row.carryOf,
     counterparty: row.counterparty,
     principalCents: row.principalCents,
     recurrence: row.recurrence as Recorrencia | null,

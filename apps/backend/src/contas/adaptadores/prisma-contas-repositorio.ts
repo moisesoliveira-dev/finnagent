@@ -5,7 +5,7 @@ import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import type { ContasRepositorio } from "../portas/contas-repositorio.js";
 
-const selecao = { id: true, name: true, kind: true, openingCents: true } as const;
+const selecao = { id: true, name: true, kind: true, openingCents: true, openingOn: true, closingDay: true, dueDay: true, limitCents: true } as const;
 
 @Injectable()
 export class PrismaContasRepositorio implements ContasRepositorio {
@@ -20,7 +20,7 @@ export class PrismaContasRepositorio implements ContasRepositorio {
     return this.banco().$transaction(async (tx) => {
       if (await tx.account.findFirst({ where: { id, tenantId }, select: { id: true } })) return "identificador" as const;
       if (await nomeOcupado(tx, tenantId, pedido.name)) return "nome-ocupado" as const;
-      const criada = await tx.account.create({ data: { id, tenantId, ...pedido }, select: selecao });
+      const criada = await tx.account.create({ data: { id, tenantId, ...dadosDe(pedido) }, select: selecao });
       await gravarOutbox(tx, tenantId, "criar-conta", id, { id, ...pedido }, marcaDe(pedido));
       return contaDe(criada);
     });
@@ -32,7 +32,7 @@ export class PrismaContasRepositorio implements ContasRepositorio {
       if (!atual) return "ausente" as const;
       if (await nomeOcupado(tx, tenantId, pedido.name, id)) return "nome-ocupado" as const;
       if (pedido.kind === "cartao" && atual._count.boxes > 0) return "com-caixinhas" as const;
-      await tx.account.updateMany({ where: { id, tenantId }, data: pedido });
+      await tx.account.updateMany({ where: { id, tenantId }, data: dadosDe(pedido) });
       const salva = await tx.account.findFirstOrThrow({ where: { id, tenantId }, select: selecao });
       await gravarOutbox(tx, tenantId, "atualizar-conta", id, { id, ...pedido }, marcaDe(pedido));
       return contaDe(salva);
@@ -67,11 +67,42 @@ async function nomeOcupado(tx: Transacao, tenantId: string, name: string, ignora
   return Boolean(outra);
 }
 
-function contaDe(row: { id: string; name: string; kind: string; openingCents: number }): Conta {
+function contaDe(row: {
+  id: string;
+  name: string;
+  kind: string;
+  openingCents: number;
+  openingOn: Date | null;
+  closingDay: number | null;
+  dueDay: number | null;
+  limitCents: number | null;
+}): Conta {
   return {
     id: row.id,
     name: row.name,
     kind: TIPOS_DE_CONTA.find((item) => item === row.kind) ?? "conta",
     openingCents: row.openingCents,
+    openingOn: row.openingOn ? row.openingOn.toISOString().slice(0, 10) : null,
+    closingDay: row.closingDay,
+    dueDay: row.dueDay,
+    limitCents: row.limitCents,
+  };
+}
+
+/** A data ausente não muda a gravada; null apaga. */
+function dadosDe(pedido: PedidoDeConta) {
+  return {
+    name: pedido.name,
+    kind: pedido.kind,
+    openingCents: pedido.openingCents,
+    ...(pedido.openingOn !== undefined ? { openingOn: pedido.openingOn ? new Date(`${pedido.openingOn}T00:00:00.000Z`) : null } : {}),
+    // Os campos do cartão só existem no cartão; a conta comum fica sem eles.
+    ...(pedido.kind !== "cartao"
+      ? { closingDay: null, dueDay: null, limitCents: null }
+      : {
+          ...(pedido.closingDay !== undefined ? { closingDay: pedido.closingDay } : {}),
+          ...(pedido.dueDay !== undefined ? { dueDay: pedido.dueDay } : {}),
+          ...(pedido.limitCents !== undefined ? { limitCents: pedido.limitCents } : {}),
+        }),
   };
 }

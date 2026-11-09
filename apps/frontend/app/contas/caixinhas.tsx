@@ -16,7 +16,7 @@ import { Chip } from "../../components/ui/chip";
 import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { List } from "../../components/ui/list";
-import { Money } from "../../components/ui/money";
+import { formatarReais, Money } from "../../components/ui/money";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { api } from "../financas/api";
@@ -26,11 +26,14 @@ import { centavosParaReais, reaisParaCentavos } from "../financas/reais";
 const field = cn(campo, "w-full");
 
 type Pedido = { conta: Conta; caixinha: Caixinha | null };
-type Movimento = { caixinha: Caixinha; tipo: MovimentoDaCaixinha };
+/** Os movimentos da caixinha, mais "saldo": a pessoa informa o saldo e a diferença vira rendimento. */
+type Acao = MovimentoDaCaixinha | "saldo";
+type Movimento = { caixinha: Caixinha; tipo: Acao };
+const ROTULO_DA_ACAO: Record<Acao, string> = { ...ROTULO_DO_MOVIMENTO_DA_CAIXINHA, saldo: "Informar saldo atual" };
 
 /**
  * As caixinhas (depósitos) da conta: o saldo de cada uma, o que rendeu no mês da tela e os botões para lançar o
- * rendimento, aplicar e resgatar. Cada caixinha tem uma sessão no grupo Caixinhas, onde esses lançamentos ficam.
+ * rendimento, aplicar e resgatar. Cada caixinha tem uma sessão no grupo Conta, onde esses lançamentos ficam.
  */
 export function SecaoDeCaixinhas({
   conta,
@@ -66,7 +69,7 @@ export function SecaoDeCaixinhas({
       </div>
       {daConta.length === 0 ? (
         <p className="text-sm text-ink-2">
-          Nenhuma caixinha. Crie uma para cada depósito ou reserva: ela ganha uma sessão no grupo Caixinhas para você lançar o quanto rendeu no mês.
+          Nenhuma caixinha. Crie uma para cada depósito ou reserva: ela ganha uma sessão no grupo Conta para você lançar o quanto rendeu no mês.
         </p>
       ) : (
         <List>
@@ -94,6 +97,9 @@ export function SecaoDeCaixinhas({
                   <Button variant="default" onClick={() => setMovimento({ caixinha, tipo: "rendimento" })}>
                     Lançar rendimento
                   </Button>
+                  <Button variant="quiet" onClick={() => setMovimento({ caixinha, tipo: "saldo" })}>
+                    Informar saldo
+                  </Button>
                   <Button variant="quiet" onClick={() => setMovimento({ caixinha, tipo: "aplicacao" })}>
                     Aplicar
                   </Button>
@@ -117,6 +123,7 @@ export function SecaoDeCaixinhas({
             pedido={pedido}
             metas={metas}
             caixinhas={caixinhas}
+            hoje={hoje}
             onFechar={() => setPedido(null)}
             onSalvo={onMudou}
           />
@@ -129,6 +136,7 @@ export function SecaoDeCaixinhas({
             movimento={movimento}
             conta={conta}
             meta={nomeDaMeta(movimento.caixinha.goalId)}
+            saldoCalculado={resumoDaCaixinha(movimento.caixinha, entries, hoje).saldoCents}
             hoje={hoje}
             onFechar={() => setMovimento(null)}
             onSalvo={onMudou}
@@ -143,12 +151,14 @@ function CorpoDaCaixinha({
   pedido,
   metas,
   caixinhas,
+  hoje,
   onFechar,
   onSalvo,
 }: {
   pedido: Pedido;
   metas: Meta[];
   caixinhas: Caixinha[];
+  hoje: string;
   onFechar: () => void;
   onSalvo: () => Promise<void>;
 }) {
@@ -156,6 +166,7 @@ function CorpoDaCaixinha({
   const atual = pedido.caixinha;
   const [name, setName] = useState(atual?.name ?? "");
   const [opening, setOpening] = useState(atual ? centavosParaReais(atual.openingCents) : "");
+  const [openingOn, setOpeningOn] = useState(atual ? (atual.openingOn ?? "") : hoje);
   const [goalId, setGoalId] = useState(atual?.goalId ?? "");
   const [salvando, setSalvando] = useState(false);
   const [excluir, setExcluir] = useState(false);
@@ -172,10 +183,10 @@ function CorpoDaCaixinha({
     }
     setSalvando(true);
     try {
-      const corpo = { name: name.trim(), openingCents, goalId: goalId || null };
+      const corpo = { name: name.trim(), openingCents, openingOn: openingOn || null, goalId: goalId || null };
       if (atual) await api(`/api/caixinhas/${atual.id}`, { method: "PATCH", body: JSON.stringify(corpo) });
       else await api(`/api/contas/${pedido.conta.id}/caixinhas`, { method: "POST", body: JSON.stringify({ id: crypto.randomUUID(), ...corpo }) });
-      toast.sucesso(atual ? "Caixinha atualizada." : "Caixinha criada, com a sessão dela no grupo Caixinhas.");
+      toast.sucesso(atual ? "Caixinha atualizada." : "Caixinha criada, com a sessão dela no grupo Conta.");
       onFechar();
       await onSalvo();
     } catch (error) {
@@ -190,7 +201,7 @@ function CorpoDaCaixinha({
     setSalvando(true);
     try {
       await api(`/api/caixinhas/${atual.id}`, { method: "DELETE" });
-      toast.sucesso(`Caixinha ${atual.name} excluída. Os lançamentos dela ficam no grupo Caixinhas.`);
+      toast.sucesso(`Caixinha ${atual.name} excluída. Os lançamentos dela ficam no grupo Conta.`);
       onFechar();
       await onSalvo();
     } catch (error) {
@@ -207,7 +218,7 @@ function CorpoDaCaixinha({
           <h2 id="titulo-caixinha" className="font-display text-lg">
             Excluir a caixinha {atual.name}?
           </h2>
-          <p>O rendimento, as aplicações e os resgates já lançados continuam na sessão dela, no grupo Caixinhas. Não pode ser desfeito.</p>
+          <p>O rendimento, as aplicações e os resgates já lançados continuam na sessão dela, no grupo Conta. Não pode ser desfeito.</p>
         </div>
         <div className="dialog-acoes">
           <Button variant="quiet" onClick={() => setExcluir(false)} disabled={salvando}>
@@ -235,11 +246,19 @@ function CorpoDaCaixinha({
         </div>
         <div className="dialog-par">
           <div className="grid gap-1">
-            <Rotulo htmlFor="caixinha-saldo" dica="Quanto já está guardado nela hoje. O que você aplicar, resgatar e render daqui para frente soma a isso.">
+            <Rotulo htmlFor="caixinha-saldo" dica="Quanto já está guardado nela no dia ao lado. O que você aplicar, resgatar e render daí em diante soma a isso.">
               Saldo inicial
             </Rotulo>
             <CampoValor id="caixinha-saldo" className={field} value={opening} onChange={setOpening} />
           </div>
+          <div className="grid gap-1">
+            <Rotulo htmlFor="caixinha-data" dica="Só o que acontece a partir deste dia conta no saldo da caixinha. Vazio: tudo conta.">
+              Saldo em
+            </Rotulo>
+            <input id="caixinha-data" type="date" className={field} value={openingOn} onChange={(event) => setOpeningOn(event.target.value)} />
+          </div>
+        </div>
+        <div className="grid gap-1">
           <div className="grid gap-1">
             <Rotulo htmlFor="caixinha-meta" dica="Com meta, o saldo da caixinha soma no guardado da meta, e o que a meta separa vira aplicação aqui.">
               Meta
@@ -272,8 +291,10 @@ function CorpoDaCaixinha({
   );
 }
 
-const EXPLICACAO: Record<MovimentoDaCaixinha, (conta: string, meta: string | undefined) => string> = {
+const EXPLICACAO: Record<Acao, (conta: string, meta: string | undefined, saldo: string) => string> = {
   rendimento: () => "O quanto a caixinha rendeu. Entra como entrada do mês, na sessão da caixinha, e soma no saldo dela.",
+  saldo: (_conta, _meta, saldo) =>
+    `O saldo que a caixinha mostra hoje. O sistema calcula ${saldo}; a diferença vira rendimento, ou perda, na data escolhida. Bom para cripto, fundo e poupança.`,
   aplicacao: (conta, meta) =>
     meta
       ? `Sai de ${conta} e entra na caixinha. Como ela guarda a meta ${meta}, o valor sai da sobra do mês, como separar para a meta.`
@@ -286,6 +307,7 @@ function CorpoDoMovimento({
   movimento,
   conta,
   meta,
+  saldoCalculado,
   hoje,
   onFechar,
   onSalvo,
@@ -293,6 +315,7 @@ function CorpoDoMovimento({
   movimento: Movimento;
   conta: Conta;
   meta: string | undefined;
+  saldoCalculado: number;
   hoje: string;
   onFechar: () => void;
   onSalvo: () => Promise<void>;
@@ -308,17 +331,23 @@ function CorpoDoMovimento({
     event.preventDefault();
     if (salvando) return;
     const cents = reaisParaCentavos(valor);
-    if (cents == null || cents <= 0) {
+    if (cents == null || (tipo !== "saldo" && cents <= 0) || cents < 0) {
       toast.erro("Informe o valor.");
       return;
     }
     setSalvando(true);
     try {
-      await api(`/api/caixinhas/${caixinha.id}/movimentos`, {
-        method: "POST",
-        body: JSON.stringify({ tipo, cents: tipo === "rendimento" && perda ? -cents : cents, date }),
-      });
-      toast.sucesso(`${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[tipo]} lançado na caixinha ${caixinha.name}.`);
+      if (tipo === "saldo") {
+        const resultado = await api<{ diferencaCents: number }>(`/api/caixinhas/${caixinha.id}/saldo`, { method: "POST", body: JSON.stringify({ saldoCents: cents, date }) });
+        if (resultado.diferencaCents === 0) toast.sucesso("O saldo já batia. Nada foi lançado.");
+        else toast.sucesso(`${resultado.diferencaCents > 0 ? "Rendimento" : "Perda"} de ${formatarReais(Math.abs(resultado.diferencaCents))} lançado na caixinha ${caixinha.name}.`);
+      } else {
+        await api(`/api/caixinhas/${caixinha.id}/movimentos`, {
+          method: "POST",
+          body: JSON.stringify({ tipo, cents: tipo === "rendimento" && perda ? -cents : cents, date }),
+        });
+        toast.sucesso(`${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[tipo]} lançado na caixinha ${caixinha.name}.`);
+      }
       onFechar();
       await onSalvo();
     } catch (error) {
@@ -332,12 +361,14 @@ function CorpoDoMovimento({
     <form onSubmit={(event) => void salvar(event)}>
       <div className="dialog-corpo grid gap-4">
         <h2 id="titulo-movimento" className="font-display text-lg">
-          {ROTULO_DO_MOVIMENTO_DA_CAIXINHA[tipo]} · {caixinha.name}
+          {ROTULO_DA_ACAO[tipo]} · {caixinha.name}
         </h2>
-        <p className="text-sm text-ink-2">{EXPLICACAO[tipo](conta.name, meta)}</p>
+        <p className="text-sm text-ink-2">{EXPLICACAO[tipo](conta.name, meta, formatarReais(saldoCalculado))}</p>
         <div className="dialog-par">
           <div className="grid gap-1">
-            <Rotulo htmlFor="movimento-valor" dica="Em reais, sem sinal.">Valor</Rotulo>
+            <Rotulo htmlFor="movimento-valor" dica={tipo === "saldo" ? "O saldo como aparece no app, sem sinal." : "Em reais, sem sinal."}>
+              {tipo === "saldo" ? "Saldo atual" : "Valor"}
+            </Rotulo>
             <CampoValor id="movimento-valor" className={field} value={valor} onChange={setValor} />
           </div>
           <div className="grid gap-1">

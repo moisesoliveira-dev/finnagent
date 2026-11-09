@@ -39,6 +39,8 @@ const lancamento = z.object({
   justification: texto,
   accountId: idOuNulo.default(null),
   transfer: z.boolean().default(false),
+  pairId: idOuNulo.default(null),
+  carryOf: z.string().max(7).nullable().default(null),
   day: inteiro,
   cents: inteiro,
   startYear: inteiro,
@@ -105,7 +107,16 @@ const compromisso = z.object({
   sessionId: idOuNulo.default(null),
 });
 const agenda =z.object({ id, name: texto, timezone: texto });
-const conta = z.object({ id, name: texto, kind: z.enum(TIPOS_DE_CONTA).default("conta"), openingCents: inteiro.default(0) });
+const conta = z.object({
+  id,
+  name: texto,
+  kind: z.enum(TIPOS_DE_CONTA).default("conta"),
+  openingCents: inteiro.default(0),
+  openingOn: dataOuNulo.default(null),
+  closingDay: inteiro.nullable().default(null),
+  dueDay: inteiro.nullable().default(null),
+  limitCents: inteiro.nullable().default(null),
+});
 const extrato = z.object({
   id,
   accountId: id,
@@ -162,6 +173,7 @@ const caixinha = z.object({
   accountId: id,
   name: texto,
   openingCents: inteiro.default(0),
+  openingOn: dataOuNulo.default(null),
   sessionId: id,
   goalId: idOuNulo.default(null),
 });
@@ -281,6 +293,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
   const contas = novoMapa(dados.accounts);
   const extratos = novoMapa(dados.statements);
   const metas = novoMapa(dados.goals);
+  const pares = novoMapa(dados.entries.flatMap((item) => (item.pairId ? [{ id: item.pairId }] : [])));
   const de = (mapa: Map<string, string>, antigo: string | null) =>
     antigo === null ? null : (mapa.get(antigo) ?? null);
   const para = (mapa: Map<string, string>, antigo: string) => mapa.get(antigo) as string;
@@ -302,6 +315,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       id: para(lancamentos, item.id),
       sessionId: para(sessoes, item.sessionId),
       accountId: de(contas, item.accountId),
+      pairId: de(pares, item.pairId),
       commitmentId: de(compromissos, item.commitmentId),
     })),
     entryOccurrences: dados.entryOccurrences.map((item) => ({

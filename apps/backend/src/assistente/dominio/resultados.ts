@@ -3,6 +3,7 @@ import type {
   BaseResposta,
   ConferenciaResposta,
   ContasResposta,
+  FaturasResposta,
   Feriado,
   FeriadoLocal,
   GruposResposta,
@@ -53,6 +54,7 @@ const FORMATOS: Record<string, (corpo: never) => string | null> = {
   consultar_conferencia: (corpo: ConferenciaResposta) => conferencia(corpo),
   consultar_agenda: (corpo: AgendaResposta) => agenda(corpo),
   consultar_contas: (corpo: ContasResposta) => contas(corpo),
+  consultar_faturas: (corpo: FaturasResposta) => faturas(corpo),
   consultar_feriados: (corpo: { feriados: Feriado[]; locais: FeriadoLocal[] }) => feriados(corpo),
   consultar_notificacoes: (corpo: NotificacoesResposta) => notificacoes(corpo),
 };
@@ -155,10 +157,21 @@ function contas(corpo: ContasResposta) {
   if (!corpo.accounts.length) return "Nenhuma conta cadastrada.";
   const linhas = ["Contas:"];
   for (const conta of corpo.accounts) {
-    linhas.push(`- ${conta.id} · ${conta.name} · ${conta.kind === "cartao" ? "cartão de crédito" : "conta"} · saldo inicial ${reais(conta.openingCents)}`);
+    const cartao = conta.kind === "cartao" ? ` · fecha dia ${conta.closingDay ?? "?"} · vence dia ${conta.dueDay ?? "?"}${conta.limitCents ? ` · limite ${reais(conta.limitCents)}` : ""}` : "";
+    linhas.push(`- ${conta.id} · ${conta.name} · ${conta.kind === "cartao" ? "cartão de crédito" : "conta"} · saldo inicial ${reais(conta.openingCents)}${conta.openingOn ? ` em ${conta.openingOn}` : ""}${cartao}`);
     for (const caixinha of (corpo.boxes ?? []).filter((item) => item.accountId === conta.id)) {
-      linhas.push(`  - caixinha ${caixinha.id} · ${caixinha.name} · saldo inicial ${reais(caixinha.openingCents)} · sessão ${caixinha.sessionId}${caixinha.goalId ? ` · meta ${caixinha.goalId}` : ""}`);
+      linhas.push(`  - caixinha ${caixinha.id} · ${caixinha.name} · saldo inicial ${reais(caixinha.openingCents)}${caixinha.openingOn ? ` em ${caixinha.openingOn}` : ""} · sessão ${caixinha.sessionId}${caixinha.goalId ? ` · meta ${caixinha.goalId}` : ""}`);
     }
+  }
+  return linhas.join("\n");
+}
+
+function faturas(corpo: FaturasResposta) {
+  if (!Array.isArray(corpo.faturas)) return null;
+  const linhas = [`Limite: usado ${reais(corpo.limite.usadoCents)}${corpo.limite.disponivelCents !== null ? ` · disponível ${reais(corpo.limite.disponivelCents)} (${corpo.limite.percent}%)` : " · sem limite cadastrado"}.`];
+  if (!corpo.faturas.length) linhas.push("Sem faturas: o cartão precisa do dia de fechamento e do dia de vencimento.");
+  for (const fatura of [...corpo.faturas].reverse()) {
+    linhas.push(`- ${fatura.month} · fecha ${fatura.closingDate} · vence ${fatura.dueDate} · ${reais(fatura.totalCents)} em ${fatura.itens} compras · pago ${reais(fatura.paidCents)} · ${fatura.status}`);
   }
   return linhas.join("\n");
 }

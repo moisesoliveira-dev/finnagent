@@ -5,8 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   NOME_MES,
   ROTULO_DO_TIPO_DE_CONTA,
-  dataContabil,
-  ocorrenciasDoLancamento,
+  movimentosDoMes,
   resumoDaConta,
   type Conta,
   type ContasResposta,
@@ -14,6 +13,7 @@ import {
   type ExtratosResposta,
   type FinancasVista,
   type LancamentoVista,
+  type TipoDeConta,
   type Caixinha,
   type Meta,
   type MetasResposta,
@@ -32,7 +32,12 @@ import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
 import { api } from "../financas/api";
 import { SecaoDeCaixinhas } from "./caixinhas";
+import { ComecePorAqui } from "./comece";
+import { ConferirSaldo } from "./conferir-saldo";
 import { DialogoDeConta, type PedidoDeConta } from "./dialogo";
+import { Faturas } from "./faturas";
+import { Patrimonio } from "./patrimonio";
+import { Transferir } from "./transferir";
 
 const ROTULO_DO_EXTRATO: Record<Extrato["status"], string> = {
   importado: "Importado",
@@ -59,53 +64,6 @@ function dataCurta(iso: string) {
   return `${dia}/${mes}/${ano}`;
 }
 
-type Movimento = {
-  chave: string;
-  date: string;
-  descricao: string;
-  detalhe: string;
-  cents: number;
-  pendente: boolean;
-  /** O saldo da conta depois deste movimento. O pendente é previsão. */
-  saldo: number;
-};
-
-/** Os movimentos de uma conta num mês, pela data em que contam, com o saldo correndo a partir do início do mês. */
-function movimentosDoMes(conta: Conta, entries: LancamentoVista[], year: number, month: number) {
-  const inicio = `${year}-${String(month).padStart(2, "0")}-01`;
-  const chave = inicio.slice(0, 7);
-  let saldoInicial = conta.openingCents;
-  const doMes: Omit<Movimento, "saldo">[] = [];
-  for (const entry of entries) {
-    if (entry.accountId !== conta.id) continue;
-    for (const item of ocorrenciasDoLancamento(entry)) {
-      if (item.status !== "pending" && item.status !== "completed") continue;
-      const data = dataContabil(item);
-      const cents = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
-      if (data < inicio) {
-        if (item.status === "completed") saldoInicial += cents;
-        continue;
-      }
-      if (!data.startsWith(chave)) continue;
-      doMes.push({
-        chave: `${entry.id}:${item.number}`,
-        date: data,
-        descricao: entry.name || entry.description,
-        detalhe: [item.kind === "multa" ? "Multa e juros" : "", `${entry.groupName} › ${entry.sessionName}`].filter(Boolean).join(" · "),
-        cents,
-        pendente: item.status === "pending",
-      });
-    }
-  }
-  doMes.sort((a, b) => a.date.localeCompare(b.date) || a.descricao.localeCompare(b.descricao, "pt-BR"));
-  let saldo = saldoInicial;
-  const movimentos: Movimento[] = doMes.map((item) => {
-    saldo += item.cents;
-    return { ...item, saldo };
-  });
-  return { saldoInicial, movimentos, saldoFinal: saldo };
-}
-
 export default function Contas() {
   const toast = useToast();
   const hoje = hojeIso();
@@ -119,7 +77,10 @@ export default function Contas() {
   const [mes, setMes] = useState({ year: Number(hoje.slice(0, 4)), month: Number(hoje.slice(5, 7)) });
   const [deslize, setDeslize] = useState(0);
   const [pedido, setPedido] = useState<PedidoDeConta | undefined>(undefined);
+  const [tipoInicial, setTipoInicial] = useState<TipoDeConta>("conta");
   const [excluindo, setExcluindo] = useState<Conta | null>(null);
+  const [conferindo, setConferindo] = useState<Conta | null>(null);
+  const [transferindo, setTransferindo] = useState(false);
   const [ocupado, setOcupado] = useState(false);
 
   const buscar = useCallback(
@@ -205,17 +166,43 @@ export default function Contas() {
       title="Contas"
       subtitle="O saldo de cada conta e a fatura de cada cartão, pelos lançamentos ligados a eles."
       actions={
-        <Button variant="primary" onClick={() => setPedido(null)}>
-          Nova conta
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {contas && contas.length >= 2 ? (
+            <Button variant="default" onClick={() => setTransferindo(true)}>
+              Transferir
+            </Button>
+          ) : null}
+          <Button
+            variant="default"
+            onClick={() => {
+              setTipoInicial("conta");
+              setPedido(null);
+            }}
+          >
+            Nova conta
+          </Button>
+        </div>
       }
     >
       {!contas && !falhou ? <Carregando texto="Carregando as contas." titulo linhas={4} /> : null}
-      {contas && contas.length === 0 ? (
-        <p className="max-w-prose text-ink-2">
-          Cadastre a conta do banco e o cartão para ver o saldo de cada um. O extrato importado também cria a conta.
-        </p>
+      {contas ? (
+        <div className="mb-6 empty:hidden">
+          <ComecePorAqui
+            contas={contas}
+            caixinhas={caixinhas}
+            extratos={extratos}
+            onNovaConta={() => {
+              setTipoInicial("conta");
+              setPedido(null);
+            }}
+            onNovoCartao={() => {
+              setTipoInicial("cartao");
+              setPedido(null);
+            }}
+          />
+        </div>
       ) : null}
+      {contas && contas.length > 0 ? <div className="mb-6"><Patrimonio contas={contas} caixinhas={caixinhas} entries={entries} hoje={hoje} /></div> : null}
       {contas && conta && resumo && doMes ? (
         <div className="grid min-w-0 gap-6 desk:grid-cols-3">
           <section className="grid min-w-0 content-start gap-3 desk:col-span-1" aria-label="Suas contas">
@@ -265,10 +252,16 @@ export default function Contas() {
                 <h2 className="font-display text-lg">{conta.name}</h2>
                 <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-2">
                   <Chip tone={cartao ? "event" : "info"}>{ROTULO_DO_TIPO_DE_CONTA[conta.kind]}</Chip>
-                  <span>Saldo inicial {<Money cents={conta.openingCents} />}</span>
+                  <span>
+                    Saldo inicial {<Money cents={conta.openingCents} />}
+                    {conta.openingOn ? ` em ${dataCurta(conta.openingOn)}` : " · sem data: tudo conta"}
+                  </span>
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="primary" onClick={() => setConferindo(conta)}>
+                  {cartao ? "Conferir fatura" : "Conferir saldo"}
+                </Button>
                 <Button variant="default" onClick={() => setPedido(conta)}>
                   Editar
                 </Button>
@@ -330,7 +323,7 @@ export default function Contas() {
               ) : (
                 <List>
                   {doMes.movimentos.map((item) => (
-                    <li key={item.chave} className={cn("flex min-w-0 items-start gap-3 border-b border-line px-4 py-3 last:border-b-0", item.pendente && "text-ink-2")}>
+                    <li key={item.chave} className={cn("flex min-w-0 items-start gap-3 border-b border-line px-4 py-3 last:border-b-0", (item.pendente || item.foraDoSaldo) && "text-ink-2")}>
                       <time className="w-16 shrink-0 text-sm tabular-nums text-ink-2" dateTime={item.date}>
                         {dataCurta(item.date).slice(0, 5)}
                       </time>
@@ -338,6 +331,7 @@ export default function Contas() {
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="min-w-0 truncate font-medium">{item.descricao}</span>
                           {item.pendente ? <Chip tone="pending">Previsto</Chip> : null}
+                          {item.foraDoSaldo ? <Chip>Antes do saldo inicial</Chip> : null}
                         </span>
                         <span className="truncate text-sm text-ink-2">{item.detalhe}</span>
                       </span>
@@ -351,6 +345,7 @@ export default function Contas() {
               )}
             </Troca>
 
+            {cartao ? <Faturas cartao={conta} contas={contas} entries={entries} hoje={hoje} onMudou={carregar} /> : null}
             <SecaoDeCaixinhas conta={conta} caixinhas={caixinhas} entries={entries} metas={metas} hoje={hoje} mes={mes} onMudou={carregar} />
 
             <div className="grid min-w-0 gap-3">
@@ -383,8 +378,12 @@ export default function Contas() {
         </div>
       ) : null}
 
+      <Transferir aberto={transferindo} contas={contas ?? []} origem={conta} hoje={hoje} onFechar={() => setTransferindo(false)} onFeito={carregar} />
+      <ConferirSaldo conta={conferindo} saldoCalculado={conferindo ? resumoDaConta(conferindo, entries, hoje).saldoCents : 0} hoje={hoje} onFechar={() => setConferindo(null)} onAjustado={carregar} />
       <DialogoDeConta
         pedido={pedido}
+        hoje={hoje}
+        tipoInicial={tipoInicial}
         onFechar={() => setPedido(undefined)}
         onSalvo={async (salva) => {
           setEscolhida(salva.id);

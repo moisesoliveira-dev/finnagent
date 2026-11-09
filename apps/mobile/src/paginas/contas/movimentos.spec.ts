@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Conta, Lancamento, Ocorrencia } from "@finnagent/contracts";
 import { movimentosDoMes } from "./movimentos";
 
-const conta: Conta = { id: "c1", name: "Banco", kind: "conta", openingCents: 10000 };
+const conta: Conta = { id: "c1", name: "Banco", kind: "conta", openingCents: 10000, openingOn: null, closingDay: null, dueDay: null, limitCents: null };
 
 const ocorrencia = (number: number, dueDate: string, cents: number, status: Ocorrencia["status"], paidOn: string | null = null): Ocorrencia => ({
   number,

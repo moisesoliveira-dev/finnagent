@@ -448,6 +448,10 @@ export type Lancamento = {
   accountId?: string | null;
   /** Transferência entre contas da própria pessoa: muda o saldo das contas e não entra na sobra. */
   transfer?: boolean;
+  /** Os dois lados de uma transferência dividem este id. Apagar um apaga o outro. */
+  pairId?: string | null;
+  /** A sobra do mês AAAA-MM levada para o mês seguinte. O sistema cria e recalcula; não entra na sobra acumulada. */
+  carryOf?: string | null;
   occurrences?: Ocorrencia[];
   /** Como cada vencimento cai em dia útil. Sem regra, é o dia como está. */
   dueRule?: RegraDeVencimento;
@@ -643,6 +647,8 @@ export function totaisDoMes(
  * não saiu. O que foi separado para uma meta é saída na sessão dela, então já não está aqui.
  */
 export function sobraAcumulada(entries: Lancamento[], workflow: Workflow, year: number, monthIndex: number) {
+  // A sobra levada de um mês para o outro já é a soma dos meses anteriores: contar de novo dobraria.
+  entries = entries.filter((entry) => !entry.carryOf);
   let total = 0;
   for (let ano = workflow.year; ano <= year; ano += 1) {
     const inicio = ano === workflow.year ? workflow.month - 1 : 0;
@@ -1331,17 +1337,275 @@ export type Conta = {
   kind: TipoDeConta;
   /** O saldo no dia em que a pessoa começou a controlar a conta aqui. */
   openingCents: number;
+  /** Esse dia (AAAA-MM-DD). Só o que acontece a partir dele conta no saldo. null: tudo conta (conta antiga). */
+  openingOn: string | null;
+  /** Cartão: o dia do mês em que a fatura fecha (1 a 28). */
+  closingDay: number | null;
+  /** Cartão: o dia do mês em que a fatura vence (1 a 28). */
+  dueDay: number | null;
+  /** Cartão: o limite. null: sem limite cadastrado. */
+  limitCents: number | null;
 };
 
-export type PedidoDeConta = { name: string; kind: TipoDeConta; openingCents: number };
+/** `openingOn` ausente: na criação, hoje; na edição, a data que está. null: sem data, tudo conta. Os campos do cartão ausentes mantêm o que está. */
+export type PedidoDeConta = {
+  name: string;
+  kind: TipoDeConta;
+  openingCents: number;
+  openingOn?: string | null;
+  closingDay?: number | null;
+  dueDay?: number | null;
+  limitCents?: number | null;
+};
+
+/** O grupo e a sessão que recebem os dois lados de uma transferência entre contas (inclusive o pagamento da fatura). */
+export const GRUPO_DAS_TRANSFERENCIAS = "Transferências";
+export const SESSAO_DAS_TRANSFERENCIAS = "Entre contas";
+
+export const STATUS_DA_FATURA = ["aberta", "fechada", "vencida", "paga"] as const;
+export type StatusDaFatura = (typeof STATUS_DA_FATURA)[number];
+export const ROTULO_DO_STATUS_DA_FATURA: Record<StatusDaFatura, string> = { aberta: "Aberta", fechada: "Fechada", vencida: "Vencida", paga: "Paga" };
+
+/** Uma fatura do cartão: o ciclo que fecha em `closingDate` e vence em `dueDate`. */
+export type Fatura = {
+  /** AAAA-MM do fechamento: identifica a fatura. */
+  month: string;
+  closingDate: string;
+  dueDate: string;
+  /** As compras do ciclo, em valor positivo. Estorno abate. */
+  totalCents: number;
+  /** O que já foi pago desta fatura: as transferências para o cartão depois do fechamento. */
+  paidCents: number;
+  status: StatusDaFatura;
+  itens: number;
+};
+
+export type LimiteDoCartao = {
+  /** O que o cartão deve hoje: compras lançadas menos pagamentos, em valor positivo. */
+  usadoCents: number;
+  /** null sem limite cadastrado. */
+  disponivelCents: number | null;
+  percent: number | null;
+};
+
+export type FaturasResposta = { faturas: Fatura[]; limite: LimiteDoCartao };
+
+export type PedidoDePagamentoDaFatura = { fromAccountId: string; cents: number; date: string; month: string };
+/** Os dois lados de uma transferência: a saída na conta de origem e a entrada na de destino, com o mesmo `pairId`. */
+export type ParDeTransferencia = { pairId: string; saida: Lancamento; entrada: Lancamento };
+export type PagamentoDaFatura = ParDeTransferencia;
+
+/** Transferir entre duas contas da própria pessoa. `note` é o texto livre que vira a descrição. */
+export type PedidoDeTransferencia = { fromAccountId: string; toAccountId: string; cents: number; date: string; note?: string };
+
+/** A linha do extrato é uma transferência com a conta `accountId`: saída da conta do extrato para ela, ou entrada vinda dela. */
+export type PedidoDeTransferenciaDaLinha = { statementId: string; line: number; accountId: string };
+export type TransferenciaDaLinha = {
+  pairId: string;
+  /** A linha do outro extrato que é o espelho desta, cruzada junto. null quando não há. */
+  espelho: { statementId: string; line: number } | null;
+};
+
+function diaDoMes(year: number, monthIndex: number, day: number) {
+  const ultimo = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, monthIndex, Math.min(day, ultimo))).toISOString().slice(0, 10);
+}
+
+/** O fechamento do ciclo em que o dia cai: o dia de fechamento deste mês, ou do mês seguinte se o dia já passou dele. */
+export function fechamentoDoCiclo(conta: Pick<Conta, "closingDay">, dia: string) {
+  if (!conta.closingDay) return null;
+  const [year, month, day] = dia.split("-").map(Number) as [number, number, number];
+  return day <= conta.closingDay ? diaDoMes(year, month - 1, conta.closingDay) : diaDoMes(year, month, conta.closingDay);
+}
+
+/** O vencimento da fatura que fecha em `closingDate`: o dia de vencimento do mesmo mês, ou do seguinte se vem antes do fechamento. */
+export function vencimentoDaFatura(conta: Pick<Conta, "closingDay" | "dueDay">, closingDate: string) {
+  const [year, month] = closingDate.split("-").map(Number) as [number, number];
+  const dueDay = conta.dueDay ?? conta.closingDay ?? 1;
+  return dueDay > (conta.closingDay ?? 0) ? diaDoMes(year, month - 1, dueDay) : diaDoMes(year, month, dueDay);
+}
+
+/**
+ * As últimas faturas do cartão, da mais antiga à atual (a que ainda está aberta). A compra entra na fatura do ciclo
+ * da data dela; o pagamento (transferência para o cartão) entra na última fatura fechada antes da data dele.
+ */
+export function faturasDoCartao(conta: Conta, entries: Lancamento[], hoje: string, quantas = 6): Fatura[] {
+  if (conta.kind !== "cartao" || !conta.closingDay || !conta.dueDay) return [];
+  const [ano, mes] = (fechamentoDoCiclo(conta, hoje) as string).split("-").map(Number) as [number, number];
+  const fechamentos: string[] = [];
+  for (let atras = quantas - 1; atras >= 0; atras -= 1) fechamentos.push(diaDoMes(ano, mes - 1 - atras, conta.closingDay));
+  const somas = new Map(fechamentos.map((data) => [data, { total: 0, pago: 0, itens: 0 }]));
+  for (const entry of entries) {
+    if (entry.accountId !== conta.id) continue;
+    for (const item of ocorrenciasDoLancamento(entry)) {
+      if ((item.status !== "pending" && item.status !== "completed") || !contaNoSaldo(item, conta.openingOn)) continue;
+      const data = dataContabil(item);
+      const valor = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
+      if (entry.transfer) {
+        const fechada = [...fechamentos].reverse().find((fechamento) => fechamento < data);
+        const soma = fechada ? somas.get(fechada) : undefined;
+        if (soma && valor > 0) soma.pago += valor;
+        continue;
+      }
+      const soma = somas.get(fechamentoDoCiclo(conta, data) as string);
+      if (!soma) continue;
+      soma.total -= valor;
+      soma.itens += 1;
+    }
+  }
+  return fechamentos.map((closingDate) => {
+    const soma = somas.get(closingDate) as { total: number; pago: number; itens: number };
+    const dueDate = vencimentoDaFatura(conta, closingDate);
+    const status: StatusDaFatura =
+      hoje <= closingDate ? "aberta" : soma.total <= 0 || soma.pago >= soma.total ? "paga" : hoje > dueDate ? "vencida" : "fechada";
+    return { month: closingDate.slice(0, 7), closingDate, dueDate, totalCents: soma.total, paidCents: soma.pago, status, itens: soma.itens };
+  });
+}
+
+/** O que o cartão deve hoje e quanto sobra do limite. */
+export function limiteDoCartao(conta: Conta, entries: Lancamento[], hoje: string): LimiteDoCartao {
+  const usadoCents = Math.max(-resumoDaConta(conta, entries, hoje).saldoCents, 0);
+  if (!conta.limitCents) return { usadoCents, disponivelCents: null, percent: null };
+  return { usadoCents, disponivelCents: conta.limitCents - usadoCents, percent: Math.round((usadoCents / conta.limitCents) * 100) };
+}
+
+/** O grupo que recebe a sessão dos ajustes de saldo. */
+export const GRUPO_DOS_AJUSTES = "Ajustes";
+export const SESSAO_DOS_AJUSTES = "Ajustes de saldo";
+
+/** "O banco mostra R$ X no dia D": o sistema lança a diferença. `foraDaSobra` faz o ajuste não contar na sobra. */
+export type PedidoDeAjusteDeSaldo = { saldoCents: number; date: string; foraDaSobra: boolean };
+export type AjusteDeSaldo = { diferencaCents: number; entry: Lancamento | null };
+
+/** Uma ocorrência conta no saldo a partir do dia do saldo inicial. Sem data, tudo conta. */
+export function contaNoSaldo(item: Ocorrencia, openingOn: string | null) {
+  return openingOn === null || dataContabil(item) >= openingOn;
+}
+
+export type MovimentoDaConta = {
+  chave: string;
+  date: string;
+  descricao: string;
+  detalhe: string;
+  cents: number;
+  pendente: boolean;
+  /** Antes do dia do saldo inicial: aparece na lista, mas não entra no saldo. */
+  foraDoSaldo: boolean;
+  /** O saldo da conta depois deste movimento. O pendente é previsão. */
+  saldo: number;
+};
+
+/**
+ * Os movimentos de uma conta num mês, pela data em que contam, com o saldo correndo a partir do início do mês. O que
+ * é anterior ao dia do saldo inicial aparece marcado e não muda o saldo.
+ */
+export function movimentosDoMes(
+  conta: Conta,
+  entries: Array<Lancamento & { groupName: string; sessionName: string }>,
+  year: number,
+  month: number,
+) {
+  const inicio = `${year}-${String(month).padStart(2, "0")}-01`;
+  const chave = inicio.slice(0, 7);
+  let saldoInicial = conta.openingCents;
+  const doMes: Omit<MovimentoDaConta, "saldo">[] = [];
+  for (const entry of entries) {
+    if (entry.accountId !== conta.id) continue;
+    for (const item of ocorrenciasDoLancamento(entry)) {
+      if (item.status !== "pending" && item.status !== "completed") continue;
+      const data = dataContabil(item);
+      const cents = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
+      const noSaldo = contaNoSaldo(item, conta.openingOn);
+      if (data < inicio) {
+        if (item.status === "completed" && noSaldo) saldoInicial += cents;
+        continue;
+      }
+      if (!data.startsWith(chave)) continue;
+      doMes.push({
+        chave: `${entry.id}:${item.number}`,
+        date: data,
+        descricao: entry.name || entry.description,
+        detalhe: [item.kind === "multa" ? "Multa e juros" : "", `${entry.groupName} › ${entry.sessionName}`].filter(Boolean).join(" · "),
+        cents,
+        pendente: item.status === "pending",
+        foraDoSaldo: !noSaldo,
+      });
+    }
+  }
+  doMes.sort((a, b) => a.date.localeCompare(b.date) || a.descricao.localeCompare(b.descricao, "pt-BR"));
+  let saldo = saldoInicial;
+  const movimentos: MovimentoDaConta[] = doMes.map((item) => {
+    if (!item.foraDoSaldo) saldo += item.cents;
+    return { ...item, saldo };
+  });
+  return { saldoInicial, movimentos, saldoFinal: saldo };
+}
+
+export type Patrimonio = {
+  /** O saldo de hoje das contas (banco, carteira). */
+  contasCents: number;
+  caixinhasCents: number;
+  /** O que está lançado na fatura dos cartões, em valor positivo. */
+  cartoesCents: number;
+  /** Contas e caixinhas, menos os cartões. */
+  totalCents: number;
+};
+
+/** O que a pessoa tem num dia: contas e caixinhas, menos o que deve nos cartões. */
+export function patrimonio(contas: Conta[], caixinhas: Caixinha[], entries: Lancamento[], dia: string): Patrimonio {
+  let contasCents = 0;
+  let cartoesCents = 0;
+  for (const conta of contas) {
+    const saldo = resumoDaConta(conta, entries, dia).saldoCents;
+    if (conta.kind === "cartao") cartoesCents -= saldo;
+    else contasCents += saldo;
+  }
+  const caixinhasCents = caixinhas.reduce((soma, caixinha) => soma + resumoDaCaixinha(caixinha, entries, dia).saldoCents, 0);
+  return { contasCents, caixinhasCents, cartoesCents, totalCents: contasCents + caixinhasCents - cartoesCents };
+}
+
+/** O patrimônio no fim de cada um dos últimos meses (o mês de hoje vale até hoje), do mais antigo ao atual. */
+export function evolucaoDoPatrimonio(contas: Conta[], caixinhas: Caixinha[], entries: Lancamento[], hoje: string, meses = 6) {
+  const [ano, mes] = hoje.split("-").map(Number) as [number, number];
+  const lista: Array<{ month: string; totalCents: number }> = [];
+  for (let atras = meses - 1; atras >= 0; atras -= 1) {
+    const data = new Date(Date.UTC(ano, mes - 1 - atras, 1));
+    const month = data.toISOString().slice(0, 7);
+    const dia = atras === 0 ? hoje : `${month}-31`;
+    lista.push({ month, totalCents: patrimonio(contas, caixinhas, entries, dia).totalCents });
+  }
+  return lista;
+}
 
 export type ContasResposta = { accounts: Conta[]; boxes: Caixinha[] };
 
-/** O grupo que recebe uma sessão por caixinha. */
-export const GRUPO_DAS_CAIXINHAS = "Caixinhas";
+/** O grupo que guarda a sessão das sobras de cada mês e uma sessão por caixinha. */
+export const GRUPO_DA_CONTA = "Conta";
+/** O grupo que recebe uma sessão por caixinha: o mesmo da conta. */
+export const GRUPO_DAS_CAIXINHAS = GRUPO_DA_CONTA;
+/** A sessão que recebe, no começo de cada mês, a sobra (ou a falta) do mês anterior. */
+export const SESSAO_DAS_SOBRAS = "Sobras";
+
+/** O que cada mês recebe do anterior: a sobra acumulada até o mês anterior, sem contar as próprias sobras levadas. */
+export function sobrasALevar(entries: Lancamento[], workflow: Workflow, hoje: string) {
+  const [anoDeHoje, mesDeHoje] = hoje.split("-").map(Number) as [number, number];
+  const lista: Array<{ de: string; para: string; cents: number }> = [];
+  let ano = workflow.year;
+  let mes = workflow.month;
+  let acumulado = 0;
+  const limpos = entries.filter((entry) => !entry.carryOf);
+  while (ano * 12 + mes < anoDeHoje * 12 + mesDeHoje) {
+    acumulado += totaisDoMes(limpos, workflow, ano, mes - 1).sobra;
+    const proximo = mes === 12 ? { ano: ano + 1, mes: 1 } : { ano, mes: mes + 1 };
+    lista.push({ de: `${ano}-${String(mes).padStart(2, "0")}`, para: `${proximo.ano}-${String(proximo.mes).padStart(2, "0")}`, cents: acumulado });
+    ano = proximo.ano;
+    mes = proximo.mes;
+  }
+  return lista;
+}
 
 /**
- * Caixinha (depósito) dentro de uma conta. A sessão dela, no grupo "Caixinhas", guarda o rendimento de cada mês, as
+ * Caixinha (depósito) dentro de uma conta. A sessão dela, no grupo "Conta", guarda o rendimento de cada mês, as
  * aplicações (saem da conta e entram na caixinha) e os resgates (o contrário). Ligada a uma meta, o saldo dela conta
  * no guardado da meta, e o que a meta separa vira aplicação nela.
  */
@@ -1351,11 +1615,16 @@ export type Caixinha = {
   name: string;
   /** O que já estava na caixinha quando a pessoa começou a controlar aqui. */
   openingCents: number;
+  /** Esse dia (AAAA-MM-DD). Só o que acontece a partir dele conta no saldo. null: tudo conta. */
+  openingOn: string | null;
   sessionId: string;
   goalId: string | null;
 };
 
-export type PedidoDeCaixinha = { name: string; openingCents: number; goalId: string | null };
+export type PedidoDeCaixinha = { name: string; openingCents: number; openingOn?: string | null; goalId: string | null };
+
+/** "A caixinha mostra R$ X no dia D": a diferença vira rendimento ou perda. */
+export type PedidoDeSaldoDaCaixinha = { saldoCents: number; date: string };
 
 export const MOVIMENTOS_DA_CAIXINHA = ["rendimento", "aplicacao", "resgate"] as const;
 export type MovimentoDaCaixinha = (typeof MOVIMENTOS_DA_CAIXINHA)[number];
@@ -1393,7 +1662,7 @@ export function resumoDaCaixinha(caixinha: Caixinha, entries: Lancamento[], hoje
   for (const entry of entries) {
     if (entry.sessionId !== caixinha.sessionId) continue;
     for (const item of ocorrenciasDoLancamento(entry)) {
-      if (item.status !== "completed") continue;
+      if (item.status !== "completed" || !contaNoSaldo(item, caixinha.openingOn)) continue;
       const data = dataContabil(item);
       const valor = item.paidCents ?? item.plannedCents;
       if (!entry.accountId && data.startsWith(mes)) doMes += valor;
@@ -1420,6 +1689,7 @@ export function resumoDaConta(conta: Conta, entries: Lancamento[], hoje: string)
   for (const entry of entries) {
     if (entry.accountId !== conta.id) continue;
     for (const item of ocorrenciasDoLancamento(entry)) {
+      if (!contaNoSaldo(item, conta.openingOn)) continue;
       if (item.status === "completed" && (item.paidOn ?? item.dueDate) <= hoje) saldo += item.paidCents ?? item.plannedCents;
       if (item.status === "pending" && item.dueDate <= fimDoMes) pendente += item.plannedCents;
     }
@@ -2264,6 +2534,12 @@ function grupo(category: CodigoCategoriaEvento, aggregate: string, operacoes: st
   return operacoes.map((operation): [string, InfoDaOperacao] => [operation, { category, aggregate }]);
 }
 
+/** As operações depois das quais a sobra levada de um mês para o outro pode ter mudado. */
+export function operacoesQueMudamASobra() {
+  const extras = ["definir-workflow", "encerrar-sessao", "remover-sessao", "remover-grupo", "permanecer-ano", "importar-dados", "zerar-dados"];
+  return [...[...INFO_DA_OPERACAO.entries()].filter(([, info]) => info.aggregate === "Lançamento").map(([operacao]) => operacao), ...extras];
+}
+
 // Cada operação que vai para a outbox, com a categoria e o nome do agregado. Operação nova que não entrar
 // aqui aparece como "Sistema · Registro".
 const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
@@ -2282,6 +2558,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "suspender-fixo",
     "atualizar-valor-fixo",
     "seguir-valor-da-serie",
+    "definir-conta",
     "atualizar-ocorrencia",
     "excluir-ocorrencia",
     "redatar-vencimentos",
@@ -3744,11 +4021,16 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "criar_conta",
     agentes: ["financas", "extratos"],
-    descricao: "Cria uma conta (conta) ou um cartão de crédito (cartao). openingCents é o saldo no dia em que a pessoa passou a controlar a conta aqui, em centavos com sinal; no cartão, costuma ser 0.",
+    descricao:
+      "Cria uma conta (conta) ou um cartão de crédito (cartao). openingCents é o saldo no dia openingOn (padrão hoje), em centavos com sinal; só o que acontece a partir desse dia conta no saldo. No cartão, costuma ser 0.",
     esquema: z.object({
       name: z.string().trim().min(1).max(80),
       kind: z.enum(TIPOS_DE_CONTA).describe("conta (banco, carteira) ou cartao (cartão de crédito)."),
       openingCents: z.number().int().optional().describe("Saldo inicial em centavos, com sinal. Padrão 0."),
+      openingOn: dataDoSistema.optional().describe("O dia desse saldo. Padrão hoje."),
+      closingDay: z.number().int().min(1).max(28).optional().describe("Cartão: dia em que a fatura fecha."),
+      dueDay: z.number().int().min(1).max(28).optional().describe("Cartão: dia em que a fatura vence."),
+      limitCents: z.number().int().min(0).optional().describe("Cartão: o limite, em centavos."),
     }),
     rotulo: (args) => `Criou a conta ${entreAspas(args.name)}`,
   }),
@@ -3761,8 +4043,61 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       name: z.string().trim().min(1).max(80),
       kind: z.enum(TIPOS_DE_CONTA),
       openingCents: z.number().int(),
+      openingOn: dataDoSistema.nullable().optional().describe("O dia do saldo inicial. Ausente mantém; null tira a data (tudo conta no saldo)."),
+      closingDay: z.number().int().min(1).max(28).nullable().optional().describe("Cartão: dia do fechamento. Ausente mantém."),
+      dueDay: z.number().int().min(1).max(28).nullable().optional().describe("Cartão: dia do vencimento. Ausente mantém."),
+      limitCents: z.number().int().min(0).nullable().optional().describe("Cartão: o limite em centavos. Ausente mantém; null tira."),
     }),
     rotulo: (args) => `Editou a conta ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "transferir_entre_contas",
+    agentes: ["financas"],
+    descricao:
+      "Move dinheiro entre duas contas da própria pessoa (banco, carteira, cartão): cria o par de lançamentos de transferência (sai de uma, entra na outra), fora da sobra. Para a fatura do cartão, prefira pagar_fatura. Mexe com dinheiro: a pessoa confirma antes.",
+    exigeConfirmacao: true,
+    esquema: z.object({
+      fromAccountId: idDoSistema,
+      toAccountId: idDoSistema,
+      cents: centavosPositivos,
+      date: dataDoSistema.optional().describe("O dia. Padrão hoje."),
+      note: z.string().trim().max(160).optional().describe("Um texto curto, se a pessoa disser o motivo."),
+      resumo: z.string().trim().min(3).max(160).describe("O que será feito, para a pessoa confirmar. Ex.: R$ 500,00 do Itaú para a Carteira."),
+    }),
+    rotulo: (args) => `Transferiu ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "transferir_linha_do_extrato",
+    agentes: ["extratos"],
+    descricao:
+      "A linha do extrato é uma transferência entre contas da pessoa (TED/Pix para a própria conta, pagamento de fatura, aplicação): cria o par de lançamentos fora da sobra, cruza a linha e, se o extrato da outra conta tem a linha espelho (mesmo valor, até três dias de diferença), cruza também. accountId é a outra conta.",
+    esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1), accountId: idDoSistema.describe("A outra conta da transferência (consultar_contas).") }),
+    rotulo: (args) => `Marcou a linha ${args.line} como transferência`,
+  }),
+  ferramenta({
+    nome: "consultar_faturas",
+    agentes: todosLeem,
+    descricao:
+      "As últimas faturas de um cartão (fechamento, vencimento, total, pago, status aberta/fechada/vencida/paga) e o limite usado e disponível. Precisa do cartão com dia de fechamento e de vencimento.",
+    leitura: true,
+    esquema: z.object({ id: idDoSistema.describe("Id do cartão (consultar_contas).") }),
+    rotulo: () => "Consultou as faturas do cartão",
+  }),
+  ferramenta({
+    nome: "pagar_fatura",
+    agentes: ["financas"],
+    descricao:
+      "Paga a fatura do cartão a partir de uma conta: cria o par de transferências (sai da conta, entra no cartão), fora da sobra. month é o AAAA-MM da fatura (consultar_faturas). Mexe com dinheiro: a pessoa confirma antes.",
+    exigeConfirmacao: true,
+    esquema: z.object({
+      id: idDoSistema.describe("Id do cartão."),
+      fromAccountId: idDoSistema.describe("A conta de onde o dinheiro sai."),
+      cents: centavosPositivos,
+      month: z.string().regex(/^\d{4}-\d{2}$/).describe("AAAA-MM da fatura."),
+      date: dataDoSistema.optional().describe("O dia do pagamento. Padrão hoje."),
+      resumo: z.string().trim().min(3).max(160).describe("O que será feito, para a pessoa confirmar. Ex.: R$ 1.200,00 da fatura de novembro do Nubank, saindo do Itaú."),
+    }),
+    rotulo: (args) => `Pagou ${args.resumo}`,
   }),
   ferramenta({
     nome: "excluir_conta",
@@ -3776,11 +4111,12 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "criar_caixinha",
     agentes: ["financas", "metas"],
     descricao:
-      "Cria uma caixinha (depósito) dentro de uma conta do banco (cartão não tem). Ela nasce com uma sessão no grupo Caixinhas, onde entram o rendimento de cada mês, as aplicações e os resgates. openingCents é o que já está nela hoje. goalId liga a caixinha a uma meta: o saldo dela soma no guardado da meta.",
+      "Cria uma caixinha (depósito) dentro de uma conta do banco (cartão não tem). Ela nasce com uma sessão no grupo Conta, onde entram o rendimento de cada mês, as aplicações e os resgates. openingCents é o que já está nela hoje. goalId liga a caixinha a uma meta: o saldo dela soma no guardado da meta.",
     esquema: z.object({
       accountId: idDoSistema.describe("A conta da caixinha (consultar_contas)."),
       name: z.string().trim().min(1).max(60),
       openingCents: z.number().int().min(0).optional().describe("O que já está na caixinha, em centavos. Padrão 0."),
+      openingOn: dataDoSistema.optional().describe("O dia desse saldo. Padrão hoje."),
       goalId: idDoSistema.nullable().optional().describe("A meta que guarda nesta caixinha (consultar_metas)."),
     }),
     rotulo: (args) => `Criou a caixinha ${entreAspas(args.name)}`,
@@ -3793,6 +4129,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       id: idDoSistema,
       name: z.string().trim().min(1).max(60),
       openingCents: z.number().int().min(0),
+      openingOn: dataDoSistema.nullable().optional().describe("O dia do saldo inicial. Ausente mantém."),
       goalId: idDoSistema.nullable(),
     }),
     rotulo: (args) => `Editou a caixinha ${entreAspas(args.name)}`,
@@ -3800,7 +4137,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "excluir_caixinha",
     agentes: ["financas"],
-    descricao: "Apaga uma caixinha. Os lançamentos da sessão dela ficam no grupo Caixinhas como histórico; sem lançamentos, a sessão sai junto.",
+    descricao: "Apaga uma caixinha. Os lançamentos da sessão dela ficam no grupo Conta como histórico; sem lançamentos, a sessão sai junto.",
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
@@ -3817,6 +4154,33 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       date: dataDoSistema,
     }),
     rotulo: (args) => `${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[args.tipo]} de ${(args.cents / 100).toFixed(2).replace(".", ",")} reais na caixinha`,
+  }),
+  ferramenta({
+    nome: "ajustar_saldo_da_conta",
+    agentes: ["financas"],
+    descricao:
+      "A pessoa diz quanto o banco mostra na conta (ou quanto está na fatura do cartão, em negativo) num dia: a diferença para o saldo calculado vira um lançamento de ajuste ligado à conta, na sessão Ajustes de saldo. Por padrão o ajuste conta na sobra; foraDaSobra true o trata como transferência. Mexe com dinheiro: a pessoa confirma antes.",
+    exigeConfirmacao: true,
+    esquema: z.object({
+      id: idDoSistema.describe("Id da conta."),
+      saldoCents: z.number().int().describe("O saldo que o banco mostra, em centavos com sinal."),
+      date: dataDoSistema.optional().describe("O dia desse saldo. Padrão hoje."),
+      foraDaSobra: z.boolean().optional(),
+      resumo: z.string().trim().min(3).max(160).describe("O que será feito, para a pessoa confirmar. Ex.: acertar o Nubank para R$ 1.250,00."),
+    }),
+    rotulo: (args) => `Ajustou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "informar_saldo_da_caixinha",
+    agentes: ["financas", "metas"],
+    descricao:
+      "A pessoa diz quanto a caixinha mostra hoje (cripto, fundo, poupança): a diferença para o saldo calculado vira rendimento, ou perda, nesse dia. Use em vez de movimentar_caixinha quando ela sabe o saldo e não o rendimento.",
+    esquema: z.object({
+      id: idDoSistema.describe("Id da caixinha."),
+      saldoCents: z.number().int().min(0).describe("O saldo que a caixinha mostra, em centavos."),
+      date: dataDoSistema.optional().describe("O dia desse saldo. Padrão hoje."),
+    }),
+    rotulo: (args) => `Informou o saldo de ${(args.saldoCents / 100).toFixed(2).replace(".", ",")} reais na caixinha`,
   }),
   ferramenta({
     nome: "guardar_meta_na_caixinha",
@@ -4413,7 +4777,7 @@ export const ROTULO_DO_CANAL_DE_NOTIFICACAO: Record<CanalDeNotificacao, string> 
  * Para onde a notificação leva. Cada cliente traduz para a própria rota: o web e o app não têm as mesmas URLs.
  * `id` é a conversa do assistente; nas outras telas fica null.
  */
-export const TELAS_DE_DESTINO = ["hoje", "financas", "agenda", "extratos", "conferencia", "metas", "assistente"] as const;
+export const TELAS_DE_DESTINO = ["hoje", "financas", "agenda", "extratos", "conferencia", "metas", "assistente", "contas"] as const;
 export type TelaDeDestino = (typeof TELAS_DE_DESTINO)[number];
 export type DestinoDaNotificacao = { tela: TelaDeDestino; id: string | null };
 

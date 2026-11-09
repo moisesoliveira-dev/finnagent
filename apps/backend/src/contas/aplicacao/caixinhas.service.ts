@@ -8,6 +8,7 @@ import {
   type Lancamento,
   type PedidoDeCaixinha,
   type PedidoDeMovimentoNaCaixinha,
+  type PedidoDeSaldoDaCaixinha,
 } from "@finnagent/contracts";
 import { FinancasService } from "../../financas/aplicacao/financas.service.js";
 import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
@@ -24,7 +25,7 @@ const FALHAS: Record<FalhaDaCaixinha, string> = {
 const MENSAGEM_DO_CARTAO = "Cartão de crédito não tem caixinha. Crie a caixinha na conta do banco.";
 
 /**
- * As caixinhas (depósitos) de cada conta. Cada caixinha nasce com uma sessão de acúmulo no grupo "Caixinhas": nela a
+ * As caixinhas (depósitos) de cada conta. Cada caixinha nasce com uma sessão de acúmulo no grupo "Conta": nela a
  * pessoa lança o quanto rendeu no mês, e as aplicações e os resgates entre a conta e a caixinha.
  */
 @Injectable()
@@ -42,7 +43,7 @@ export class CaixinhasService {
 
   async criar(tenantId: string, accountId: string, id: string, pedido: PedidoDeCaixinha) {
     const existente = await this.caixinhas.obter(tenantId, id);
-    if (existente) return this.gravar(tenantId, { ...pedido, id, accountId, sessionId: existente.sessionId });
+    if (existente) return this.gravar(tenantId, { ...pedido, openingOn: pedido.openingOn ?? existente.openingOn, id, accountId, sessionId: existente.sessionId });
     const conta = (await this.contas.listar(tenantId)).find((item) => item.id === accountId);
     if (!conta) throw new NaoEncontrado("Conta não encontrada.");
     if (conta.kind === "cartao") throw new Conflito(MENSAGEM_DO_CARTAO);
@@ -51,8 +52,10 @@ export class CaixinhasService {
     );
     if (mesmoNome) throw new Conflito(FALHAS["nome-ocupado"]);
     const sessionId = await this.criarSessao(tenantId, nomeDaSessao(pedido.name, conta.name));
+    // Sem data, o saldo inicial é o de hoje.
+    const openingOn = pedido.openingOn === undefined ? await this.financas.hoje(tenantId) : pedido.openingOn;
     try {
-      return await this.gravar(tenantId, { id, accountId, sessionId, ...pedido });
+      return await this.gravar(tenantId, { id, accountId, sessionId, ...pedido, openingOn });
     } catch (error) {
       await this.grupos.removerSessao(tenantId, sessionId).catch(() => undefined);
       throw error;
@@ -128,6 +131,20 @@ export class CaixinhasService {
     });
   }
 
+  /**
+   * "A caixinha mostra R$ X no dia D": a diferença para o saldo calculado vira rendimento (ou perda) nesse dia. É o
+   * jeito de acompanhar cripto, fundo e poupança, em que a pessoa sabe o saldo e não o rendimento.
+   */
+  async informarSaldo(tenantId: string, id: string, pedido: PedidoDeSaldoDaCaixinha) {
+    const caixinha = await this.caixinhas.obter(tenantId, id);
+    if (!caixinha) throw new NaoEncontrado("Caixinha não encontrada.");
+    const { entries } = await this.financas.listar(tenantId);
+    const diferencaCents = pedido.saldoCents - resumoDaCaixinha(caixinha, entries, pedido.date).saldoCents;
+    if (diferencaCents === 0) return { diferencaCents, entry: null };
+    const entry = await this.movimentar(tenantId, id, { tipo: "rendimento", cents: diferencaCents, date: pedido.date });
+    return { diferencaCents, entry };
+  }
+
   /** A caixinha de cada meta, com o saldo de hoje: o guardado da meta soma esse saldo. */
   async dasMetas(tenantId: string, entries: Lancamento[], hoje: string) {
     const [caixinhas, contas] = await Promise.all([this.caixinhas.listar(tenantId), this.contas.listar(tenantId)]);
@@ -161,7 +178,7 @@ export class CaixinhasService {
     return resultado;
   }
 
-  // O grupo "Caixinhas" nasce na primeira caixinha; cada caixinha é uma sessão de acúmulo nele.
+  // O grupo "Conta" nasce na primeira caixinha (ou na primeira sobra); cada caixinha é uma sessão de acúmulo nele.
   private async criarSessao(tenantId: string, nome: string) {
     const groupId = await this.grupoDasCaixinhas(tenantId);
     const sessionId = randomUUID();
@@ -173,7 +190,7 @@ export class CaixinhasService {
         "acumulo",
       );
     } catch (error) {
-      if (error instanceof Conflito) throw new Conflito("Já existe uma sessão com o nome desta caixinha no grupo Caixinhas.");
+      if (error instanceof Conflito) throw new Conflito("Já existe uma sessão com o nome desta caixinha no grupo Conta.");
       throw error;
     }
     return sessionId;
@@ -183,7 +200,7 @@ export class CaixinhasService {
     const { groups } = await this.grupos.listar(tenantId);
     const existente = groups.find((grupo) => grupo.name.toLowerCase() === GRUPO_DAS_CAIXINHAS.toLowerCase());
     if (existente) return existente.id;
-    const criado = await this.grupos.criarGrupo(tenantId, randomUUID(), GRUPO_DAS_CAIXINHAS, "Uma sessão por caixinha: o rendimento de cada mês.");
+    const criado = await this.grupos.criarGrupo(tenantId, randomUUID(), GRUPO_DAS_CAIXINHAS, "As sobras de cada mês e uma sessão por caixinha.");
     return criado.id;
   }
 

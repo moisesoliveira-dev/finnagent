@@ -49,6 +49,10 @@ export type NovoLancamento = {
   accountId?: string | null;
   /** Transferência entre contas próprias: fora da sobra. */
   transfer?: boolean;
+  /** Os dois lados de uma transferência dividem este id. Só na criação. */
+  pairId?: string | null;
+  /** A sobra do mês AAAA-MM levada para o seguinte. Só na criação. */
+  carryOf?: string | null;
   /** Empréstimo: de quem é e o total combinado. */
   counterparty?: string;
   principalCents?: number | null;
@@ -84,7 +88,12 @@ export type FalhaDeLancamento =
 export type ValorFixo = { id: string; cents: number };
 
 export interface FinancasRepositorio {
-  garantirWorkflow(tenantId: string): Promise<Workflow>;
+  /** Garante o workflow da conta. Quando não existe, nasce no primeiro dia do mês de `hoje`. */
+  garantirWorkflow(tenantId: string, hoje: string): Promise<Workflow>;
+  /** Puxa o início do workflow para trás, até o primeiro dia do mês pedido, quando ele começa depois. */
+  recuarInicioDoWorkflow(tenantId: string, year: number, month: number): Promise<Workflow>;
+  /** Liga o lançamento à conta, só se ele ainda não tem conta. */
+  definirConta(tenantId: string, id: string, accountId: string): Promise<Lancamento | FalhaDeLancamento>;
   semearLancamentos(tenantId: string): Promise<void>;
   listar(tenantId: string, incluirEncerradas?: boolean): Promise<FinancasResposta>;
   /** Uma leitura só, com ocorrências, valores e ajustes daquele mês. Abertas são as de sessão ainda viva. */
