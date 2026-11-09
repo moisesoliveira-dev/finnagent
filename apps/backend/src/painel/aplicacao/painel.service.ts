@@ -50,7 +50,8 @@ export class PainelService {
       const ocorrencias = await this.agenda.ocorrencias(tenantId, year, mes);
       compromissos.push(...ocorrencias.map((item) => comValor(item, base.entries, base.workflow, hoje)));
     }
-    const painel = montarPainel(scope, year, month, day, base.workflow, base.entries, compromissos);
+    // O painel mostra a sobra do próprio mês e, à parte, a acumulada: a sobra levada não entra em nenhuma das duas.
+    const painel = montarPainel(scope, year, month, day, base.workflow, base.entries.filter((entry) => !entry.carryOf), compromissos);
     return {
       ...painel,
       avisos: avisosDe(preferencias, compromissos, base.entries),

@@ -109,7 +109,8 @@ export class MetasService {
       entry.groupName.toLowerCase() === GRUPO_DAS_METAS.toLowerCase() ||
       (dasCaixinhas.has(entry.sessionId) && Boolean(entry.accountId));
     const dasMetas = painel.entries.filter(ehDeMeta);
-    const dasOutras = painel.entries.filter((entry) => !ehDeMeta(entry));
+    // A sobra levada do mês anterior já está em `carriedCents`: aqui fica só o que é deste mês.
+    const dasOutras = painel.entries.filter((entry) => !ehDeMeta(entry) && !entry.carryOf);
     const monthSurplusCents = totaisDoMes(dasOutras, painel.workflow, year, month - 1).sobra;
     const separatedCents = -totaisDoMes(dasMetas, painel.workflow, year, month - 1).sobra;
     // O que sobrou até o mês passado passa para este: o separado para metas lá já saiu como saída.
