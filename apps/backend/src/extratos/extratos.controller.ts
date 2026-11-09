@@ -11,9 +11,19 @@ import {
   Param,
   Post,
   Query,
+  Req,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { DIFERENCAS_DO_PAGAMENTO, ESQUEMA_DO_TIPO_DA_LINHA, LIMITE_OBSERVACAO_DO_EXTRATO } from "@finnagent/contracts";
+import {
+  DIFERENCAS_DO_PAGAMENTO,
+  ESQUEMA_DO_TIPO_DA_LINHA,
+  LIMITE_OBSERVACAO_DO_EXTRATO,
+  PAPEIS_DA_LINHA_NA_SERIE,
+  type ConferenciaDesfazendo,
+  type ConferenciaDesfeita,
+} from "@finnagent/contracts";
+import type { PedidoAutenticado } from "../auth/sessao.guard.js";
+import { FilaDeConferencia } from "./adaptadores/fila-de-conferencia.js";
 import { z } from "zod";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ExtratosService } from "./aplicacao/extratos.service.js";
@@ -23,6 +33,10 @@ import { PedidoInvalido as PedidoInvalidoDeFinancas } from "../financas/dominio/
 
 const tenantId = z.uuid();
 const tipoDaLinha = ESQUEMA_DO_TIPO_DA_LINHA.optional();
+const escolhaDaSerie = z
+  .array(z.object({ statementId: z.uuid(), line: z.number().int().min(1), papel: z.enum(PAPEIS_DA_LINHA_NA_SERIE) }))
+  .min(1)
+  .max(400);
 const mapeamento = z.object({
   date: z.number().int().min(0).max(40),
   description: z.number().int().min(0).max(40),
@@ -56,7 +70,10 @@ const deAnexo = z.object({
 
 @Controller()
 export class ExtratosController {
-  constructor(private readonly extratos: ExtratosService) {}
+  constructor(
+    private readonly extratos: ExtratosService,
+    private readonly fila: FilaDeConferencia,
+  ) {}
 
   @Get("extratos")
   listar(@Headers("x-tenant-id") tenant: string | undefined) {
@@ -150,6 +167,49 @@ export class ExtratosController {
       .safeParse(body);
     if (!pedido.success) throw new BadRequestException("Escolha as linhas e a sessão para lançar.");
     return this.executar(() => this.extratos.acumularVarias(this.tenant(tenant), pedido.data.items));
+  }
+
+  /** As linhas de outros meses que são a mesma compra da linha que vai virar parcela, empréstimo ou recorrente. */
+  @Post("extratos/series/previa")
+  @HttpCode(200)
+  previaDaSerie(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z.object({ statementId: z.uuid(), line: z.number().int().min(1), tipo: ESQUEMA_DO_TIPO_DA_LINHA }).safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha a linha e o tipo.");
+    return this.executar(() => this.extratos.previaDaSerie(this.tenant(tenant), pedido.data.statementId, pedido.data.line, pedido.data.tipo));
+  }
+
+  /** Cria a série com as linhas escolhidas de vários meses. */
+  @Post("extratos/series")
+  lancarSerie(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = z
+      .object({
+        statementId: z.uuid(),
+        line: z.number().int().min(1),
+        sessionId: z.uuid(),
+        tipo: ESQUEMA_DO_TIPO_DA_LINHA,
+        nome: z.string().trim().min(1).max(160).optional(),
+        linhas: escolhaDaSerie,
+      })
+      .safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Escolha a sessão, o tipo e as linhas da série.");
+    const { statementId, line, sessionId, tipo, nome, linhas } = pedido.data;
+    return this.executar(() => this.extratos.lancarSerie(this.tenant(tenant), { statementId, line }, sessionId, tipo, linhas, nome));
+  }
+
+  /** As parcelas, empréstimos e recorrentes que já existem e têm linhas livres em outros meses importados. */
+  @Get("extratos/series")
+  seriesComLinhas(@Headers("x-tenant-id") tenant: string | undefined) {
+    return this.executar(() => this.extratos.seriesComLinhas(this.tenant(tenant)));
+  }
+
+  /** Junta à série que já existe as linhas escolhidas de outros meses. */
+  @Post("extratos/series/:id/linhas")
+  juntarASerie(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const entryId = z.uuid().safeParse(id);
+    const pedido = z.object({ linhas: escolhaDaSerie }).safeParse(body);
+    if (!entryId.success) throw new BadRequestException("Lançamento não encontrado.");
+    if (!pedido.success) throw new BadRequestException("Escolha as linhas da série.");
+    return this.executar(() => this.extratos.juntarASerie(this.tenant(tenant), entryId.data, pedido.data.linhas));
   }
 
   @Post("extratos/dividir")
@@ -248,10 +308,26 @@ export class ExtratosController {
     return this.executar(() => this.extratos.linhas(this.tenant(tenant), id, erros === "1"));
   }
 
+  /**
+   * Desfazer tudo leva segundos por linha, então vai para a fila: a resposta diz que começou (`queued`) e a
+   * central avisa quando termina. Sem fila (sem Redis), faz na hora e devolve a contagem. Um por conta de cada vez.
+   */
   @Post("extratos/conferencia/desfazer-tudo")
   @HttpCode(200)
-  desfazerConferencia(@Headers("x-tenant-id") tenant: string | undefined) {
-    return this.executar(() => this.extratos.desfazerConferencia(this.tenant(tenant)));
+  desfazerConferencia(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Req() pedido: PedidoAutenticado,
+  ): Promise<ConferenciaDesfazendo | ConferenciaDesfeita> {
+    const tenantId = this.tenant(tenant);
+    const userId = pedido.usuarioId ?? null;
+    return this.executar(async () => {
+      const situacao = await this.fila.desfazerConferencia({ tenantId, userId });
+      if (situacao === "enfileirado") return { queued: true as const };
+      if (situacao === "ja-rodando") {
+        throw new ConflictException("A conferência já está sendo desfeita. Você recebe uma notificação quando terminar.");
+      }
+      return this.extratos.desfazerConferencia(tenantId, userId);
+    });
   }
 
   @Post("extratos/:id/reprocessar")

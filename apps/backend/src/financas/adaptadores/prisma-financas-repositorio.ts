@@ -46,7 +46,7 @@ import {
   protegeValorBase,
   type VencimentoDaSessao,
 } from "../../grupos/dominio/sessao.js";
-import { chaveDoMes } from "@finnagent/contracts";
+import { chaveDoMes, ehMulta } from "@finnagent/contracts";
 import type { TipoSessao } from "@finnagent/contracts";
 import { EXEMPLO, WORKFLOW_INICIAL } from "../dominio/exemplo.js";
 import type { Prisma } from "@prisma/client";
@@ -651,6 +651,28 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
         marcaDe(valores),
       );
       return salvos;
+    });
+  }
+
+  async seguirValorDaSerie(tenantId: string, id: string, centavos: number) {
+    const db = this.banco();
+    return db.$transaction(async (tx) => {
+      const atual = await this.buscar(tx, tenantId, id);
+      if (!atual) return "ausente" as const;
+      if (atual.category !== "fixed" && atual.category !== "installment") return "categoria" as const;
+      const cents = centavosComSinal(Math.abs(centavos), atual.mode as ModoTransacao);
+      const lista = await this.materializar(tx, tenantId, atual);
+      const proxima = lista.map((item) => (item.status === "pending" && !ehMulta(item) ? { ...item, plannedCents: cents } : item));
+      const mudou = atual.cents !== cents || proxima.some((item, indice) => item.plannedCents !== lista[indice]?.plannedCents);
+      if (mudou) {
+        await tx.entry.updateMany({ where: { id, tenantId }, data: { cents } });
+        await this.substituir(tx, tenantId, id, proxima);
+        await this.resumir(tx, tenantId, atual, proxima);
+        await gravarOutbox(tx, tenantId, "seguir-valor-da-serie", id, { id, cents }, marcaDe({ id, cents, quando: Date.now() }));
+      }
+      const salvo = await this.buscar(tx, tenantId, id);
+      if (!salvo) return "ausente" as const;
+      return lancamentoDe(salvo);
     });
   }
 

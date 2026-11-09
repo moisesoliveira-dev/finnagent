@@ -242,6 +242,18 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     // pagina 0: todas as linhas sem lançamento de uma vez.
     consulta: (a) => ({ year: a.year, month: a.month, pagina: a.todas ? 0 : (a.pagina ?? 1), ...(a.busca ? { busca: a.busca } : {}) }),
   },
+  previa_da_serie_no_extrato: {
+    metodo: "POST",
+    caminho: () => "extratos/series/previa",
+    corpo: (a) => ({ statementId: a.statementId, line: a.line, tipo: a.tipo }),
+  },
+  lancar_serie_do_extrato: {
+    metodo: "POST",
+    caminho: () => "extratos/series",
+    corpo: (a) => ({ statementId: a.statementId, line: a.line, sessionId: a.sessionId, tipo: a.tipo, ...(a.nome ? { nome: a.nome } : {}), linhas: a.linhas }),
+  },
+  consultar_series_no_extrato: { metodo: "GET", caminho: () => "extratos/series" },
+  juntar_linhas_a_serie: { metodo: "POST", caminho: (a) => `extratos/series/${id(a.id)}/linhas`, corpo: (a) => ({ linhas: a.linhas }) },
   ignorar_linhas: { metodo: "POST", caminho: () => "extratos/ignorar", corpo: (a) => ({ items: a.items, ignored: a.ignored }) },
   dividir_linha: {
     metodo: "POST",
@@ -290,6 +302,23 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     corpo: (a) => ({ name: a.name, kind: a.kind, openingCents: a.openingCents }),
   },
   excluir_conta: { metodo: "DELETE", caminho: (a) => `contas/${id(a.id)}` },
+  criar_caixinha: {
+    metodo: "POST",
+    caminho: (a) => `contas/${id(a.accountId)}/caixinhas`,
+    corpo: (a, _fuso, idGerado) => ({ id: idGerado ?? randomUUID(), name: a.name, openingCents: a.openingCents ?? 0, goalId: a.goalId ?? null }),
+  },
+  editar_caixinha: {
+    metodo: "PATCH",
+    caminho: (a) => `caixinhas/${id(a.id)}`,
+    corpo: (a) => ({ name: a.name, openingCents: a.openingCents, goalId: a.goalId }),
+  },
+  excluir_caixinha: { metodo: "DELETE", caminho: (a) => `caixinhas/${id(a.id)}` },
+  movimentar_caixinha: {
+    metodo: "POST",
+    caminho: (a) => `caixinhas/${id(a.id)}/movimentos`,
+    corpo: (a) => ({ tipo: a.tipo, cents: a.cents, date: a.date }),
+  },
+  guardar_meta_na_caixinha: { metodo: "PUT", caminho: (a) => `metas/${id(a.id)}/caixinha`, corpo: (a) => ({ boxId: a.boxId }) },
   consultar_feriados: { metodo: "GET", caminho: () => "feriados", consulta: (a) => ({ year: a.year }) },
   criar_feriado_local: { metodo: "POST", caminho: () => "feriados", corpo: (a) => ({ nome: a.nome, dia: a.dia, mes: a.mes }) },
   excluir_feriado_local: { metodo: "DELETE", caminho: (a) => `feriados/${id(a.id)}` },

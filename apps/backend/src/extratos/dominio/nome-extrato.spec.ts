@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chaveDoNome, ehTransferenciaDePessoa } from "./nome-extrato.js";
+import { chaveDoNome, descricoesParecidas } from "./nome-extrato.js";
 
 describe("chave do nome do extrato", () => {
   it("ignora caixa e espaços repetidos", () => {
@@ -8,29 +8,32 @@ describe("chave do nome do extrato", () => {
 
   it("fica vazia quando a descrição não tem nome", () => {
     expect(chaveDoNome("   ")).toBe("");
+    expect(chaveDoNome(" — ")).toBe("");
+  });
+
+  it("é a mesma compra com hífen, travessão, acento ou pontuação diferentes", () => {
+    const agosto = chaveDoNome("Compra no débito via NuPay - Uber");
+    expect(agosto).toBe("compra no debito via nupay uber");
+    expect(chaveDoNome("Compra no débito via NuPay — Uber")).toBe(agosto);
+    expect(chaveDoNome("COMPRA NO DEBITO VIA NUPAY – UBER")).toBe(agosto);
+    expect(chaveDoNome("Compra no débito - DL*99 99")).toBe("compra no debito dl 99 99");
+    // O estorno continua sendo outra coisa.
+    expect(chaveDoNome("Estorno - Compra no débito via NuPay — Uber")).not.toBe(agosto);
   });
 });
 
-describe("transferência para pessoa", () => {
-  it("reconhece Pix, TED e DOC para pessoa, com CPF mascarado ou sem documento", () => {
-    for (const texto of [
-      "Transferência enviada pelo Pix - MARIA DA SILVA - •••.123.456-•• - NU PAGAMENTOS",
-      "Transferência Recebida - JOAO SOUZA - •••.987.654-••",
-      "PIX ENVIADO",
-      "TED enviada - Carlos Alberto",
-    ]) {
-      expect(ehTransferenciaDePessoa(texto), texto).toBe(true);
-    }
+describe("descrições do mesmo destino", () => {
+  it("reconhece o mesmo destino com CNPJ, banco e conta num mês e sem eles no outro", () => {
+    const curta = "Transferência enviada pelo Pix - NOVA IGREJA BATISTA";
+    const longa = "Transferência enviada pelo Pix — NOVA IGREJA BATISTA - 63.691.281/0001-96 - BCO BRADESCO S.A. (0237) Agência: 2396 Conta: 22920-2";
+    expect(descricoesParecidas(curta, longa)).toBe(true);
+    expect(descricoesParecidas(longa, curta)).toBe(true);
   });
 
-  it("não vale para empresa, com CNPJ ou nome de empresa, nem para compra", () => {
-    for (const texto of [
-      "Transferência enviada pelo Pix - PADARIA DO ZE LTDA - 12.345.678/0001-90",
-      "Transferência enviada pelo Pix - SUPERMERCADO BOM PRECO",
-      "Compra no débito via NuPay - 99",
-      "Pagamento de fatura",
-    ]) {
-      expect(ehTransferenciaDePessoa(texto), texto).toBe(false);
-    }
+  it("não junta destinos diferentes nem descrições só com palavras genéricas", () => {
+    expect(descricoesParecidas("Pix - Nova Igreja Batista", "Pix - Igreja Universal")).toBe(false);
+    expect(descricoesParecidas("Compra no débito via NuPay - Uber", "Compra no débito via NuPay - 99Food")).toBe(false);
+    expect(descricoesParecidas("Compra no débito", "Compra no débito via NuPay - Uber")).toBe(false);
+    expect(descricoesParecidas("Compra no débito", "COMPRA NO DEBITO")).toBe(true);
   });
 });

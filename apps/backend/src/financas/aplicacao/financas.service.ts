@@ -266,6 +266,11 @@ export class FinancasService {
     return resultado;
   }
 
+  /** As pendentes da recorrente ou da parcela passam a prever o valor do último mês pago. */
+  seguirValorDaSerie(tenantId: string, id: string, cents: number) {
+    return this.um(this.financas.seguirValorDaSerie(tenantId, id, cents));
+  }
+
   async excluir(tenantId: string, id: string) {
     const resultado = await this.financas.excluir(tenantId, id);
     if (resultado) this.falha(resultado);

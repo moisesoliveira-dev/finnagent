@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import { TIPOS_DE_CONTA, type Extrato, type LinhaExtrato, type MapeamentoExtrato, type StatusExtrato } from "@finnagent/contracts";
+import { TIPOS_DE_CONTA, type ConferenciaDesfeitaAviso, type Extrato, type LinhaExtrato, type MapeamentoExtrato, type StatusExtrato } from "@finnagent/contracts";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
@@ -487,6 +487,44 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
         await gravarOutbox(tx, tenantId, "desfazer-conferencia", `${tenantId}:esquecer`, payload, String(Date.now()));
       }
       return total;
+    });
+  }
+
+  async linhasLivres(tenantId: string) {
+    const rows = await this.banco().statementLine.findMany({
+      where: { tenantId, error: "", cents: { not: null }, postedOn: { not: null }, entryId: null, ignoredAt: null, parts: { none: {} } },
+      orderBy: [{ postedOn: "asc" }, { line: "asc" }],
+      select: { statementId: true, line: true, postedOn: true, cents: true, description: true },
+      take: 20_000,
+    });
+    return rows.flatMap((row) =>
+      row.postedOn && row.cents !== null
+        ? [{ statementId: row.statementId, line: row.line, date: isoDe(row.postedOn) ?? "", cents: row.cents, description: row.description }]
+        : [],
+    );
+  }
+
+  async descricoesDosLancamentos(tenantId: string, entryIds: string[]) {
+    if (entryIds.length === 0) return [];
+    const [inteiras, partes] = await Promise.all([
+      this.banco().statementLine.findMany({
+        where: { tenantId, entryId: { in: entryIds } },
+        select: { entryId: true, description: true },
+      }),
+      this.banco().statementLinePart.findMany({
+        where: { tenantId, entryId: { in: entryIds } },
+        select: { entryId: true, statementLine: { select: { description: true } } },
+      }),
+    ]);
+    return [
+      ...inteiras.flatMap((item) => (item.entryId ? [{ entryId: item.entryId, description: item.description }] : [])),
+      ...partes.map((item) => ({ entryId: item.entryId, description: item.statementLine.description })),
+    ];
+  }
+
+  async registrarConferenciaDesfeita(tenantId: string, aviso: ConferenciaDesfeitaAviso) {
+    await this.banco().$transaction(async (tx) => {
+      await gravarOutbox(tx, tenantId, "desfazer-conferencia", `${tenantId}:concluido`, aviso, String(Date.now()));
     });
   }
 

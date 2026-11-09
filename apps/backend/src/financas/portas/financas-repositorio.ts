@@ -187,6 +187,11 @@ export interface FinancasRepositorio {
     tenantId: string,
     valores: ValorFixo[],
   ): Promise<Lancamento[] | FalhaDeLancamento>;
+  /**
+   * Recorrente e parcela: as ocorrências ainda pendentes (sem a multa) passam a prever este valor, sem sinal, e o
+   * lançamento também. O que já foi pago, cancelado ou estornado fica como está.
+   */
+  seguirValorDaSerie(tenantId: string, id: string, cents: number): Promise<Lancamento | FalhaDeLancamento>;
   excluir(tenantId: string, id: string): Promise<void | FalhaDeLancamento>;
   excluirOcorrencia(
     tenantId: string,

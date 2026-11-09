@@ -1335,7 +1335,75 @@ export type Conta = {
 
 export type PedidoDeConta = { name: string; kind: TipoDeConta; openingCents: number };
 
-export type ContasResposta = { accounts: Conta[] };
+export type ContasResposta = { accounts: Conta[]; boxes: Caixinha[] };
+
+/** O grupo que recebe uma sessão por caixinha. */
+export const GRUPO_DAS_CAIXINHAS = "Caixinhas";
+
+/**
+ * Caixinha (depósito) dentro de uma conta. A sessão dela, no grupo "Caixinhas", guarda o rendimento de cada mês, as
+ * aplicações (saem da conta e entram na caixinha) e os resgates (o contrário). Ligada a uma meta, o saldo dela conta
+ * no guardado da meta, e o que a meta separa vira aplicação nela.
+ */
+export type Caixinha = {
+  id: string;
+  accountId: string;
+  name: string;
+  /** O que já estava na caixinha quando a pessoa começou a controlar aqui. */
+  openingCents: number;
+  sessionId: string;
+  goalId: string | null;
+};
+
+export type PedidoDeCaixinha = { name: string; openingCents: number; goalId: string | null };
+
+export const MOVIMENTOS_DA_CAIXINHA = ["rendimento", "aplicacao", "resgate"] as const;
+export type MovimentoDaCaixinha = (typeof MOVIMENTOS_DA_CAIXINHA)[number];
+export const ROTULO_DO_MOVIMENTO_DA_CAIXINHA: Record<MovimentoDaCaixinha, string> = {
+  rendimento: "Rendimento",
+  aplicacao: "Aplicação",
+  resgate: "Resgate",
+};
+
+/** Rendimento: valor com sinal (negativo é perda no mês). Aplicação e resgate: valor positivo. */
+export type PedidoDeMovimentoNaCaixinha = { tipo: MovimentoDaCaixinha; cents: number; date: string };
+
+/**
+ * Quanto um lançamento da sessão da caixinha muda o saldo dela. Com conta, é aplicação ou resgate: o que sai da conta
+ * entra na caixinha, e o que entra na conta sai dela. Sem conta, é rendimento.
+ */
+export function efeitoNaCaixinha(entry: Pick<Lancamento, "accountId">, valor: number) {
+  return entry.accountId ? -valor : valor;
+}
+
+export type ResumoDaCaixinha = {
+  /** O saldo inicial mais o que já foi aplicado e rendeu, menos o resgatado, até hoje. */
+  saldoCents: number;
+  /** O rendimento lançado no mês pedido. */
+  rendimentoDoMesCents: number;
+  /** Todo o rendimento lançado até hoje. */
+  rendimentoTotalCents: number;
+};
+
+/** O resumo da caixinha pelos lançamentos já feitos na sessão dela. `mes` é "AAAA-MM"; sem ele, o mês de hoje. */
+export function resumoDaCaixinha(caixinha: Caixinha, entries: Lancamento[], hoje: string, mes = hoje.slice(0, 7)): ResumoDaCaixinha {
+  let saldo = caixinha.openingCents;
+  let doMes = 0;
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.sessionId !== caixinha.sessionId) continue;
+    for (const item of ocorrenciasDoLancamento(entry)) {
+      if (item.status !== "completed") continue;
+      const data = dataContabil(item);
+      const valor = item.paidCents ?? item.plannedCents;
+      if (!entry.accountId && data.startsWith(mes)) doMes += valor;
+      if (data > hoje) continue;
+      saldo += efeitoNaCaixinha(entry, valor);
+      if (!entry.accountId) total += valor;
+    }
+  }
+  return { saldoCents: saldo, rendimentoDoMesCents: doMes, rendimentoTotalCents: total };
+}
 
 /** O que uma conta tem hoje e o que fica no fim do mês, pelos lançamentos ligados a ela. */
 export type ResumoDaConta = {
@@ -1548,6 +1616,58 @@ export type ConferenciaDesfeita = {
   orphans: number;
 };
 
+/** Uma linha de extrato ainda sem lançamento, de qualquer mês importado. */
+export type LinhaDaSerie = { statementId: string; line: number; date: string; cents: number; description: string };
+
+/**
+ * Um mês em que a mesma compra aparece no extrato. `numero` é a parcela daquele mês. Na série que já existe,
+ * `dueDate` e `plannedCents` são a ocorrência pendente daquele mês.
+ */
+export type MesDaSerieNoExtrato = {
+  month: string;
+  numero: number | null;
+  dueDate: string | null;
+  plannedCents: number | null;
+  /** Antes da primeira ocorrência da série que já existe. Na recorrente, a linha desse mês entra como única. */
+  antes: boolean;
+  lines: LinhaDaSerie[];
+};
+
+/** "serie": a linha paga a ocorrência do mês. "parte": soma no mês, como única na mesma sessão. */
+export const PAPEIS_DA_LINHA_NA_SERIE = ["serie", "parte"] as const;
+export type PapelDaLinhaNaSerie = (typeof PAPEIS_DA_LINHA_NA_SERIE)[number];
+
+export type EscolhaDaLinhaNaSerie = { statementId: string; line: number; papel: PapelDaLinhaNaSerie };
+
+/** As linhas de outros meses que são a mesma compra da linha que vai virar parcela, empréstimo ou recorrente. */
+export type PreviaDaSerie = { meses: MesDaSerieNoExtrato[] };
+
+/** Uma parcela, empréstimo ou recorrente que já existe e tem linhas livres em outros meses importados. */
+export type SerieComLinhas = {
+  entryId: string;
+  name: string;
+  category: CategoriaTransacao;
+  sessionId: string;
+  sessionName: string;
+  groupName: string;
+  meses: MesDaSerieNoExtrato[];
+};
+
+export type SeriesComLinhasResposta = { series: SerieComLinhas[] };
+
+/** O que lançar a série com as linhas fez: o lançamento, quantas entraram e as que falharam, com o motivo. */
+export type SerieLancada = {
+  entryId: string | null;
+  launched: number;
+  failed: FalhaDeAcumulo[];
+};
+
+/** "Desfazer toda a conferência" entrou na fila: roda em segundo plano e a central avisa quando termina. */
+export type ConferenciaDesfazendo = { queued: true };
+
+/** O aviso da central quando o desfazer da fila termina, ou falha. */
+export type ConferenciaDesfeitaAviso = ConferenciaDesfeita & { concluido: true; userId: string | null; falhou?: string };
+
 export type FalhaDeAcumulo = {
   statementId: string;
   line: number;
@@ -1571,7 +1691,11 @@ export type Meta = {
   sessionId: string | null;
   /** A ordem de prioridade que a pessoa escolheu: 1 é a primeira a receber da sobra. */
   position: number;
+  /** A caixinha em que a meta guarda o dinheiro: o saldo dela soma no guardado, e o que a meta separa vai para ela. */
+  box?: CaixinhaDaMeta | null;
 };
+
+export type CaixinhaDaMeta = { id: string; name: string; accountId: string; accountName: string; saldoCents: number };
 
 /** O grupo que recebe uma sessão por meta. */
 export const GRUPO_DAS_METAS = "Metas";
@@ -2157,6 +2281,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "cancelar-fixo",
     "suspender-fixo",
     "atualizar-valor-fixo",
+    "seguir-valor-da-serie",
     "atualizar-ocorrencia",
     "excluir-ocorrencia",
     "redatar-vencimentos",
@@ -2176,6 +2301,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
   ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "mover-tarefa", "excluir-tarefa"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
   ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta", "remover-conta"]),
+  ...grupo("financeiro", "Caixinha", ["criar-caixinha", "atualizar-caixinha", "excluir-caixinha", "ligar-meta-a-caixinha"]),
   ...grupo("extratos", "Extrato", ["importar-extrato", "reprocessar-extrato", "excluir-extrato", "associar-nome-extrato", "lembrar-nome-extrato", "esquecer-nome-extrato", "desfazer-conferencia"]),
   ...grupo("extratos", "Linha de extrato", ["cruzar-linha", "desfazer-cruzamento", "ignorar-linhas", "reativar-linhas", "dividir-linha", "desfazer-divisao"]),
   ...grupo("extratos", "Lançamento", ["pagar-pelo-extrato"]),
@@ -3370,7 +3496,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "separar_valor_da_meta",
     agentes: ["metas"],
     descricao:
-      "Separa um valor para a meta agora: lança uma saída na sessão dela. Mexe com dinheiro, então a pessoa sempre confirma antes. Valor em centavos, positivo.",
+      "Separa um valor para a meta agora: lança uma saída na sessão dela (com caixinha ligada, uma aplicação na caixinha). Mexe com dinheiro, então a pessoa sempre confirma antes. Valor em centavos, positivo.",
     exigeConfirmacao: true,
     esquema: z.object({
       id: idDoSistema.describe("Id da meta."),
@@ -3382,7 +3508,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "excluir_meta",
     agentes: ["metas"],
-    descricao: "Apaga uma meta.",
+    descricao: "Apaga uma meta. A sessão dela no grupo Metas é encerrada e o valor separado volta para a sobra; a caixinha ligada continua na conta.",
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
@@ -3425,6 +3551,56 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     rotulo: (args) => `Consultou a conferência de ${args.month}/${args.year}`,
   }),
   ferramenta({
+    nome: "previa_da_serie_no_extrato",
+    agentes: ["extratos"],
+    descricao:
+      "Antes de lançar uma linha como parcela, empréstimo ou recorrente: as linhas de outros meses importados que são a mesma compra, por mês (com a parcela de cada mês). Use para propor lancar_serie_do_extrato com todas juntas.",
+    leitura: true,
+    esquema: z.object({ statementId: idDoSistema, line: z.number().int().min(1), tipo: ESQUEMA_DO_TIPO_DA_LINHA }),
+    rotulo: (args) => `Procurou a linha ${args.line} em outros meses`,
+  }),
+  ferramenta({
+    nome: "lancar_serie_do_extrato",
+    agentes: ["extratos"],
+    descricao:
+      "Cria a parcela, o empréstimo ou a recorrente com as linhas de vários meses de uma vez (as de previa_da_serie_no_extrato). A série nasce no mês mais antigo escolhido; em cada mês, uma linha tem papel 'serie' e paga a ocorrência do mês, no valor do extrato. Outras linhas do mesmo mês, se a pessoa quiser somar, vão com papel 'parte' e viram únicas na mesma sessão.",
+    esquema: z.object({
+      statementId: idDoSistema.describe("A linha de origem, a mesma da prévia."),
+      line: z.number().int().min(1),
+      sessionId: idDoSistema,
+      tipo: ESQUEMA_DO_TIPO_DA_LINHA,
+      nome: z.string().trim().min(1).max(160).optional(),
+      linhas: z
+        .array(z.object({ statementId: idDoSistema, line: z.number().int().min(1), papel: z.enum(PAPEIS_DA_LINHA_NA_SERIE) }))
+        .min(1)
+        .max(400),
+    }),
+    rotulo: (args) => `Lançou a série com ${args.linhas.length} linhas`,
+  }),
+  ferramenta({
+    nome: "consultar_series_no_extrato",
+    agentes: ["extratos", "financas"],
+    descricao:
+      "As parcelas, empréstimos e recorrentes que já existem e têm linhas livres em outros meses importados, por mês, com a ocorrência prevista. 'antes' é o mês anterior ao início da série: na recorrente, a linha dele entra como única.",
+    leitura: true,
+    esquema: vazio,
+    rotulo: () => "Consultou as séries com linhas em outros meses",
+  }),
+  ferramenta({
+    nome: "juntar_linhas_a_serie",
+    agentes: ["extratos"],
+    descricao:
+      "Junta a uma parcela, empréstimo ou recorrente que já existe as linhas escolhidas de outros meses (as de consultar_series_no_extrato): uma por mês com papel 'serie', e as outras do mesmo mês com papel 'parte', se a pessoa quiser somar.",
+    esquema: z.object({
+      id: idDoSistema.describe("O lançamento da série."),
+      linhas: z
+        .array(z.object({ statementId: idDoSistema, line: z.number().int().min(1), papel: z.enum(PAPEIS_DA_LINHA_NA_SERIE) }))
+        .min(1)
+        .max(400),
+    }),
+    rotulo: (args) => `Juntou ${args.linhas.length} linhas à série`,
+  }),
+  ferramenta({
     nome: "ignorar_linhas",
     agentes: ["extratos"],
     descricao:
@@ -3461,7 +3637,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "desfazer_conferencia",
     agentes: ["extratos"],
     descricao:
-      "Desfaz toda a conferência da conta: as linhas cruzadas e divididas voltam a sem lançamento, as ignoradas voltam, os nomes lembrados são esquecidos e os lançamentos que nasceram do extrato são apagados. Só quando a pessoa pedir para recomeçar a conferência do zero.",
+      "Desfaz toda a conferência da conta: as linhas cruzadas e divididas voltam a sem lançamento, as ignoradas voltam, os nomes lembrados são esquecidos e os lançamentos que nasceram do extrato são apagados. Roda em segundo plano: a resposta diz que começou, e a pessoa recebe uma notificação quando termina. Só quando a pessoa pedir para recomeçar a conferência do zero.",
     destrutiva: true,
     exigeConfirmacao: true,
     esquema: z.object({ resumo: resumoDoQueApaga }),
@@ -3559,7 +3735,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_contas",
     agentes: todosLeem,
-    descricao: "Lista as contas (banco, carteira) e os cartões de crédito da pessoa, com ids, tipo e saldo inicial.",
+    descricao:
+      "Lista as contas (banco, carteira) e os cartões de crédito da pessoa, com ids, tipo e saldo inicial, e as caixinhas (depósitos) de cada conta, com id, saldo inicial, a sessão do rendimento e a meta ligada.",
     leitura: true,
     esquema: vazio,
     rotulo: () => "Consultou as contas",
@@ -3594,6 +3771,60 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "criar_caixinha",
+    agentes: ["financas", "metas"],
+    descricao:
+      "Cria uma caixinha (depósito) dentro de uma conta do banco (cartão não tem). Ela nasce com uma sessão no grupo Caixinhas, onde entram o rendimento de cada mês, as aplicações e os resgates. openingCents é o que já está nela hoje. goalId liga a caixinha a uma meta: o saldo dela soma no guardado da meta.",
+    esquema: z.object({
+      accountId: idDoSistema.describe("A conta da caixinha (consultar_contas)."),
+      name: z.string().trim().min(1).max(60),
+      openingCents: z.number().int().min(0).optional().describe("O que já está na caixinha, em centavos. Padrão 0."),
+      goalId: idDoSistema.nullable().optional().describe("A meta que guarda nesta caixinha (consultar_metas)."),
+    }),
+    rotulo: (args) => `Criou a caixinha ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "editar_caixinha",
+    agentes: ["financas", "metas"],
+    descricao: "Renomeia a caixinha, muda o saldo inicial ou a meta ligada (null tira a meta). Mande todos os campos, com os valores atuais nos que não mudam.",
+    esquema: z.object({
+      id: idDoSistema,
+      name: z.string().trim().min(1).max(60),
+      openingCents: z.number().int().min(0),
+      goalId: idDoSistema.nullable(),
+    }),
+    rotulo: (args) => `Editou a caixinha ${entreAspas(args.name)}`,
+  }),
+  ferramenta({
+    nome: "excluir_caixinha",
+    agentes: ["financas"],
+    descricao: "Apaga uma caixinha. Os lançamentos da sessão dela ficam no grupo Caixinhas como histórico; sem lançamentos, a sessão sai junto.",
+    destrutiva: true,
+    esquema: peloIdApagando,
+    rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "movimentar_caixinha",
+    agentes: ["financas", "metas"],
+    descricao:
+      "Lança um movimento na sessão da caixinha. rendimento: o quanto rendeu no mês (entrada, soma na sobra; negativo é perda). aplicacao: dinheiro que sai da conta e entra na caixinha. resgate: o contrário. Na caixinha comum, aplicação e resgate são transferência e não mexem na sobra; na caixinha de uma meta, a aplicação é o valor separado para a meta e sai da sobra.",
+    esquema: z.object({
+      id: idDoSistema.describe("Id da caixinha."),
+      tipo: z.enum(MOVIMENTOS_DA_CAIXINHA),
+      cents: z.number().int().describe("Centavos. Aplicação e resgate positivos; rendimento com sinal."),
+      date: dataDoSistema,
+    }),
+    rotulo: (args) => `${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[args.tipo]} de ${(args.cents / 100).toFixed(2).replace(".", ",")} reais na caixinha`,
+  }),
+  ferramenta({
+    nome: "guardar_meta_na_caixinha",
+    agentes: ["metas"],
+    descricao:
+      "Liga a meta a uma caixinha: o saldo da caixinha passa a somar no guardado da meta, e o que a meta separa (aprovar_parte_da_meta, separar_valor_da_meta) vira aplicação nela. boxId null desfaz a ligação.",
+    esquema: z.object({ id: idDoSistema.describe("Id da meta."), boxId: idDoSistema.nullable() }),
+    rotulo: (args) => (args.boxId ? "Ligou a meta a uma caixinha" : "Tirou a meta da caixinha"),
   }),
   // Feriados e vencimentos
   ferramenta({

@@ -5,6 +5,10 @@ import {
   LINHAS_DA_CONFERENCIA_DE_UMA_VEZ,
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
   type DiferencaDoPagamento,
+  type EscolhaDaLinhaNaSerie,
+  type PreviaDaSerie,
+  type SerieLancada,
+  type SeriesComLinhasResposta,
   type TipoDaLinha,
   type ConferenciaDesfeita,
   type ConferenciaResposta,
@@ -32,11 +36,19 @@ import { ehOcr, tipoDaMidia } from "../dominio/formato-ocr.js";
 import { AnexosService } from "../../assistente/aplicacao/anexos.service.js";
 import { leituraDasLinhas } from "../dominio/leitura-ocr.js";
 import { casaComABusca, termosDaBusca } from "../dominio/busca.js";
-import { chaveDoNome, ehTransferenciaDePessoa } from "../dominio/nome-extrato.js";
+import { chaveDoNome, descricoesParecidas, palavrasEmComum } from "../dominio/nome-extrato.js";
 import { erroDaDivisao, JUSTIFICATIVA_DO_EXTRATO, nomeDaLinha } from "../dominio/divisao.js";
 import { idDoPagamentoDaLinha } from "../dominio/pagamento-da-linha.js";
 import { bytesDoConteudo, lerArquivo, nomeDoArquivo } from "../dominio/ler-extrato.js";
 import { sessaoDoCompromisso } from "../dominio/sessao-do-compromisso.js";
+import {
+  ehCategoriaDeSerie,
+  erroDaEscolha,
+  linhasDaNovaSerie,
+  linhasDaSerieExistente,
+  tipoNoInicio,
+  type MesDaSerie,
+} from "../dominio/serie.js";
 import {
   EXTRATOS_REPOSITORIO,
   type ExtratosRepositorio,
@@ -55,6 +67,39 @@ type LinhaGravada = Exclude<Awaited<ReturnType<ExtratosRepositorio["obterLinha"]
  * Como o lançamento da linha trata a sessão: `valor` decide a divergência na Fixo, `emPartes` libera mais uma.
  * `tipo` é o tipo do lançamento que nasce (sem ele, única).
  */
+/**
+ * A lembrança da linha: a da mesma chave, ou a do mesmo destino escrito de outro jeito (com ou sem CNPJ e conta).
+ * Quando mais de uma combina, vale a que tem mais palavras em comum; empate entre sessões diferentes não sugere nada.
+ */
+function lembradoDa<T extends { sessionId: string }>(descricao: string, lembrados: Map<string, T>) {
+  const exato = lembrados.get(chaveDoNome(descricao));
+  if (exato) return exato;
+  const parecidos = [...lembrados.entries()]
+    .filter(([chave]) => descricoesParecidas(chave, descricao))
+    .map(([chave, item]) => ({ item, pontos: palavrasEmComum(chave, descricao) }))
+    .sort((a, b) => b.pontos - a.pontos);
+  const [melhor, segundo] = parecidos;
+  if (!melhor) return undefined;
+  if (segundo && segundo.pontos === melhor.pontos && segundo.item.sessionId !== melhor.item.sessionId) return undefined;
+  return melhor.item;
+}
+
+/** Os nomes já dados ao mesmo destino: os da mesma chave primeiro, depois os das descrições parecidas. */
+function nomesDa(descricao: string, nomesPorChave: Map<string, string[]>) {
+  const exatos = nomesPorChave.get(chaveDoNome(descricao)) ?? [];
+  const parecidos = [...nomesPorChave.entries()].filter(([chave]) => chave !== chaveDoNome(descricao) && descricoesParecidas(chave, descricao)).flatMap(([, nomes]) => nomes);
+  return [...new Set([...exatos, ...parecidos])].slice(0, 8);
+}
+
+/** As linhas escolhidas com esse papel, em ordem de data. */
+function linhasEmOrdem(meses: MesDaSerie[], escolha: EscolhaDaLinhaNaSerie[], papel: EscolhaDaLinhaNaSerie["papel"]) {
+  const escolhidas = new Set(escolha.filter((item) => item.papel === papel).map((item) => `${item.statementId}:${item.line}`));
+  return meses
+    .flatMap((mes) => mes.lines)
+    .filter((linha) => escolhidas.has(`${linha.statementId}:${linha.line}`))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
+}
+
 export type OpcoesDoLancamento = { valor?: ValorDoMes; emPartes?: boolean; nome?: string; tipo?: TipoDaLinha };
 
 /** Uma parte da linha dividida: o valor, a sessão, o nome (se a pessoa deu) e o tipo do lançamento. */
@@ -246,7 +291,7 @@ export class ExtratosService {
     );
     const lines = linhas.map(({ importedAt: _importedAt, parts: partes, ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
-      const names = nomesPorChave.get(chaveDoNome(linha.description)) ?? [];
+      const names = nomesDa(linha.description, nomesPorChave);
       if (linha.entryId || linha.ignored) {
         const parts = partes.length > 1
           ? partes.flatMap((parte) => {
@@ -268,8 +313,8 @@ export class ExtratosService {
         };
       }
       const candidatos = candidatosDaLinha(linha, cruzaveis);
-      // Transferência para pessoa não tem memória: o motivo muda a cada uma.
-      const lembrado = ehTransferenciaDePessoa(linha.description) ? undefined : lembrados.get(chaveDoNome(linha.description));
+      // A lembrança vale também para transferência: o destino (a pessoa ou a empresa) costuma ser o mesmo todo mês.
+      const lembrado = lembradoDa(linha.description, lembrados);
       const proposta = propostaDaLinha(linha, candidatos, lembrado);
       // O nome já lançado antes vale mais; sem ele, vale a sessão do compromisso que cai no dia da linha.
       const doCompromisso = lembrado?.sessionId ? null : sessaoDoCompromisso(linha.date, compromissos);
@@ -397,6 +442,10 @@ export class ExtratosService {
       await this.extratos.desfazerCruzamento(tenantId, statementId, line).catch(() => undefined);
       throw error;
     }
+    // Recorrente paga no valor do extrato: os meses seguintes, ainda pendentes, passam a prever esse valor.
+    if (entry.category === "fixed" && !daSessaoFixa && centavos === gravada.cents && centavos !== planejado) {
+      await this.financas.seguirValorDaSerie(tenantId, entryId, centavos).catch(() => undefined);
+    }
   }
 
   /**
@@ -404,8 +453,9 @@ export class ExtratosService {
    * apagado (com o nome e a associação que ele deixou), e o que já existia volta a pendente.
    */
   async desfazer(tenantId: string, statementId: string, line: number) {
-    const { year, month } = await this.desfazerLinha(tenantId, statementId, line);
-    return this.conferencia(tenantId, year, month);
+    const desfeita = await this.desfazerLinha(tenantId, statementId, line);
+    if (!desfeita) throw new Conflito("Essa linha não está cruzada.");
+    return this.conferencia(tenantId, desfeita.year, desfeita.month);
   }
 
   /**
@@ -421,8 +471,15 @@ export class ExtratosService {
     tolerante = false,
   ) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
-    if (gravada === "ausente" || !gravada.date) throw new NaoEncontrado("Linha não encontrada.");
-    if (!gravada.entryId) throw new Conflito("Essa linha não está cruzada.");
+    // No desfazer em lote, a linha que outro desfazer já soltou (ou que sumiu) não é erro: só segue.
+    if (gravada === "ausente" || !gravada.date) {
+      if (tolerante) return null;
+      throw new NaoEncontrado("Linha não encontrada.");
+    }
+    if (!gravada.entryId) {
+      if (tolerante) return null;
+      throw new Conflito("Essa linha não está cruzada.");
+    }
     const [year, month] = gravada.date.split("-").map(Number);
     const data = gravada.date;
     const key = chaveDoNome(gravada.description);
@@ -488,10 +545,10 @@ export class ExtratosService {
    * dividida volta a pendente (o lançamento que nasceu dela some, o que ela pagou reabre), as ignoradas voltam, e
    * os nomes lembrados e as associações de descrição são esquecidos. Os extratos e as linhas ficam.
    */
-  async desfazerConferencia(tenantId: string): Promise<ConferenciaDesfeita> {
-    const linhas = await this.extratos.linhasCruzadas(tenantId);
-    for (const { statementId, line } of linhas) {
-      await this.desfazerLinha(tenantId, statementId, line, new Set(), true);
+  async desfazerConferencia(tenantId: string, userId: string | null = null): Promise<ConferenciaDesfeita> {
+    let lines = 0;
+    for (const { statementId, line } of await this.extratos.linhasCruzadas(tenantId)) {
+      if (await this.desfazerLinha(tenantId, statementId, line, new Set(), true)) lines += 1;
     }
     // O que o extrato criou e já não tem linha (de fluxos antigos) também sai: nada da conferência fica.
     let orphans = 0;
@@ -500,7 +557,15 @@ export class ExtratosService {
     }
     const reactivated = await this.extratos.reativarTodas(tenantId);
     const names = await this.extratos.esquecerTudo(tenantId);
-    return { lines: linhas.length, reactivated, names, orphans };
+    const resultado = { lines, reactivated, names, orphans };
+    // Quem desfez pela fila recebe o aviso na central; o evento também fica no histórico.
+    await this.extratos.registrarConferenciaDesfeita(tenantId, { ...resultado, concluido: true, userId });
+    return resultado;
+  }
+
+  /** O desfazer da fila falhou: a pessoa fica sabendo pela central, com o motivo. */
+  registrarFalhaAoDesfazer(tenantId: string, userId: string | null, motivo: string) {
+    return this.extratos.registrarConferenciaDesfeita(tenantId, { lines: 0, reactivated: 0, names: 0, orphans: 0, concluido: true, userId, falhou: motivo });
   }
 
   esquecerAssociacoesDaSessao(tenantId: string, sessionId: string) {
@@ -669,6 +734,134 @@ export class ExtratosService {
     return this.conferencia(tenantId, year, month);
   }
 
+  /**
+   * Antes de a linha virar parcela, empréstimo ou recorrente: as linhas de outros meses importados que são a mesma
+   * compra, por mês. A tela mostra e a pessoa escolhe quais entram juntas.
+   */
+  async previaDaSerie(tenantId: string, statementId: string, line: number, tipo: TipoDaLinha): Promise<PreviaDaSerie> {
+    const lida = await this.extratos.obterLinha(tenantId, statementId, line);
+    if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
+    if (lida.entryId) throw new Conflito("Essa linha já foi cruzada.");
+    if (lida.ignored) throw new Conflito(MENSAGEM_DA_LINHA_IGNORADA);
+    const erro = erroDoTipoDaLinha(tipo, lida.cents);
+    if (erro) throw new PedidoInvalido(erro);
+    const origem = { statementId, line, date: lida.date, cents: lida.cents, description: lida.description };
+    return { meses: linhasDaNovaSerie(origem, tipo, await this.extratos.linhasLivres(tenantId)) };
+  }
+
+  /**
+   * Cria a série a partir das linhas escolhidas: ela nasce no mês mais antigo que tem a linha da série (com a parcela
+   * daquele mês), e cada linha seguinte, em ordem, paga a ocorrência do mês dela no valor do extrato. As partes somam
+   * no mês como únicas na mesma sessão, como o "pago em partes". Uma linha que falha não derruba as outras.
+   */
+  async lancarSerie(
+    tenantId: string,
+    origem: { statementId: string; line: number },
+    sessionId: string,
+    tipo: TipoDaLinha,
+    escolha: EscolhaDaLinhaNaSerie[],
+    nome?: string,
+  ): Promise<SerieLancada> {
+    if (!ehCategoriaDeSerie(tipo.category)) throw new PedidoInvalido("Só parcela, empréstimo e recorrente juntam linhas de outros meses.");
+    const { meses } = await this.previaDaSerie(tenantId, origem.statementId, origem.line, tipo);
+    const erro = erroDaEscolha(meses, escolha);
+    if (erro) throw new PedidoInvalido(erro);
+    const daSerie = linhasEmOrdem(meses, escolha, "serie");
+    const inicio = daSerie[0]!;
+    // A primeira cria a série: se ela falhar, nada mais entra.
+    await this.lancarLinha(tenantId, inicio.statementId, inicio.line, sessionId, { tipo: tipoNoInicio(tipo, meses, inicio.date.slice(0, 7)), ...(nome ? { nome } : {}) });
+    const lida = await this.extratos.obterLinha(tenantId, inicio.statementId, inicio.line);
+    const entryId = lida !== "ausente" ? lida.entryId : null;
+    if (!entryId) throw new Conflito("A série não foi criada.");
+    const resultado = await this.juntarNaSerie(tenantId, entryId, sessionId, daSerie.slice(1), linhasEmOrdem(meses, escolha, "parte"), nome);
+    return { entryId, launched: resultado.launched + 1, failed: resultado.failed };
+  }
+
+  /** As parcelas, empréstimos e recorrentes abertos que têm linhas livres em outros meses importados. */
+  async seriesComLinhas(tenantId: string): Promise<SeriesComLinhasResposta> {
+    const [{ entries }, livres, associacoes] = await Promise.all([
+      this.financas.listar(tenantId),
+      this.extratos.linhasLivres(tenantId),
+      this.extratos.listarAssociacoes(tenantId),
+    ]);
+    const series = entries.filter((entry) => ehCategoriaDeSerie(entry.category) && entry.status !== "cancelled" && !entry.transfer);
+    if (series.length === 0 || livres.length === 0) return { series: [] };
+    const descricoes = await this.extratos.descricoesDosLancamentos(tenantId, series.map((entry) => entry.id));
+    const chaves = new Map<string, Set<string>>();
+    const juntar = (entryId: string, chave: string) => {
+      if (!chave) return;
+      chaves.set(entryId, (chaves.get(entryId) ?? new Set()).add(chave));
+    };
+    for (const item of associacoes) if (item.entryId) juntar(item.entryId, chaveDoNome(item.name));
+    for (const item of descricoes) juntar(item.entryId, chaveDoNome(item.description));
+    return {
+      series: series.flatMap((entry) => {
+        const meses = linhasDaSerieExistente(entry, chaves.get(entry.id) ?? new Set(), livres);
+        if (meses.length === 0) return [];
+        return [{ entryId: entry.id, name: entry.name || entry.description, category: entry.category, sessionId: entry.sessionId, sessionName: entry.sessionName, groupName: entry.groupName, meses }];
+      }),
+    };
+  }
+
+  /** Junta à série que já existe as linhas escolhidas de outros meses. */
+  async juntarASerie(tenantId: string, entryId: string, escolha: EscolhaDaLinhaNaSerie[]): Promise<SerieLancada> {
+    const { series } = await this.seriesComLinhas(tenantId);
+    const serie = series.find((item) => item.entryId === entryId);
+    if (!serie) throw new NaoEncontrado("Esta série não tem linhas livres em outros meses.");
+    const meses: MesDaSerie[] = serie.meses;
+    const erro = erroDaEscolha(meses, escolha);
+    if (erro) throw new PedidoInvalido(erro);
+    // Na recorrente, o mês antes do início não tem ocorrência: a linha dele entra como única na mesma sessão.
+    const antes = new Set(serie.category === "fixed" ? meses.filter((mes) => mes.antes).map((mes) => mes.month) : []);
+    const daSerie = linhasEmOrdem(meses, escolha, "serie");
+    const comoUnica = daSerie.filter((linha) => antes.has(linha.date.slice(0, 7)));
+    const resultado = await this.juntarNaSerie(
+      tenantId,
+      entryId,
+      serie.sessionId,
+      daSerie.filter((linha) => !antes.has(linha.date.slice(0, 7))),
+      [...comoUnica, ...linhasEmOrdem(meses, escolha, "parte")],
+      serie.name,
+    );
+    return { entryId, ...resultado };
+  }
+
+  /** Cada linha da série paga a ocorrência do seu mês, no valor do extrato; as partes viram únicas na mesma sessão. */
+  private async juntarNaSerie(
+    tenantId: string,
+    entryId: string,
+    sessionId: string,
+    daSerie: MesDaSerie["lines"],
+    partes: MesDaSerie["lines"],
+    nome?: string,
+  ) {
+    const failed: { statementId: string; line: number; message: string }[] = [];
+    let launched = 0;
+    const tentar = async (linha: MesDaSerie["lines"][number], fazer: () => Promise<unknown>) => {
+      try {
+        await fazer();
+        launched += 1;
+      } catch (error) {
+        failed.push({ statementId: linha.statementId, line: linha.line, message: error instanceof Error && error.message ? error.message : "Não foi possível lançar a linha." });
+      }
+    };
+    for (const linha of daSerie) {
+      await tentar(linha, async () => {
+        const lida = await this.extratos.obterLinha(tenantId, linha.statementId, linha.line);
+        if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
+        // Na série lançada junta, o valor de cada mês é o do extrato: antes de pagar, as pendentes passam a prever
+        // o valor desta linha. A parcela paga uma parcela inteira (e não metade, ou com sobra), e no fim as que
+        // ficam pendentes preveem o valor do último mês.
+        await this.financas.seguirValorDaSerie(tenantId, entryId, lida.cents).catch(() => undefined);
+        await this.cruzarELiquidar(tenantId, linha.statementId, linha.line, { ...lida, date: lida.date }, entryId, "extrato");
+      });
+    }
+    for (const linha of partes) {
+      await tentar(linha, () => this.lancarLinha(tenantId, linha.statementId, linha.line, sessionId, { emPartes: true, ...(nome ? { nome } : {}) }));
+    }
+    return { launched, failed };
+  }
+
   /** Só vale lembrar o nome diferente da descrição: a descrição a Conferência já oferece sempre. */
   private nomesParaLembrar(descricao: string, partes: { nome?: string }[]) {
     const key = chaveDoNome(descricao);
@@ -740,7 +933,7 @@ export class ExtratosService {
       statementId,
       line,
       entryId,
-      ehTransferenciaDePessoa(description) ? null : chaveDoNome(description) || null,
+      chaveDoNome(description) || null,
       lembrar ?? null,
       criado,
     );

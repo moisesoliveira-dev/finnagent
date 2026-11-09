@@ -94,6 +94,9 @@ function montar(
     reativarTodas: async () => Object.values(linhas).filter((gravada) => gravada.ignored).length,
     esquecerTudo: async () => 3,
     lancamentosSoltosDoExtrato: async () => ["orfao"],
+    registrarConferenciaDesfeita: async (_tenant: string, aviso: unknown) => {
+      registrados.push({ desfeita: aviso });
+    },
   };
   const criadas: { emPartes: boolean }[] = [];
   const pagas: { entryId: string; cents: number }[] = [];
@@ -291,7 +294,7 @@ describe("lançar linhas do extrato em lote", () => {
 
   describe("desfazer toda a conferência", () => {
     it("volta cada linha a pendente, reativa as ignoradas e esquece os nomes, sem apagar os extratos", async () => {
-      const { servico, excluidas, reabertas, extratosExcluidos } = montar(
+      const { servico, excluidas, reabertas, extratosExcluidos, registrados } = montar(
         {
           1: { ...linha("2026-10-05", -5000, "criado-pela-linha"), entryCreated: true },
           2: linha("2026-10-06", -3000, "ja-existia"),
@@ -300,11 +303,32 @@ describe("lançar linhas do extrato em lote", () => {
         },
         () => 0,
       );
-      const resultado = await servico.desfazerConferencia(TENANT);
+      const resultado = await servico.desfazerConferencia(TENANT, "u1");
       expect(resultado).toEqual({ lines: 2, reactivated: 1, names: 3, orphans: 1 });
       expect(excluidas).toEqual(["criado-pela-linha", "orfao"]);
       expect(reabertas).toEqual([{ entryId: "ja-existia", cents: -3000 }]);
       expect(extratosExcluidos).toEqual([]);
+      // O fim vai para o outbox, e a central avisa quem pediu.
+      expect(registrados).toEqual([{ desfeita: { lines: 2, reactivated: 1, names: 3, orphans: 1, concluido: true, userId: "u1" } }]);
+    });
+
+    it("a linha que outro desfazer já soltou não conta nem derruba o lote", async () => {
+      const linhas: Record<number, Linha> = {
+        1: linha("2026-10-05", -5000, "ja-existia"),
+        2: { ...linha("2026-10-06", -3000, "solta-no-meio"), parts: [] },
+      };
+      const { servico, reabertas, registrados } = montar(linhas, () => 0);
+      // Entre a lista e a leitura da linha 2, outro desfazer a soltou.
+      const obterLinha = servico as unknown as { extratos: { obterLinha: (t: string, id: string, line: number) => Promise<unknown> } };
+      const original = obterLinha.extratos.obterLinha;
+      obterLinha.extratos.obterLinha = async (t, id, line) => {
+        if (line === 2) linhas[2] = { ...linhas[2]!, entryId: null };
+        return original(t, id, line);
+      };
+      const resultado = await servico.desfazerConferencia(TENANT);
+      expect(resultado.lines).toBe(1);
+      expect(reabertas).toEqual([{ entryId: "ja-existia", cents: -5000 }]);
+      expect(registrados).toHaveLength(1);
     });
   });
 
