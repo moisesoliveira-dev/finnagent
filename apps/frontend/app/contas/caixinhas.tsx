@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   NOME_MES,
   ROTULO_DO_MOVIMENTO_DA_CAIXINHA,
@@ -15,8 +15,9 @@ import { Button } from "../../components/ui/button";
 import { Chip } from "../../components/ui/chip";
 import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
-import { List } from "../../components/ui/list";
+import { BarraDeUso } from "../../components/ui/barra-de-uso";
 import { formatarReais, Money } from "../../components/ui/money";
+import { Expandir, Seta } from "../../components/ui/movimento";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
 import { api } from "../financas/api";
@@ -61,59 +62,32 @@ export function SecaoDeCaixinhas({
   if (conta.kind === "cartao") return null;
   return (
     <div className="grid min-w-0 gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="etiqueta text-ink-2">Caixinhas desta conta</h3>
-        <Button variant="quiet" onClick={() => setPedido({ conta, caixinha: null })}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-ink-2">
+          {daConta.length === 0 ? "Nenhuma caixinha nesta conta." : daConta.length === 1 ? "1 caixinha nesta conta." : `${daConta.length} caixinhas nesta conta.`}
+        </p>
+        <Button variant="default" onClick={() => setPedido({ conta, caixinha: null })}>
           Nova caixinha
         </Button>
       </div>
       {daConta.length === 0 ? (
-        <p className="text-sm text-ink-2">
-          Nenhuma caixinha. Crie uma para cada depósito ou reserva: ela ganha uma sessão no grupo Conta para você lançar o quanto rendeu no mês.
+        <p className="max-w-prose text-sm text-ink-2">
+          Crie uma para cada depósito ou reserva: ela ganha uma sessão no grupo Conta para você lançar o quanto rendeu no mês.
         </p>
       ) : (
-        <List>
-          {daConta.map((caixinha) => {
-            const resumo = resumoDaCaixinha(caixinha, entries, hoje, chaveDoMes);
-            const meta = nomeDaMeta(caixinha.goalId);
-            return (
-              <li key={caixinha.id} className="grid min-w-0 gap-3 border-b border-line px-4 py-3 last:border-b-0">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <span className="grid min-w-0 gap-1">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">{caixinha.name}</span>
-                      {meta ? <Chip tone="ok">Para {meta}</Chip> : null}
-                    </span>
-                    <span className="text-sm text-ink-2">
-                      Rendeu em {NOME_MES[mes.month - 1]} {<Money cents={resumo.rendimentoDoMesCents} />} · no total {<Money cents={resumo.rendimentoTotalCents} />}
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 flex-col items-end gap-1">
-                    <Money cents={resumo.saldoCents} strong />
-                    <span className="text-xs text-ink-2">saldo hoje</span>
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="default" onClick={() => setMovimento({ caixinha, tipo: "rendimento" })}>
-                    Lançar rendimento
-                  </Button>
-                  <Button variant="quiet" onClick={() => setMovimento({ caixinha, tipo: "saldo" })}>
-                    Informar saldo
-                  </Button>
-                  <Button variant="quiet" onClick={() => setMovimento({ caixinha, tipo: "aplicacao" })}>
-                    Aplicar
-                  </Button>
-                  <Button variant="quiet" onClick={() => setMovimento({ caixinha, tipo: "resgate" })}>
-                    Resgatar
-                  </Button>
-                  <Button variant="quiet" onClick={() => setPedido({ conta, caixinha })}>
-                    Editar
-                  </Button>
-                </div>
-              </li>
-            );
-          })}
-        </List>
+        <ul className="grid min-w-0 gap-3 tab:grid-cols-2">
+          {daConta.map((caixinha) => (
+            <CartaoDaCaixinha
+              key={caixinha.id}
+              caixinha={caixinha}
+              resumo={resumoDaCaixinha(caixinha, entries, hoje, chaveDoMes)}
+              meta={caixinha.goalId ? metas.find((item) => item.id === caixinha.goalId) : undefined}
+              nomeDoMes={NOME_MES[mes.month - 1] ?? ""}
+              onAcao={(tipo) => setMovimento({ caixinha, tipo })}
+              onEditar={() => setPedido({ conta, caixinha })}
+            />
+          ))}
+        </ul>
       )}
 
       <Dialogo aberto={pedido !== null} aria-labelledby="titulo-caixinha" onClose={() => setPedido(null)}>
@@ -144,6 +118,76 @@ export function SecaoDeCaixinhas({
         ) : null}
       </Dialogo>
     </div>
+  );
+}
+
+/** Uma caixinha em cartão: o saldo, o rendimento, o progresso da meta e as ações. As menos usadas ficam em "Mais". */
+function CartaoDaCaixinha({
+  caixinha,
+  resumo,
+  meta,
+  nomeDoMes,
+  onAcao,
+  onEditar,
+}: {
+  caixinha: Caixinha;
+  resumo: ReturnType<typeof resumoDaCaixinha>;
+  meta: Meta | undefined;
+  nomeDoMes: string;
+  onAcao: (tipo: Acao) => void;
+  onEditar: () => void;
+}) {
+  const [mais, setMais] = useState(false);
+  const idDoMais = useId();
+  const percent = meta && meta.targetCents > 0 ? (meta.savedCents / meta.targetCents) * 100 : null;
+  return (
+    <li className="grid min-w-0 content-start gap-3 border border-line bg-surface p-4">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-medium">{caixinha.name}</span>
+        {meta ? <Chip tone="ok">Para {meta.name}</Chip> : null}
+      </div>
+      <div className="grid gap-1">
+        <span className="font-display text-lg font-bold tracking-titulo">
+          <Money cents={resumo.saldoCents} />
+        </span>
+        <span className="text-xs text-ink-2">
+          Rendeu {formatarReais(resumo.rendimentoDoMesCents)} em {nomeDoMes} · {formatarReais(resumo.rendimentoTotalCents)} no total
+        </span>
+      </div>
+      {meta && percent !== null ? (
+        <div className="grid gap-1">
+          <BarraDeUso percent={percent} tom="pos" rotulo={`Meta ${meta.name}: ${Math.round(percent)}% juntado`} />
+          <span className="text-xs text-ink-2">
+            {formatarReais(meta.savedCents)} de {formatarReais(meta.targetCents)} · {Math.min(Math.round(percent), 100)}%
+          </span>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="default" onClick={() => onAcao("rendimento")}>
+          Lançar rendimento
+        </Button>
+        <Button variant="quiet" aria-expanded={mais} aria-controls={idDoMais} onClick={() => setMais((valor) => !valor)}>
+          Mais
+          <Seta aberto={mais} />
+        </Button>
+      </div>
+      <Expandir aberto={mais} id={idDoMais}>
+        <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+          <Button variant="quiet" onClick={() => onAcao("saldo")}>
+            Informar saldo
+          </Button>
+          <Button variant="quiet" onClick={() => onAcao("aplicacao")}>
+            Aplicar
+          </Button>
+          <Button variant="quiet" onClick={() => onAcao("resgate")}>
+            Resgatar
+          </Button>
+          <Button variant="quiet" onClick={onEditar}>
+            Editar
+          </Button>
+        </div>
+      </Expandir>
+    </li>
   );
 }
 

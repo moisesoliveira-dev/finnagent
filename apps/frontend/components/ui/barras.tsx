@@ -106,3 +106,83 @@ export function Barras({
     </div>
   );
 }
+
+// A versão baixa das barras, para ficar ao lado de um número: sem moldura, barras finas e uma linha de leitura
+// acima. A barra escolhida fica azul; o que falta desce em `neg`. Apontar, focar ou tocar mostra o mês e o valor.
+export function BarrasCompactas({
+  barras,
+  ativo,
+  onEscolher,
+  ariaLabel,
+}: {
+  barras: Barra[];
+  ativo?: string;
+  onEscolher: (id: string) => void;
+  ariaLabel: string;
+}) {
+  const curva = useCurva();
+  const reduzir = useReducedMotion();
+  const [foco, setFoco] = useState<string | null>(null);
+  const maior = Math.max(1, ...barras.map((barra) => Math.abs(barra.cents)));
+  const temFalta = barras.some((barra) => barra.cents < 0);
+  const lido = barras.find((barra) => barra.id === (foco ?? ativo));
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      <p aria-live="polite" className="flex min-w-0 items-baseline justify-between gap-3 text-sm">
+        {lido ? (
+          <>
+            <span className="etiqueta truncate text-ink-2">{lido.rotulo}</span>
+            <Money cents={lido.cents} strong />
+          </>
+        ) : null}
+      </p>
+      <div role="group" aria-label={ariaLabel} className="grid h-24 min-w-0 auto-cols-fr grid-flow-col gap-1">
+        {barras.map((barra, indice) => {
+          const parte = barra.cents === 0 ? 0 : Math.max(4, Math.round((Math.abs(barra.cents) / maior) * 100));
+          const escolhida = barra.id === (foco ?? ativo);
+          const cor = escolhida ? "bg-brand" : barra.cents < 0 ? "bg-neg" : "bg-ink-2";
+          const entrada = {
+            initial: { scaleY: 0 },
+            animate: { scaleY: 1 },
+            transition: { ...curva, delay: reduzir ? 0 : indice * 0.03 },
+          };
+          return (
+            <button
+              key={barra.id}
+              type="button"
+              aria-label={`${barra.rotulo}: ${formatarReais(barra.cents)}`}
+              aria-pressed={ativo === barra.id}
+              onClick={() => onEscolher(barra.id)}
+              onMouseEnter={() => setFoco(barra.id)}
+              onMouseLeave={() => setFoco(null)}
+              onFocus={() => setFoco(barra.id)}
+              onBlur={() => setFoco(null)}
+              className={cn("grid min-w-0 transition-colors hover:bg-surface-2", temFalta ? "grid-rows-2" : "grid-rows-1", focusRing)}
+            >
+              <span className={cn("flex items-end justify-center", temFalta && "border-b border-line")}>
+                {barra.cents > 0 ? (
+                  <motion.span className={cn("w-2 origin-bottom transition-colors", cor)} style={{ height: `${parte}%` }} {...entrada} />
+                ) : null}
+              </span>
+              {temFalta ? (
+                <span className="flex items-start justify-center">
+                  {barra.cents < 0 ? (
+                    <motion.span className={cn("w-2 origin-top transition-colors", cor)} style={{ height: `${parte}%` }} {...entrada} />
+                  ) : null}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      <div aria-hidden="true" className="grid auto-cols-fr grid-flow-col gap-1">
+        {barras.map((barra) => (
+          <span key={barra.id} className={cn("etiqueta min-w-0 text-center", ativo === barra.id ? "text-brand" : "text-ink-2")}>
+            {barra.curto}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
