@@ -176,7 +176,9 @@ describe("rotas das ferramentas", () => {
       expect(caminho).not.toMatch(/^(perfil|usuarios|dados|auth|ia|assistente|calendarios)(\/|$)/);
       // Das configurações, só os padrões de vencimento.
       if (caminho.startsWith("configuracoes")) expect(caminho).toBe("configuracoes/vencimentos");
-      expect(caminho).not.toMatch(/google|dispositivos|preferencias/);
+      expect(caminho).not.toMatch(/google|dispositivos/);
+      // Preferências, só as de notificação: em que canal cada aviso chega, como na tela de Notificações.
+      if (caminho.includes("preferencias")) expect(caminho).toBe("notificacoes/preferencias");
     }
   });
 
@@ -202,3 +204,37 @@ describe("rotas das ferramentas", () => {
 
 });
 
+
+describe("ferramentas que a IA usa como a tela", () => {
+  const conta = "11111111-1111-4111-8111-111111111111";
+
+  it("consultar_hoje é leitura, para a IA ler o dia antes de propor", () => {
+    expect(FERRAMENTAS_DO_ASSISTENTE.find((item) => item.nome === "consultar_hoje")?.leitura).toBe(true);
+  });
+
+  it("o empréstimo criado pela IA leva de quem é e o total combinado", () => {
+    const corpo = ROTAS_DAS_FERRAMENTAS.criar_lancamento.corpo!(
+      { sessionId: conta, name: "Empréstimo da Ana", date: "2026-11-10", mode: "inflows", category: "loan", cents: 50_000, installments: 4, counterparty: "Ana", principalCents: 200_000 },
+      "America/Sao_Paulo",
+      conta,
+    ) as Record<string, unknown>;
+    expect(corpo).toMatchObject({ counterparty: "Ana", principalCents: 200_000 });
+  });
+
+  it("editar_lancamento manda só o que mudou, sem conta, transferência nem regra no padrão", () => {
+    const rota = ROTAS_DAS_FERRAMENTAS.editar_lancamento;
+    expect(rota.caminho({ id: conta })).toBe(`lancamentos/${conta}/campos`);
+    expect(rota.corpo!({ id: conta, cents: 9_900, name: undefined }, "America/Sao_Paulo")).toEqual({ cents: 9_900 });
+  });
+
+  it("editar_tarefa sem repeat não apaga a repetição", () => {
+    expect(ROTAS_DAS_FERRAMENTAS.editar_tarefa.corpo!({ id: conta, title: "Ler", date: "2026-11-10" }, "UTC")).toEqual({ title: "Ler", date: "2026-11-10" });
+    expect(ROTAS_DAS_FERRAMENTAS.editar_tarefa.corpo!({ id: conta, title: "Ler", date: "2026-11-10", repeat: null }, "UTC")).toEqual({ title: "Ler", date: "2026-11-10", repeat: null });
+  });
+
+  it("movimentar_caixinha recusa valor zero", () => {
+    const esquema = FERRAMENTAS_DO_ASSISTENTE.find((item) => item.nome === "movimentar_caixinha")!.esquema;
+    expect(esquema.safeParse({ id: conta, tipo: "rendimento", cents: 0, date: "2026-11-10" }).success).toBe(false);
+    expect(esquema.safeParse({ id: conta, tipo: "rendimento", cents: -150, date: "2026-11-10" }).success).toBe(true);
+  });
+});

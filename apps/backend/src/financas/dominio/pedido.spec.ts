@@ -119,3 +119,16 @@ describe("pedido de lançamento", () => {
     expect(novoLancamento(pedido({ mode: "inflows", cents: -500 })).cents).toBe(500);
   });
 });
+
+describe("formulário do lançamento gravado", () => {
+  it("parte do gravado e, com só um campo trocado, mantém empréstimo e regra", async () => {
+    const { formularioDoLancamento } = await import("./pedido.js");
+    const gravado = { ...notebook, category: "loan" as const, counterparty: "Ana", principalCents: 300_000, dueRule: { tipo: "dia" as const, ordem: null, ajuste: "adiar" as const, contagem: "bancaria" as const } };
+    const form = formularioDoLancamento(gravado);
+    expect(form).toMatchObject({ counterparty: "Ana", principalCents: 300_000, sessionId: notebook.sessionId, mode: notebook.mode });
+    expect(form.dueRule).toEqual(gravado.dueRule);
+    expect(form.cents).toBeGreaterThan(0);
+    expect(form).not.toHaveProperty("accountId");
+    expect(form).not.toHaveProperty("transfer");
+  });
+});
