@@ -8,7 +8,9 @@ import {
   resumoDaConta,
   type ContasResposta,
   type ExtratosResposta,
+  type Fatura,
   type FinancasVista,
+  type MetasResposta,
   type StatusExtrato,
 } from "@finnagent/contracts";
 import { chevronBack, walletOutline } from "ionicons/icons";
@@ -16,6 +18,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MESES, MESES_CURTOS, dataCurta, reais, rotuloDoMes } from "../../api/formato";
 import { diaEMes } from "../../api/arquivo";
+import { BarraDeUso } from "../../componentes/BarraDeUso";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
 import { Pagina } from "../../componentes/Pagina";
 import { SeletorDeMes } from "../../componentes/SeletorDeMes";
@@ -32,6 +35,8 @@ const ROTULO_DO_EXTRATO: Record<StatusExtrato, string> = {
   falhou: "Falhou",
 };
 
+const classeDaFatura = (fatura: Fatura) => (fatura.status === "paga" ? "ok" : fatura.status === "vencida" ? "neg" : "");
+
 const classeDoStatus = (status: StatusExtrato) => (status === "importado" ? "chip ok" : status === "processando" ? "chip" : "chip neg");
 
 /** Uma conta: o saldo de hoje, o que fica no fim do mês, os movimentos do mês com o saldo correndo e os extratos dela. */
@@ -40,12 +45,13 @@ export function DetalheDaConta() {
   const contas = useDados<ContasResposta>("/api/contas");
   const financas = useDados<FinancasVista>("/api/financas");
   const extratos = useDados<ExtratosResposta>("/api/extratos");
+  const metas = useDados<MetasResposta>("/api/metas");
   const { mes, direcao, mudar } = useMes();
   const hoje = hojeIso();
   const navegar = useNavigate();
   const [acao, setAcao] = useState<AcaoDaConta | null>(null);
 
-  const recarregar = () => Promise.all([contas.recarregar(), financas.recarregar(), extratos.recarregar()]).then(() => undefined);
+  const recarregar = () => Promise.all([contas.recarregar(), financas.recarregar(), extratos.recarregar(), metas.recarregar()]).then(() => undefined);
   useIonViewWillEnter(() => {
     if (contas.dados) void recarregar();
   });
@@ -57,7 +63,11 @@ export function DetalheDaConta() {
   const extratosDaConta = conta ? (extratos.dados?.statements ?? []).filter((item) => item.accountId === conta.id).sort((a, b) => b.importedAt.localeCompare(a.importedAt)) : [];
   const cartao = conta?.kind === "cartao";
   const caixinhas = conta ? (contas.dados?.boxes ?? []).filter((item) => item.accountId === conta.id) : [];
+  // Da atual (a aberta) para as mais antigas: a atual fica em destaque, as anteriores na lista.
   const faturas = conta && cartao ? [...faturasDoCartao(conta, entries, hoje)].reverse() : [];
+  const faturaAtual = faturas[0];
+  const anteriores = faturas.slice(1);
+  const listaDeMetas = metas.dados?.goals ?? [];
   const limite = conta && cartao ? limiteDoCartao(conta, entries, hoje) : null;
   const chaveDoMes = `${mes.ano}-${String(mes.mes).padStart(2, "0")}`;
   const tem = Boolean(contas.dados && financas.dados);
@@ -107,9 +117,17 @@ export function DetalheDaConta() {
                 </div>
               ) : null}
             </div>
+            {limite && conta.limitCents && limite.percent !== null ? (
+              <div className="secao" style={{ gap: 4 }}>
+                <BarraDeUso percent={limite.percent} rotulo={`Limite usado: ${limite.percent}%`} />
+                <span className="etiqueta">
+                  Usado {reais(limite.usadoCents)} de {reais(conta.limitCents)}
+                </span>
+              </div>
+            ) : null}
             <div className="acoes-da-folha">
               <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "conferir" })}>
-                Conferir saldo
+                {cartao ? "Conferir fatura" : "Conferir saldo"}
               </IonButton>
               <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "transferir" })}>
                 Transferir
@@ -127,31 +145,63 @@ export function DetalheDaConta() {
                 <span className="etiqueta">{conta.closingDay && conta.dueDay ? `Fecha dia ${conta.closingDay} · vence dia ${conta.dueDay}` : ""}</span>
               </div>
               {!conta.closingDay || !conta.dueDay ? <p className="fraco">Informe o fechamento e o vencimento do cartão em Editar para ver as faturas.</p> : null}
-              {faturas.length > 0 ? (
-                <div className="lista">
-                  {faturas.map((fatura) => (
-                    <div key={fatura.month} className="linha">
-                      <div className="texto" style={{ flex: 1 }}>
-                        <span>
-                          {MESES_CURTOS[Number(fatura.month.slice(5, 7)) - 1]} de {fatura.month.slice(0, 4)}
-                        </span>
-                        <span className="etiqueta">
-                          Vence {dataCurta(fatura.dueDate)} · {fatura.itens === 1 ? "1 compra" : `${fatura.itens} compras`}
-                          {fatura.paidCents > 0 ? ` · pago ${reais(fatura.paidCents)}` : ""}
+              {faturaAtual ? (
+                <div className="cartao secao" style={{ gap: 8 }}>
+                  <div className="titulo-do-dia">
+                    <span className="etiqueta">
+                      Fatura atual · {MESES_CURTOS[Number(faturaAtual.month.slice(5, 7)) - 1]} de {faturaAtual.month.slice(0, 4)}
+                    </span>
+                    <span className={`chip ${classeDaFatura(faturaAtual)}`}>{ROTULO_DO_STATUS_DA_FATURA[faturaAtual.status]}</span>
+                  </div>
+                  <span className="numero grande">
+                    <Dinheiro cents={-faturaAtual.totalCents} />
+                  </span>
+                  <span className="etiqueta">
+                    Fecha {dataCurta(faturaAtual.closingDate)} · vence {dataCurta(faturaAtual.dueDate)} · {faturaAtual.itens === 1 ? "1 compra" : `${faturaAtual.itens} compras`}
+                    {faturaAtual.paidCents > 0 ? ` · pago ${reais(faturaAtual.paidCents)}` : ""}
+                  </span>
+                  {faturaAtual.status !== "paga" && faturaAtual.totalCents > faturaAtual.paidCents ? (
+                    <div className="acoes-da-folha">
+                      <IonButton
+                        size="small"
+                        fill={faturaAtual.status === "aberta" ? "outline" : "solid"}
+                        className={faturaAtual.status === "aberta" ? undefined : "principal"}
+                        onClick={() => setAcao({ tipo: "pagar", fatura: faturaAtual })}
+                      >
+                        {faturaAtual.status === "aberta" ? "Pagar antecipado" : "Pagar"}
+                      </IonButton>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {anteriores.length > 0 ? (
+                <>
+                  <span className="etiqueta">Anteriores</span>
+                  <div className="lista">
+                    {anteriores.map((fatura) => (
+                      <div key={fatura.month} className="linha">
+                        <div className="texto" style={{ flex: 1 }}>
+                          <span>
+                            {MESES_CURTOS[Number(fatura.month.slice(5, 7)) - 1]} de {fatura.month.slice(0, 4)}
+                          </span>
+                          <span className="etiqueta">
+                            Vence {dataCurta(fatura.dueDate)} · {fatura.itens === 1 ? "1 compra" : `${fatura.itens} compras`}
+                            {fatura.paidCents > 0 ? ` · pago ${reais(fatura.paidCents)}` : ""}
+                          </span>
+                        </div>
+                        <span className="texto" style={{ textAlign: "right" }}>
+                          <Dinheiro cents={-fatura.totalCents} />
+                          <span className={`chip ${classeDaFatura(fatura)}`}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</span>
+                          {fatura.status !== "paga" && fatura.totalCents > fatura.paidCents ? (
+                            <IonButton size="small" fill="solid" className="principal" onClick={() => setAcao({ tipo: "pagar", fatura })}>
+                              Pagar
+                            </IonButton>
+                          ) : null}
                         </span>
                       </div>
-                      <span className="texto" style={{ textAlign: "right" }}>
-                        <Dinheiro cents={-fatura.totalCents} />
-                        <span className={`chip ${fatura.status === "paga" ? "ok" : fatura.status === "vencida" ? "neg" : ""}`}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</span>
-                        {fatura.status !== "paga" && fatura.totalCents > fatura.paidCents ? (
-                          <IonButton size="small" fill={fatura.status === "aberta" ? "clear" : "solid"} className={fatura.status === "aberta" ? undefined : "principal"} onClick={() => setAcao({ tipo: "pagar", fatura })}>
-                            {fatura.status === "aberta" ? "Pagar antecipado" : "Pagar"}
-                          </IonButton>
-                        ) : null}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               ) : null}
             </Bloco>
           ) : null}
@@ -168,13 +218,23 @@ export function DetalheDaConta() {
               <div className="lista">
                 {caixinhas.map((caixinha) => {
                   const resumoDela = resumoDaCaixinha(caixinha, entries, hoje, chaveDoMes);
+                  const meta = caixinha.goalId ? listaDeMetas.find((item) => item.id === caixinha.goalId) : undefined;
+                  const progresso = meta && meta.targetCents > 0 ? Math.round((meta.savedCents / meta.targetCents) * 100) : null;
                   return (
                     <button key={caixinha.id} type="button" className="linha linha-botao" onClick={() => setAcao({ tipo: "caixinha", caixinha })}>
                       <div className="texto" style={{ flex: 1 }}>
                         <span>{caixinha.name}</span>
                         <span className="etiqueta">
-                          {caixinha.goalId ? "Guarda uma meta · " : ""}no total rendeu {reais(resumoDela.rendimentoTotalCents)}
+                          {meta ? `Meta ${meta.name} · ` : caixinha.goalId ? "Guarda uma meta · " : ""}no total rendeu {reais(resumoDela.rendimentoTotalCents)}
                         </span>
+                        {meta && progresso !== null ? (
+                          <>
+                            <BarraDeUso percent={progresso} alerta={false} rotulo={`${meta.name}: ${Math.min(progresso, 100)}% da meta`} />
+                            <span className="etiqueta">
+                              {reais(meta.savedCents)} de {reais(meta.targetCents)} · {Math.min(progresso, 100)}%
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                       <span className="texto" style={{ textAlign: "right" }}>
                         <Dinheiro cents={resumoDela.saldoCents} />
@@ -258,6 +318,8 @@ export function DetalheDaConta() {
           acao={acao}
           conta={conta}
           contas={contas.dados?.accounts ?? []}
+          caixinhas={contas.dados?.boxes ?? []}
+          metas={listaDeMetas}
           saldoHoje={resumo.saldoCents}
           aoFechar={() => setAcao(null)}
           aoMudar={recarregar}

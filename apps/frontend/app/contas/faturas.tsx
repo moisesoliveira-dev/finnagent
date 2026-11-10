@@ -12,13 +12,13 @@ import {
   type StatusDaFatura,
 } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
+import { BarraDeUso } from "../../components/ui/barra-de-uso";
 import { Chip } from "../../components/ui/chip";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { List } from "../../components/ui/list";
 import { formatarReais, Money } from "../../components/ui/money";
 import { Rotulo } from "../../components/ui/rotulo";
-import { Stat } from "../../components/ui/stat";
 import { useToast } from "../../components/ui/toast";
 import { api } from "../financas/api";
 import { CampoValor } from "../financas/campo-valor";
@@ -56,7 +56,9 @@ export function Faturas({
   if (!cartao.closingDay || !cartao.dueDay) {
     return (
       <div className="grid min-w-0 gap-3">
-        <h3 className="etiqueta text-ink-2">Faturas</h3>
+        <h3>
+          <span className="etiqueta text-ink-2">Faturas</span>
+        </h3>
         <p className="max-w-prose text-sm text-ink-2">
           Para ver as faturas, informe o dia de fechamento e o dia de vencimento do cartão em Editar. Com eles, cada compra entra na fatura do ciclo dela, e você paga a fatura a partir de uma conta.
         </p>
@@ -64,59 +66,90 @@ export function Faturas({
     );
   }
 
+  const [atual, ...anteriores] = faturas;
+  const passadas = anteriores.filter((fatura) => fatura.itens > 0 || fatura.totalCents !== 0 || fatura.paidCents > 0);
+  const falta = (fatura: Fatura) => Math.max(fatura.totalCents - fatura.paidCents, 0);
+  const tomDoLimite = (limite.percent ?? 0) >= 100 ? "neg" : (limite.percent ?? 0) >= 80 ? "pending" : "brand";
+
   return (
-    <div className="grid min-w-0 gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="etiqueta text-ink-2">Faturas</h3>
-        <span className="text-sm text-ink-2">
-          Fecha dia {cartao.closingDay} · vence dia {cartao.dueDay}
-        </span>
-      </div>
+    <div className="grid min-w-0 gap-4">
+      <p className="text-sm text-ink-2">
+        Fecha dia {cartao.closingDay} · vence dia {cartao.dueDay}
+      </p>
       {cartao.limitCents ? (
-        <dl className="flex flex-wrap gap-x-8 gap-y-4" aria-label="Limite do cartão">
-          <Stat label="Limite usado">
-            <Money cents={-limite.usadoCents} />
-          </Stat>
-          <Stat label="Disponível">
-            <Money cents={limite.disponivelCents ?? 0} />
-          </Stat>
-          <Stat label="Do limite">
-            <span className={cn((limite.percent ?? 0) >= 100 && "text-neg")}>{limite.percent}%</span>
-          </Stat>
-        </dl>
+        <div className="grid min-w-0 gap-2" aria-label="Limite do cartão">
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+            <span>
+              <span className="font-semibold">{formatarReais(limite.usadoCents)}</span>
+              <span className="text-ink-2"> de {formatarReais(cartao.limitCents)}</span>
+            </span>
+            <span className={cn("text-ink-2", (limite.percent ?? 0) >= 100 && "text-neg")}>
+              {formatarReais(limite.disponivelCents ?? 0)} disponível · {limite.percent}%
+            </span>
+          </div>
+          <BarraDeUso percent={limite.percent ?? 0} tom={tomDoLimite} rotulo={`Limite usado: ${limite.percent}%`} />
+        </div>
       ) : null}
-      <List>
-        {faturas.map((fatura) => {
-          const falta = Math.max(fatura.totalCents - fatura.paidCents, 0);
-          return (
-            <li key={fatura.month} className="grid min-w-0 gap-2 border-b border-line px-4 py-3 last:border-b-0">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <span className="grid min-w-0 gap-1">
-                  <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="truncate font-medium">{nomeDoMes(fatura.month)}</span>
-                    <Chip tone={TOM[fatura.status]}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</Chip>
+      {atual ? (
+        <section className="grid min-w-0 gap-3 border border-line bg-surface p-4" aria-labelledby="titulo-fatura-atual">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <h3 id="titulo-fatura-atual">
+              <span className="etiqueta text-ink-2">Fatura de {nomeDoMes(atual.month)}</span>
+            </h3>
+            <Chip tone={TOM[atual.status]}>{ROTULO_DO_STATUS_DA_FATURA[atual.status]}</Chip>
+          </div>
+          <span className="font-display text-xl font-bold tracking-titulo">
+            <Money cents={-atual.totalCents} />
+          </span>
+          <p className="text-sm text-ink-2">
+            Fecha {dataCurta(atual.closingDate)} · vence {dataCurta(atual.dueDate)} · {atual.itens === 1 ? "1 compra" : `${atual.itens} compras`}
+            {atual.paidCents > 0 ? ` · pago ${formatarReais(atual.paidCents)}` : ""}
+          </p>
+          {atual.status !== "paga" && falta(atual) > 0 ? (
+            <div>
+              <Button variant="default" onClick={() => setPagando(atual)} disabled={origens.length === 0}>
+                {atual.status === "aberta" ? "Pagar antecipado" : "Pagar fatura"}
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+      {passadas.length > 0 ? (
+        <div className="grid min-w-0 gap-3">
+          <h3>
+            <span className="etiqueta text-ink-2">Anteriores</span>
+          </h3>
+          <List>
+            {passadas.map((fatura) => {
+              const resta = falta(fatura);
+              const pagar = (fatura.status === "fechada" || fatura.status === "vencida") && resta > 0;
+              return (
+                <li key={fatura.month} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3 last:border-b-0">
+                  <span className="grid min-w-0 flex-1 basis-full gap-1 tab:basis-0">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="truncate font-medium">{nomeDoMes(fatura.month)}</span>
+                      <Chip tone={TOM[fatura.status]}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</Chip>
+                    </span>
+                    <span className="text-xs text-ink-2">
+                      Vence {dataCurta(fatura.dueDate).slice(0, 5)} · {fatura.itens === 1 ? "1 compra" : `${fatura.itens} compras`}
+                      {fatura.paidCents > 0 ? ` · pago ${formatarReais(fatura.paidCents)}` : ""}
+                      {pagar && resta !== fatura.totalCents ? ` · faltam ${formatarReais(resta)}` : ""}
+                    </span>
                   </span>
-                  <span className="text-sm text-ink-2">
-                    Fecha {dataCurta(fatura.closingDate)} · vence {dataCurta(fatura.dueDate)} · {fatura.itens === 1 ? "1 compra" : `${fatura.itens} compras`}
-                    {fatura.paidCents > 0 ? ` · pago ${formatarReais(fatura.paidCents)}` : ""}
+                  <span className="ml-auto flex shrink-0 items-center gap-3">
+                    <Money cents={-fatura.totalCents} strong />
+                    {pagar ? (
+                      <Button variant="default" onClick={() => setPagando(fatura)} disabled={origens.length === 0}>
+                        Pagar
+                      </Button>
+                    ) : null}
                   </span>
-                </span>
-                <span className="flex shrink-0 flex-col items-end gap-1">
-                  <Money cents={-fatura.totalCents} strong />
-                  {fatura.status !== "paga" && fatura.totalCents > 0 && falta !== fatura.totalCents ? <span className="text-xs text-ink-2">faltam {formatarReais(falta)}</span> : null}
-                </span>
-              </div>
-              {fatura.status !== "paga" && falta > 0 ? (
-                <div>
-                  <Button variant={fatura.status === "aberta" ? "quiet" : "default"} onClick={() => setPagando(fatura)} disabled={origens.length === 0}>
-                    {fatura.status === "aberta" ? "Pagar antecipado" : "Pagar fatura"}
-                  </Button>
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </List>
+                </li>
+              );
+            })}
+          </List>
+        </div>
+      ) : null}
       {origens.length === 0 ? (
         <p className="text-sm text-ink-2">
           Para pagar a fatura, cadastre a conta de onde o dinheiro sai em{" "}

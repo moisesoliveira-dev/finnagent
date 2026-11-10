@@ -1,10 +1,20 @@
 import { IonButton, IonButtons, IonIcon, useIonViewWillEnter } from "@ionic/react";
-import { ROTULO_DO_TIPO_DE_CONTA, patrimonio, resumoDaCaixinha, resumoDaConta, type ContasResposta, type FinancasVista } from "@finnagent/contracts";
+import {
+  ROTULO_DO_TIPO_DE_CONTA,
+  faturasDoCartao,
+  limiteDoCartao,
+  patrimonio,
+  resumoDaCaixinha,
+  resumoDaConta,
+  type ContasResposta,
+  type FinancasVista,
+} from "@finnagent/contracts";
 import { addOutline, chevronBack, chevronForward, walletOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { reais } from "../api/formato";
+import { MESES, reais } from "../api/formato";
+import { BarraDeUso } from "../componentes/BarraDeUso";
 import { NovaConta } from "./contas/NovaConta";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
@@ -86,26 +96,44 @@ export function Contas() {
                   </Bloco>
                 );
               })()}
-              <Bloco className="lista">
-                {contas.dados.accounts.map((conta) => {
-                  const resumo = resumoDaConta(conta, financas.dados?.entries ?? [], hoje);
-                  const caixinhas = (contas.dados?.boxes ?? []).filter((item) => item.accountId === conta.id);
-                  const guardado = caixinhas.reduce((soma, item) => soma + resumoDaCaixinha(item, financas.dados?.entries ?? [], hoje).saldoCents, 0);
-                  return (
-                    <LinhaComMovimento key={conta.id} to={`/financas/contas/${conta.id}`} className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
-                      <span className="texto" style={{ flex: 1 }}>
-                        <strong>{conta.name}</strong>
-                        <span className="etiqueta">
-                          {ROTULO_DO_TIPO_DE_CONTA[conta.kind]} · {conta.kind === "cartao" ? "Lançado na fatura" : "Saldo hoje"}
-                          {caixinhas.length ? ` · ${caixinhas.length === 1 ? "1 caixinha" : `${caixinhas.length} caixinhas`} com ${reais(guardado)}` : ""}
-                        </span>
-                      </span>
-                      <Dinheiro cents={resumo.saldoCents} />
-                      <IonIcon icon={chevronForward} aria-hidden />
-                    </LinhaComMovimento>
-                  );
-                })}
-              </Bloco>
+              {[
+                { titulo: "Contas", lista: contas.dados.accounts.filter((item) => item.kind !== "cartao") },
+                { titulo: "Cartões", lista: contas.dados.accounts.filter((item) => item.kind === "cartao") },
+              ]
+                .filter((grupo) => grupo.lista.length > 0)
+                .map((grupo) => (
+                  <Bloco key={grupo.titulo} className="secao">
+                    <h2 className="etiqueta titulo-do-grupo">{grupo.titulo}</h2>
+                    <div className="lista">
+                      {grupo.lista.map((conta) => {
+                        const entries = financas.dados?.entries ?? [];
+                        const resumo = resumoDaConta(conta, entries, hoje);
+                        const cartao = conta.kind === "cartao";
+                        const caixinhas = (contas.dados?.boxes ?? []).filter((item) => item.accountId === conta.id);
+                        const guardado = caixinhas.reduce((soma, item) => soma + resumoDaCaixinha(item, entries, hoje).saldoCents, 0);
+                        // A próxima fatura é a do ciclo de hoje, a última da lista (vem da mais antiga para a atual).
+                        const fatura = cartao ? faturasDoCartao(conta, entries, hoje).at(-1) : undefined;
+                        const limite = cartao && conta.limitCents ? limiteDoCartao(conta, entries, hoje) : null;
+                        const detalhe = cartao
+                          ? fatura
+                            ? `Fatura de ${MESES[Number(fatura.month.slice(5, 7)) - 1]} · vence ${fatura.dueDate.slice(8, 10)}/${fatura.dueDate.slice(5, 7)}`
+                            : "Sem dia de fechamento e vencimento"
+                          : `${ROTULO_DO_TIPO_DE_CONTA[conta.kind]} · Saldo hoje${caixinhas.length ? ` · ${caixinhas.length === 1 ? "1 caixinha" : `${caixinhas.length} caixinhas`} com ${reais(guardado)}` : ""}`;
+                        return (
+                          <LinhaComMovimento key={conta.id} to={`/financas/contas/${conta.id}`} className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
+                            <span className="texto" style={{ flex: 1 }}>
+                              <strong>{conta.name}</strong>
+                              <span className="etiqueta">{detalhe}</span>
+                              {limite && limite.percent !== null ? <BarraDeUso percent={limite.percent} rotulo={`Limite usado: ${limite.percent}%`} /> : null}
+                            </span>
+                            <Dinheiro cents={resumo.saldoCents} />
+                            <IonIcon icon={chevronForward} aria-hidden />
+                          </LinhaComMovimento>
+                        );
+                      })}
+                    </div>
+                  </Bloco>
+                ))}
             </>
           )}
         </Cascata>
