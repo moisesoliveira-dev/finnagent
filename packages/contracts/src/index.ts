@@ -518,6 +518,14 @@ export type LinhaBase = {
   synced: boolean;
   /** Transferência entre contas próprias: aparece na lista, mas não soma na sobra. */
   transfer: boolean;
+  /** A conta do lançamento; null sem conta. */
+  accountId?: string | null;
+  /** O pagamento registrado que resolveu a ocorrência: desfazer_pagamento usa este id. */
+  paymentId?: string | null;
+  /** Empréstimo: de quem é. */
+  counterparty?: string;
+  /** Este valor já entra em outro lançamento (o id dele) e não soma de novo na sobra. */
+  coveredById?: string | null;
 };
 
 export type BaseResposta = {
@@ -3215,11 +3223,19 @@ const camposDoLancamento = z.object({
   accountId: idDoSistema
     .nullable()
     .optional()
-    .describe("A conta de onde o dinheiro sai ou em que entra (consultar_extratos lista as contas). Sem conta, o lançamento só conta na sobra."),
+    .describe("A conta de onde o dinheiro sai ou em que entra (consultar_contas lista as contas). Sem conta, o lançamento só conta na sobra."),
   transfer: z
     .boolean()
     .optional()
-    .describe("true quando é transferência entre contas da própria pessoa: muda o saldo das contas e não entra na sobra."),
+    .describe(
+      "Marca um lado de transferência entre contas da própria pessoa (fora da sobra). Para mover dinheiro entre contas, use transferir_entre_contas, que cria os dois lados; não crie transferência por aqui.",
+    ),
+  coveredById: idDoSistema
+    .nullable()
+    .optional()
+    .describe(
+      "\"Já entra em\": o id de outro lançamento da mesma conta que já conta este valor (por exemplo, a compra que já está dentro de outro lançamento). Assim ele não soma de novo na sobra. null tira.",
+    ),
   sessionId: idDoSistema.describe(
     "Sessão onde o lançamento entra, com grupo e nome que combinam com o valor. Consulte com listar_grupos_e_sessoes; se nenhuma combinar, pergunte à pessoa antes.",
   ),
@@ -3343,6 +3359,8 @@ const todosLeem = ["financas", "agenda", "organizacao", "metas", "extratos", "an
 const entreAspas = (texto: unknown) => `“${String(texto ?? "").slice(0, 60)}”`;
 const peloId = z.object({ id: idDoSistema });
 const peloIdApagando = z.object({ id: idDoSistema, resumo: resumoDoQueApaga });
+// O esquema das preferências mora mais abaixo, depois da lista; este é o mesmo canal, para a ferramenta.
+const canaisDaFerramenta = z.object({ central: z.boolean(), celular: z.boolean(), navegador: z.boolean() });
 
 const ROTULO_DO_STATUS_PARA_ACAO: Record<StatusTransacao, string> = {
   pending: "Marcou o lançamento como pendente",
@@ -3395,9 +3413,10 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "editar_lancamento",
     agentes: ["financas"],
-    descricao: "Edita um lançamento. Mande todos os campos, com os valores atuais nos que não mudam.",
-    esquema: camposDoLancamento.extend({ id: idDoSistema }),
-    rotulo: (args) => `Editou o lançamento ${entreAspas(args.name)}`,
+    descricao:
+      "Edita um lançamento. Mande o id e só os campos que mudam: o que não vier fica como está (conta, transferência, regra de vencimento, empréstimo). Movimento (mode) e categoria não mudam depois de criado.",
+    esquema: camposDoLancamento.partial().extend({ id: idDoSistema }),
+    rotulo: (args) => (args.name ? `Editou o lançamento ${entreAspas(args.name)}` : "Editou o lançamento"),
   }),
   ferramenta({
     nome: "alterar_status_lancamento",
@@ -3409,13 +3428,14 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "atualizar_ocorrencia",
     agentes: ["financas"],
-    descricao: "Muda uma ocorrência (parcela ou mês) de um lançamento: situação, vencimento ou valor previsto.",
+    descricao: "Muda uma ocorrência (parcela ou mês) de um lançamento: situação, vencimento ou valor previsto. Ao marcar como paga (completed), paidOn diz o dia em que foi paga.",
     esquema: z.object({
       id: idDoSistema,
       number: z.number().int().min(1).describe("Número da ocorrência."),
       status: z.enum(STATUS_TRANSACAO).optional(),
       dueDate: dataDoSistema.optional(),
       plannedCents: z.number().int().optional().describe("Valor previsto em centavos."),
+      paidOn: dataDoSistema.optional().describe("Com status completed: o dia em que foi paga. Sem ele, vale o dia do vencimento."),
     }),
     rotulo: (args) => `Atualizou a ocorrência ${args.number}`,
   }),
@@ -3662,6 +3682,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
       date: dataDoSistema.describe("O dia da ocorrência do compromisso."),
       cents: z.number().int().min(1).describe("Quanto foi gasto, em centavos, positivo."),
       sessionId: idDoSistema.optional().describe("A sessão que acumula o gasto; obrigatória se o compromisso não tiver sessão."),
+      name: z.string().trim().min(1).max(80).optional().describe("O nome do lançamento, se a pessoa disser. Sem ele, vale o título do compromisso."),
     }),
     rotulo: () => "Lançou o gasto do compromisso",
   }),
@@ -3677,6 +3698,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     agentes: ["agenda", "analise"],
     descricao:
       "O dia da pessoa numa lista: as tarefas dela (abertas e as de dias anteriores que ficaram), os compromissos, os vencimentos do dia e, se for hoje, as pendências do sistema. Sem date, é hoje.",
+    leitura: true,
     esquema: z.object({ date: dataDoSistema.optional() }),
     rotulo: (args) => (args.date ? `Consultou o dia ${args.date}` : "Consultou o dia de hoje"),
   }),
@@ -3717,7 +3739,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "editar_tarefa",
     agentes: ["agenda"],
-    descricao: "Muda o texto, o dia ou a repetição de uma tarefa da aba Hoje. Mande todos os campos, com os valores atuais nos que não mudam (eles vêm de consultar_hoje).",
+    descricao:
+      "Muda o texto, o dia ou a repetição de uma tarefa da aba Hoje. Mande o texto e o dia, com os valores atuais se não mudam (eles vêm de consultar_hoje). repeat ausente mantém a repetição; null tira.",
     esquema: z.object({
       id: idDoSistema,
       title: z.string().trim().min(1).max(160),
@@ -4058,7 +4081,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "consultar_contas",
     agentes: todosLeem,
     descricao:
-      "Lista as contas (banco, carteira) e os cartões de crédito da pessoa, com ids, tipo e saldo inicial, e as caixinhas (depósitos) de cada conta, com id, saldo inicial, a sessão do rendimento e a meta ligada.",
+      "Lista as contas (banco, carteira) e os cartões de crédito da pessoa, com ids, tipo, saldo inicial e o dia dele; no cartão, o dia de fechamento, o de vencimento e o limite. Traz também as caixinhas (depósitos) de cada conta, com id, saldo inicial, a sessão do rendimento e a meta ligada. O saldo de hoje vem de consultar_saldos.",
     leitura: true,
     esquema: vazio,
     rotulo: () => "Consultou as contas",
@@ -4082,7 +4105,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "editar_conta",
     agentes: ["financas"],
-    descricao: "Renomeia uma conta ou cartão, muda o tipo ou o saldo inicial. Mande todos os campos, com os valores atuais nos que não mudam.",
+    descricao:
+      "Renomeia uma conta ou cartão, muda o tipo, o saldo inicial e o dia dele, e no cartão o fechamento, o vencimento e o limite. Mande nome, tipo e saldo inicial com os valores atuais se não mudam; openingOn, closingDay, dueDay e limitCents ausentes ficam como estão.",
     esquema: z.object({
       id: idDoSistema,
       name: z.string().trim().min(1).max(80),
@@ -4195,7 +4219,11 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     esquema: z.object({
       id: idDoSistema.describe("Id da caixinha."),
       tipo: z.enum(MOVIMENTOS_DA_CAIXINHA),
-      cents: z.number().int().describe("Centavos. Aplicação e resgate positivos; rendimento com sinal."),
+      cents: z
+        .number()
+        .int()
+        .refine((valor) => valor !== 0, "Informe o valor.")
+        .describe("Centavos, nunca zero. Aplicação e resgate positivos; rendimento com sinal."),
       date: dataDoSistema,
     }),
     rotulo: (args) => `${ROTULO_DO_MOVIMENTO_DA_CAIXINHA[args.tipo]} de ${(args.cents / 100).toFixed(2).replace(".", ",")} reais na caixinha`,
@@ -4350,10 +4378,70 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "consultar_eventos",
     agentes: ["analise"],
-    descricao: "Histórico do que aconteceu no sistema.",
+    descricao:
+      "Os eventos do sistema (o que cada mudança disparou), como na tela de Eventos, do mais novo para o mais antigo, em páginas. Filtra por categoria, situação, texto e dia.",
+    leitura: true,
+    esquema: z.object({
+      pagina: z.number().int().min(1).optional(),
+      categoria: z.enum(CODIGOS_CATEGORIA_EVENTO).optional(),
+      status: z.enum(STATUS_EVENTO).optional().describe("pendente, processando, concluído ou com falha."),
+      q: z.string().max(160).optional().describe("Texto para procurar."),
+      dia: dataDoSistema.optional(),
+    }),
+    rotulo: () => "Consultou os eventos",
+  }),
+  ferramenta({
+    nome: "consultar_historico_de_eventos",
+    agentes: ["analise"],
+    descricao: "O histórico da tela de Eventos: o que foi feito e se deu certo, falhou ou só começou, em páginas.",
+    leitura: true,
+    esquema: z.object({
+      pagina: z.number().int().min(1).optional(),
+      resultado: z.enum(RESULTADOS_HISTORICO).optional().describe("sucesso, falha ou iniciado."),
+      q: z.string().max(160).optional().describe("Texto para procurar."),
+    }),
+    rotulo: () => "Consultou o histórico",
+  }),
+  ferramenta({
+    nome: "consultar_evento",
+    agentes: ["analise"],
+    descricao: "O detalhe de um evento (o id vem de consultar_eventos): o que ele levou e o que aconteceu depois.",
+    leitura: true,
+    esquema: peloId,
+    rotulo: () => "Consultou o detalhe do evento",
+  }),
+  ferramenta({
+    nome: "consultar_preferencias_de_notificacao",
+    agentes: ["analise", "financas", "agenda"],
+    descricao:
+      "Como a pessoa recebe cada tipo de aviso (vencimentos, lembretes, gastos, tarefas, extratos, metas, limites, assistente) em cada canal (central, celular, navegador), e o horário de silêncio.",
     leitura: true,
     esquema: vazio,
-    rotulo: () => "Consultou o histórico",
+    rotulo: () => "Consultou as preferências de notificação",
+  }),
+  ferramenta({
+    nome: "salvar_preferencias_de_notificacao",
+    agentes: ["analise", "financas", "agenda"],
+    descricao:
+      "Grava as preferências de notificação. Mande o objeto inteiro: leia antes com consultar_preferencias_de_notificacao e mude só o que a pessoa pediu. Horas em HH:MM, no fuso da conta; o silêncio pode atravessar a meia-noite.",
+    esquema: z.object({
+      canais: z.object({
+        vencimentos: canaisDaFerramenta,
+        lembretes: canaisDaFerramenta,
+        gastos: canaisDaFerramenta,
+        tarefas: canaisDaFerramenta,
+        extratos: canaisDaFerramenta,
+        metas: canaisDaFerramenta,
+        limites: canaisDaFerramenta,
+        assistente: canaisDaFerramenta,
+      }),
+      silencio: z.object({
+        ativo: z.boolean(),
+        inicio: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        fim: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      }),
+    }),
+    rotulo: () => "Mudou as preferências de notificação",
   }),
 ];
 

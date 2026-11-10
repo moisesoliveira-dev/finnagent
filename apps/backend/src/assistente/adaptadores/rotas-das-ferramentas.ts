@@ -20,6 +20,9 @@ function lancamento(args: Args, identificador: string) {
     sessionId: args.sessionId,
     accountId: args.accountId ?? null,
     transfer: args.transfer ?? false,
+    ...(args.coveredById !== undefined ? { coveredById: args.coveredById } : {}),
+    counterparty: args.counterparty ?? "",
+    principalCents: args.principalCents ?? null,
     name: args.name,
     description: args.description ?? "",
     justification: args.justification?.trim() ?? "",
@@ -98,7 +101,8 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   editar_tarefa: {
     metodo: "PATCH",
     caminho: (a) => `tarefas/${id(a.id)}`,
-    corpo: (a) => ({ title: a.title, date: a.date, parentId: a.parentId ?? null, repeat: a.parentId ? null : (a.repeat ?? null) }),
+    // repeat ausente mantém a repetição gravada; o backend decide pela tarefa (subatividade e checklist não repetem).
+    corpo: (a) => ({ title: a.title, date: a.date, ...(a.repeat !== undefined ? { repeat: a.repeat } : {}) }),
   },
   concluir_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/concluir`, corpo: (a) => ({ done: a.done }) },
   mover_tarefa: { metodo: "PATCH", caminho: (a) => `tarefas/${id(a.id)}/mover`, corpo: (a) => ({ parentId: a.parentId ?? null, beforeId: a.beforeId ?? null }) },
@@ -119,7 +123,12 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     caminho: () => "lancamentos",
     corpo: (a, _fuso, idGerado) => lancamento(a, idGerado ?? randomUUID()),
   },
-  editar_lancamento: { metodo: "PATCH", caminho: (a) => `lancamentos/${id(a.id)}`, corpo: (a) => lancamento(a, a.id) },
+  // Só o que a IA mandou: o backend completa com o lançamento gravado, e nada volta ao padrão sem ela pedir.
+  editar_lancamento: {
+    metodo: "PATCH",
+    caminho: (a) => `lancamentos/${id(a.id)}/campos`,
+    corpo: (a) => Object.fromEntries(Object.entries(a).filter(([chave, valor]) => chave !== "id" && valor !== undefined)),
+  },
   alterar_status_lancamento: {
     metodo: "PATCH",
     caminho: (a) => `lancamentos/${id(a.id)}/status`,
@@ -128,7 +137,7 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   atualizar_ocorrencia: {
     metodo: "PATCH",
     caminho: (a) => `lancamentos/${id(a.id)}/ocorrencias/${id(a.number)}`,
-    corpo: (a) => ({ status: a.status, dueDate: a.dueDate, plannedCents: a.plannedCents }),
+    corpo: (a) => ({ status: a.status, dueDate: a.dueDate, plannedCents: a.plannedCents, paidOn: a.paidOn }),
   },
   excluir_ocorrencia: { metodo: "DELETE", caminho: (a) => `lancamentos/${id(a.id)}/ocorrencias/${id(a.number)}` },
   excluir_lancamento: { metodo: "DELETE", caminho: (a) => `lancamentos/${id(a.id)}` },
@@ -215,7 +224,13 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   registrar_gasto_do_compromisso: {
     metodo: "POST",
     caminho: (a) => `compromissos/${id(a.id)}/gastos`,
-    corpo: (a, _fuso, idGerado) => ({ id: idGerado ?? randomUUID(), date: a.date, cents: a.cents, ...(a.sessionId ? { sessionId: a.sessionId } : {}) }),
+    corpo: (a, _fuso, idGerado) => ({
+      id: idGerado ?? randomUUID(),
+      date: a.date,
+      cents: a.cents,
+      ...(a.sessionId ? { sessionId: a.sessionId } : {}),
+      ...(a.name ? { name: a.name } : {}),
+    }),
   },
   sem_gasto_no_compromisso: { metodo: "POST", caminho: (a) => `compromissos/${id(a.id)}/sem-gasto`, corpo: (a) => ({ date: a.date }) },
   sincronizar_google_calendar: { metodo: "POST", caminho: () => "agenda/sincronizar" },
@@ -395,7 +410,23 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   },
   consultar_relatorio: { metodo: "GET", caminho: () => "relatorios", consulta: (a) => ({ year: a.year }) },
   consultar_visao_do_ano: { metodo: "GET", caminho: () => "financas/geral", consulta: (a) => ({ year: a.year }) },
-  consultar_eventos: { metodo: "GET", caminho: () => "eventos" },
+  consultar_eventos: {
+    metodo: "GET",
+    caminho: () => "eventos",
+    consulta: (a) => ({ pagina: a.pagina, categoria: a.categoria, status: a.status, q: a.q, dia: a.dia }),
+  },
+  consultar_historico_de_eventos: {
+    metodo: "GET",
+    caminho: () => "eventos/historico",
+    consulta: (a) => ({ pagina: a.pagina, resultado: a.resultado, q: a.q }),
+  },
+  consultar_evento: { metodo: "GET", caminho: (a) => `eventos/${id(a.id)}` },
+  consultar_preferencias_de_notificacao: { metodo: "GET", caminho: () => "notificacoes/preferencias" },
+  salvar_preferencias_de_notificacao: {
+    metodo: "PUT",
+    caminho: () => "notificacoes/preferencias",
+    corpo: (a) => ({ canais: a.canais, silencio: a.silencio }),
+  },
 };
 
 export function montarUrl(base: string, rota: Rota, args: Args) {

@@ -81,9 +81,16 @@ function lancamentos(corpo: BaseResposta) {
       reais(row.cents),
     ];
     if (row.installment) partes.push(`parcela ${row.installment.number}/${row.installment.total}`);
+    if (row.counterparty) partes.push(`empréstimo com ${row.counterparty}`);
+    if (row.accountId) partes.push(`conta ${row.accountId}`);
     if (row.synced) partes.push("pago pelo extrato");
+    if (row.paymentId) partes.push(`pagamento ${row.paymentId}`);
     if (row.transfer) partes.push("transferência (fora da sobra)");
+    if (row.coveredById) partes.push(`já entra em ${row.coveredById}`);
     linhas.push(`- ${partes.join(" · ")}`);
+  }
+  for (const uso of corpo.limits ?? []) {
+    linhas.push(`- limite: ${uso.groupName}/${uso.sessionName} usou ${reais(uso.usedCents)} de ${reais(uso.limitCents)} (${uso.percent}%)`);
   }
   return linhas.join("\n");
 }
@@ -121,6 +128,7 @@ function grupos(corpo: GruposResposta) {
       `aceita: ${sessao.categories.join(", ")}`,
       `total ${reais(sessao.totalCents)}`,
     ];
+    if (sessao.limitCents) partes.push(`limite de saídas ${reais(sessao.limitCents)} por mês`);
     if (sessao.endedAt) partes.push(`encerrada em ${sessao.endedAt}`);
     if (sessao.description) partes.push(sessao.description);
     if (sessao.justification) partes.push(sessao.justification);

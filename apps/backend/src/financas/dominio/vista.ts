@@ -194,6 +194,10 @@ export function montarBase(base: FinancasResposta, hoje: string, filtro: FiltroB
         remove: removerDaLinha(entry, lista, item),
         synced: entry.synced,
         transfer: entry.transfer ?? false,
+        accountId: entry.accountId ?? null,
+        paymentId: item.paymentId ?? null,
+        ...(entry.category === "loan" ? { counterparty: entry.counterparty ?? "" } : {}),
+        coveredById: entry.coveredById ?? null,
       });
     }
   }

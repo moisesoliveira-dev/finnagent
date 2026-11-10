@@ -129,6 +129,36 @@ export function pedidoDaEdicao(
   };
 }
 
+/**
+ * O formulário de um lançamento gravado, com os valores de hoje. A edição por campos (a do assistente) parte dele e
+ * troca só o que veio. Conta, transferência e cobertura ficam de fora: ausentes, o repositório mantém o gravado.
+ */
+export function formularioDoLancamento(atual: Lancamento) {
+  return {
+    sessionId: atual.sessionId,
+    name: atual.name,
+    description: atual.description,
+    justification: atual.justification,
+    date: atual.date,
+    mode: atual.mode,
+    status: atual.status,
+    transactionType: atual.transactionType,
+    category: atual.category,
+    priority: atual.priority,
+    cents: Math.abs(centavosDoContrato(atual)),
+    installments: atual.installments,
+    installmentNumber: atual.installmentNumber,
+    dueDate: atual.dueDate,
+    interestRate: atual.interestRate,
+    nextDueDate: atual.nextDueDate,
+    recurrence: atual.recurrence,
+    recurrenceInterval: atual.recurrenceInterval,
+    counterparty: atual.counterparty ?? "",
+    principalCents: atual.principalCents ?? null,
+    dueRule: atual.dueRule ?? null,
+  };
+}
+
 export function novoLancamento(pedido: PedidoLancamento): NovoLancamento {
   const partes = partesDaData(pedido.date);
   return {

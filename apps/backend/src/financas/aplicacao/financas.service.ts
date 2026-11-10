@@ -24,6 +24,7 @@ import { mensagemDaCategoria, mensagemDoMesOcupado } from "../../grupos/dominio/
 import { PedidoInvalido } from "../dominio/erros.js";
 import {
   erroDoPedido,
+  formularioDoLancamento,
   normalizarPedido,
   novoLancamento,
   pedidoDaEdicao,
@@ -126,6 +127,13 @@ export class FinancasService {
     const atual = await this.financas.obter(tenantId, pedido.id);
     if (!atual) throw new NaoEncontrado("Lançamento não encontrado.");
     return this.atualizar(tenantId, this.validado(pedidoDaEdicao(atual, pedido, false)));
+  }
+
+  /** O formulário do lançamento gravado, para a edição que manda só os campos que mudam. */
+  async formulario(tenantId: string, id: string) {
+    const atual = await this.financas.obter(tenantId, id);
+    if (!atual) throw new NaoEncontrado("Lançamento não encontrado.");
+    return formularioDoLancamento(atual);
   }
 
   async excluirOcorrencia(tenantId: string, id: string, number: number) {

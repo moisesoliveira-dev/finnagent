@@ -162,6 +162,24 @@ export class FinancasController {
     return this.executar(() => this.financas.editar(this.tenant(tenant), pedido));
   }
 
+  /**
+   * A edição do assistente: só os campos que mudam. O resto vem do lançamento gravado, e conta, transferência e
+   * cobertura ausentes ficam como estão. Passa pela mesma validação e pelas mesmas regras da edição da tela.
+   */
+  @Patch("lancamentos/:id/campos")
+  async atualizarCampos(
+    @Headers("x-tenant-id") tenant: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const tenantId = this.tenant(tenant);
+    const identificador = this.id(id);
+    const campos = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+    const atual = await this.executar(() => this.financas.formulario(tenantId, identificador));
+    const pedido = this.pedido({ ...atual, ...campos, id: identificador });
+    return this.executar(() => this.financas.editar(tenantId, pedido));
+  }
+
   @Post("lancamentos/fixos/valor")
   atualizarValor(
     @Headers("x-tenant-id") tenant: string | undefined,
