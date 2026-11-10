@@ -1,7 +1,7 @@
 "use client";
 
-import { AnimatePresence, MotionConfig, motion, useReducedMotion, type HTMLMotionProps } from "motion/react";
-import type { ReactNode } from "react";
+import { AnimatePresence, MotionConfig, animate, motion, useReducedMotion, type HTMLMotionProps } from "motion/react";
+import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import { cn } from "./cn";
 
 export const curvaCheia = { duration: 0.32, ease: [0.22, 1, 0.36, 1] as const };
@@ -94,6 +94,31 @@ export function Troca({
         {children}
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+// Como a Troca, mas os painéis ficam todos montados: o que sai some com `hidden` e o que volta desliza
+// na direção da navegação. Serve às abas de um formulário, que precisam do valor e da validação de todas.
+export function Painel({
+  ativo,
+  direcao,
+  children,
+  ...props
+}: Omit<ComponentProps<"div">, "hidden"> & { ativo: boolean; direcao: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reduzir = useReducedMotion();
+  const antes = useRef(ativo);
+  useEffect(() => {
+    const el = ref.current;
+    if (ativo && !antes.current && el) {
+      animate(el, reduzir ? { opacity: [0, 1] } : { opacity: [0, 1], x: [direcao * 16, 0] }, curvaCheia);
+    }
+    antes.current = ativo;
+  }, [ativo, direcao, reduzir]);
+  return (
+    <div ref={ref} hidden={!ativo} {...props}>
+      {children}
+    </div>
   );
 }
 

@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { HojeResposta, Tarefa } from "@finnagent/contracts";
 import { andamento, centavosDosDigitos, ehData, filhasDe, quandoTerminou, resumoDoDia, rotaDaPendencia, rotuloDoDia, somarDias } from "./dia";
 
-const tarefa = (id: string, extra: Partial<Tarefa> = {}): Tarefa => ({ id, title: id, date: "2026-11-06", doneOn: null, position: 0, parentId: null, repeat: null, ...extra });
+const tarefa = (id: string, extra: Partial<Tarefa> = {}): Tarefa => ({ id, title: id, date: "2026-11-06", doneOn: null, position: 0, parentId: null, repeat: null, appointmentId: null, ...extra });
 
 const dia: HojeResposta = {
   date: "2026-11-06",
   today: "2026-11-06",
   tarefas: [tarefa("b", { position: 1 }), tarefa("a", { position: 0 }), tarefa("a1", { parentId: "a", doneOn: "2026-11-06" }), tarefa("c", { doneOn: "2026-11-05", position: 2 })],
   compromissos: [
-    { id: "c1", title: "Dentista", time: "14:00", endTime: null, allDay: false, location: "", calendar: "Pessoal", status: "undone" },
-    { id: "c2", title: "Reunião", time: null, endTime: null, allDay: true, location: "", calendar: "Trabalho", status: "done" },
+    { id: "c1", title: "Dentista", time: "14:00", endTime: null, allDay: false, location: "", calendar: "Pessoal", status: "undone", repeats: false },
+    { id: "c2", title: "Reunião", time: null, endTime: null, allDay: true, location: "", calendar: "Trabalho", status: "done", repeats: true },
   ],
   vencimentos: [
     { entryId: "e1", number: 1, description: "Luz", groupName: "Casa", sessionName: "Contas", category: "fixed", cents: -12000, situation: "late", dueDate: "2026-11-02", series: false, paymentId: null, counterparty: "" },

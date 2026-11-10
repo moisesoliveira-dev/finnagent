@@ -9,12 +9,16 @@ function ocorrencia(number: number, dueDate: string, cents: number, status: "pen
 
 function montar(opcoes: { hoje?: string; semConferir?: number; sobra?: number; separado?: number; limite?: number; gastos?: Array<{ appointmentId: string; sessionId: string | null }> } = {}) {
   const hoje = opcoes.hoje ?? "2026-11-06";
+  const pedidosDoDia: string[][] = [];
   const tarefas = [
     { id: "t1", title: "Comprar presente", date: "2026-11-06", doneOn: null, position: 0, parentId: null, repeat: null },
     { id: "t0", title: "Ligar para o dentista", date: "2026-11-05", doneOn: null, position: 1, parentId: null, repeat: null },
   ];
   const repositorio = {
-    listarDoDia: async (_tenant: string, date: string) => tarefas.filter((item) => item.date <= date),
+    listarDoDia: async (_tenant: string, date: string, compromissos: string[]) => {
+      pedidosDoDia.push(compromissos);
+      return tarefas.filter((item) => item.date <= date);
+    },
     criar: async (_tenant: string, id: string, pedido: { title: string; date: string }) => ({ id, ...pedido, doneOn: null, position: 2, parentId: null, repeat: null }),
     atualizar: async () => "ausente" as const,
     concluir: async (_tenant: string, id: string, doneOn: string | null) => ({ ...tarefas[0]!, id, doneOn }),
@@ -66,7 +70,8 @@ function montar(opcoes: { hoje?: string; semConferir?: number; sobra?: number; s
       sessions: [{ id: "s1", groupId: "g1", name: "Compras", kind: "acumulo", endedAt: null, limitCents: opcoes.limite ?? null }],
     }),
   };
-  return new HojeService(repositorio as never, agenda as never, financas as never, extratos as never, metas as never, grupos as never);
+  const servico = new HojeService(repositorio as never, agenda as never, financas as never, extratos as never, metas as never, grupos as never);
+  return Object.assign(servico, { pedidosDoDia });
 }
 
 describe("o dia da pessoa", () => {
@@ -122,5 +127,13 @@ describe("o dia da pessoa", () => {
     const servico = montar({ hoje: "2026-11-06" });
     expect((await servico.concluir(TENANT, "t1", true)).doneOn).toBe("2026-11-06");
     expect((await servico.concluir(TENANT, "t1", false)).doneOn).toBeNull();
+  });
+});
+
+describe("o checklist do compromisso", () => {
+  it("pede ao repositório o checklist só dos compromissos que acontecem no dia", async () => {
+    const servico = montar();
+    await servico.dia(TENANT, "2026-11-06");
+    expect(servico.pedidosDoDia).toEqual([["c1"]]);
   });
 });

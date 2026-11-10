@@ -1035,12 +1035,22 @@ export type Tarefa = {
   parentId: string | null;
   /** Só na raiz: ao ser feita, a tarefa nasce de novo no próximo dia da regra, com as subatividades abertas. */
   repeat: RepeticaoDeTarefa | null;
+  /**
+   * Item do checklist de um compromisso, no dia `date` da ocorrência. Não fica para o dia seguinte nem repete:
+   * o compromisso que repete tem um checklist por dia. null nas tarefas soltas.
+   */
+  appointmentId: string | null;
 };
 
-export type PedidoDeTarefa = { title: string; date: string; parentId?: string | null; repeat?: RepeticaoDeTarefa | null };
+/** `appointmentId` só na raiz: a subatividade herda o compromisso da atividade. */
+export type PedidoDeTarefa = { title: string; date: string; parentId?: string | null; repeat?: RepeticaoDeTarefa | null; appointmentId?: string | null };
 
-/** Mover uma tarefa: para dentro de outra (`parentId`) ou para a raiz (null), antes de `beforeId` ou no fim das irmãs. */
-export type PedidoDeMovimento = { parentId: string | null; beforeId?: string | null };
+/**
+ * Mover uma tarefa: para dentro de outra (`parentId`) ou para a raiz (null), antes de `beforeId` ou no fim das irmãs.
+ * Na raiz, `appointmentId` leva a tarefa (com a árvore dela) para o checklist do compromisso no dia `date`; null a
+ * devolve para as tarefas soltas, no dia `date`. Ausente: fica na lista em que está.
+ */
+export type PedidoDeMovimento = { parentId: string | null; beforeId?: string | null; appointmentId?: string | null; date?: string };
 
 export type CompromissoDoDia = {
   id: string;
@@ -1051,7 +1061,12 @@ export type CompromissoDoDia = {
   location: string;
   calendar: NomeAgenda;
   status: StatusCompromisso;
+  /** O compromisso repete (toda semana, todo mês, todo ano): o checklist de outro dia pode ser trazido para este. */
+  repeats: boolean;
 };
+
+/** Traz para o dia o checklist da última ocorrência do compromisso que tinha um, com tudo aberto. */
+export type PedidoDeCopiaDoChecklist = { date: string };
 
 /** Um vencimento que conta no dia: pendente no vencimento, ou pago nesse dia. */
 export type VencimentoDoDia = {
@@ -2584,7 +2599,7 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "responder-gasto-compromisso",
   ]),
   ...grupo("agenda", "Calendário", ["sincronizar-google-agenda", "atualizar-fuso-calendario"]),
-  ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "mover-tarefa", "excluir-tarefa"]),
+  ...grupo("agenda", "Tarefa do dia", ["criar-tarefa", "atualizar-tarefa", "concluir-tarefa", "mover-tarefa", "excluir-tarefa", "copiar-checklist"]),
   ...grupo("agenda", "Configurações", ["atualizar-fuso"]),
   ...grupo("financeiro", "Conta", ["criar-conta", "atualizar-conta", "remover-conta"]),
   ...grupo("financeiro", "Caixinha", ["criar-caixinha", "atualizar-caixinha", "excluir-caixinha", "ligar-meta-a-caixinha"]),
@@ -3669,14 +3684,35 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "criar_tarefa",
     agentes: ["agenda"],
     descricao:
-      "Escreve uma tarefa na aba Hoje da pessoa. Sem date, é para hoje. Com parentId, vira subatividade de uma tarefa que já existe (o id vem de consultar_hoje; subatividades podem ter subatividades). Tarefa não guarda valor: dinheiro é lançamento.",
+      "Escreve uma tarefa na aba Hoje da pessoa. Sem date, é para hoje. Com parentId, vira subatividade de uma tarefa que já existe (o id vem de consultar_hoje; subatividades podem ter subatividades). Com appointmentId, vira item do checklist daquele compromisso, no dia date da ocorrência (o compromisso precisa acontecer nesse dia; não repete e não passa para o dia seguinte). Tarefa não guarda valor: dinheiro é lançamento.",
     esquema: z.object({
       title: z.string().trim().min(1).max(160).describe("A tarefa, curta, como a pessoa falaria."),
       date: dataDoSistema.optional(),
       parentId: idDoSistema.optional().describe("A atividade de que esta é subatividade."),
+      appointmentId: idDoSistema.optional().describe("O compromisso cujo checklist recebe o item (id de consultar_hoje ou consultar_agenda). Só sem parentId."),
       repeat: z.enum(REPETICOES_DE_TAREFA).optional().describe("Só sem parentId: daily (todo dia), weekdays (dias úteis), weekly (toda semana) ou monthly (todo mês). Ao ser feita, a tarefa nasce de novo no próximo dia da regra."),
     }),
     rotulo: (args) => `Anotou a tarefa ${entreAspas(args.title)}`,
+  }),
+  ferramenta({
+    nome: "associar_tarefa_ao_compromisso",
+    agentes: ["agenda"],
+    descricao:
+      "Leva uma tarefa da aba Hoje, com as subatividades, para o checklist de um compromisso no dia date da ocorrência. appointmentId null devolve a tarefa para as tarefas soltas, no dia date. Os ids vêm de consultar_hoje.",
+    esquema: z.object({
+      id: idDoSistema.describe("A tarefa."),
+      appointmentId: idDoSistema.nullable(),
+      date: dataDoSistema,
+    }),
+    rotulo: (args) => (args.appointmentId ? "Levou a tarefa para o checklist do compromisso" : "Tirou a tarefa do checklist do compromisso"),
+  }),
+  ferramenta({
+    nome: "copiar_checklist_do_compromisso",
+    agentes: ["agenda"],
+    descricao:
+      "Para um compromisso que repete: traz para o dia date o checklist da última vez que ele teve um, com todos os itens abertos. Só quando o dia ainda não tem checklist.",
+    esquema: z.object({ id: idDoSistema.describe("O compromisso."), date: dataDoSistema }),
+    rotulo: () => "Trouxe o checklist da última vez",
   }),
   ferramenta({
     nome: "editar_tarefa",

@@ -80,8 +80,21 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
   criar_tarefa: {
     metodo: "POST",
     caminho: () => "tarefas",
-    corpo: (a, fuso, idGerado) => ({ id: idGerado ?? randomUUID(), title: a.title, date: a.date ?? diaNoFuso(fuso), ...(a.parentId ? { parentId: a.parentId } : {}), ...(a.repeat && !a.parentId ? { repeat: a.repeat } : {}) }),
+    corpo: (a, fuso, idGerado) => ({
+      id: idGerado ?? randomUUID(),
+      title: a.title,
+      date: a.date ?? diaNoFuso(fuso),
+      ...(a.parentId ? { parentId: a.parentId } : {}),
+      ...(a.appointmentId && !a.parentId ? { appointmentId: a.appointmentId } : {}),
+      ...(a.repeat && !a.parentId && !a.appointmentId ? { repeat: a.repeat } : {}),
+    }),
   },
+  associar_tarefa_ao_compromisso: {
+    metodo: "PATCH",
+    caminho: (a) => `tarefas/${id(a.id)}/mover`,
+    corpo: (a) => ({ parentId: null, beforeId: null, appointmentId: a.appointmentId, date: a.date }),
+  },
+  copiar_checklist_do_compromisso: { metodo: "POST", caminho: (a) => `compromissos/${id(a.id)}/checklist/copiar`, corpo: (a) => ({ date: a.date }) },
   editar_tarefa: {
     metodo: "PATCH",
     caminho: (a) => `tarefas/${id(a.id)}`,

@@ -31,7 +31,8 @@ import {
 /** O recuo de cada nível da árvore, em pixels: a caixa da filha alinha com o texto da mãe. */
 const RECUO = 28;
 
-type Edicao = { tarefa: Tarefa; title: string; date: string; repeat: RepeticaoDeTarefa | ""; parentId: string };
+/** `appointmentId`: o compromisso em cujo checklist a tarefa da raiz fica; vazio, ela é solta. */
+type Edicao = { tarefa: Tarefa; title: string; date: string; repeat: RepeticaoDeTarefa | ""; parentId: string; appointmentId: string };
 
 /** A tarefa e todas as que estão abaixo dela: não podem virar a mãe dela. */
 function descendentes(tarefas: Tarefa[], id: string): Set<string> {
@@ -51,6 +52,8 @@ export function Hoje() {
   const [direcao, setDirecao] = useState(1);
   const [ocupado, setOcupado] = useState("");
   const [novo, setNovo] = useState("");
+  // O compromisso que está recebendo um item no checklist.
+  const [itemDe, setItemDe] = useState<CompromissoDoDia | null>(null);
   const [apagando, setApagando] = useState<Tarefa | null>(null);
   const [editando, setEditando] = useState<Edicao | null>(null);
 
@@ -92,6 +95,15 @@ export function Hoje() {
 
   const apagarTarefa = (item: Tarefa) => agir(`apagar-${item.id}`, () => pedir(`/api/tarefas/${item.id}`, { method: "DELETE" }), "Não foi possível apagar a tarefa.");
 
+  /** Um item no checklist do compromisso, no dia da tela (o dia da ocorrência). */
+  const anotarItem = (item: CompromissoDoDia, title: string) =>
+    dados && title.trim()
+      ? agir(`item-${item.id}`, () => enviar("/api/tarefas", { id: crypto.randomUUID(), title: title.trim(), date: dados.date, appointmentId: item.id }), "Não foi possível anotar o item.")
+      : Promise.resolve(false);
+
+  const copiarChecklist = (item: CompromissoDoDia) =>
+    dados ? agir(`copiar-${item.id}`, () => enviar(`/api/compromissos/${item.id}/checklist/copiar`, { date: dados.date }), "Não foi possível trazer o checklist.") : Promise.resolve(false);
+
   const marcarCompromisso = (item: CompromissoDoDia, done: boolean) =>
     agir(item.id, () => enviar(`/api/compromissos/${item.id}/status`, { status: done ? "done" : "undone" }, "PATCH"), "Não foi possível marcar o compromisso.");
 
@@ -127,7 +139,10 @@ export function Hoje() {
     agir(`gasto-${item.appointmentId}:${item.date}`, () => enviar(`/api/compromissos/${item.appointmentId}/sem-gasto`, { date: item.date }), "Não foi possível responder.");
 
   const tarefas = dados?.tarefas ?? [];
-  const raizes = filhasDe(tarefas, null);
+  // As tarefas soltas; o checklist de cada compromisso fica embaixo dele.
+  const raizes = filhasDe(tarefas, null).filter((item) => !item.appointmentId);
+  const checklistDe = (id: string) => filhasDe(tarefas, null).filter((item) => item.appointmentId === id);
+  const arvoreDe = (id: string): Tarefa[] => filhasDe(tarefas, id).flatMap((filha) => [filha, ...arvoreDe(filha.id)]);
   const atrasados = dados ? dados.vencimentos.filter((item) => item.situation === "late") : [];
   const doDia = dados ? dados.vencimentos.filter((item) => item.situation !== "late") : [];
   const { feitas, total } = dados ? andamento(dados) : { feitas: 0, total: 0 };
@@ -139,7 +154,7 @@ export function Hoje() {
     if (!dados) return null;
     const filhas = filhasDe(tarefas, item.id);
     const feitasAqui = filhas.filter((filha) => filha.doneOn).length;
-    const rotulo = `${nivel > 0 ? "Subatividade" : "Tarefa"} ${item.title}`;
+    const rotulo = `${item.appointmentId && nivel <= 1 ? "Item do checklist" : nivel > 0 ? "Subatividade" : "Tarefa"} ${item.title}`;
     return (
       <Fragment key={item.id}>
         <Linha
@@ -151,14 +166,16 @@ export function Hoje() {
           onMarcar={(done) => void marcarTarefa(item, done)}
           titulo={item.title}
           detalhe={filhas.length > 0 ? `${feitasAqui} de ${filhas.length}` : undefined}
-          chip={nivel === 0 && item.date < dados.date && !item.doneOn ? <span className="chip ia">Ficou de {rotuloCurto(item.date)}</span> : null}
+          chip={nivel === 0 && !item.appointmentId && item.date < dados.date && !item.doneOn ? <span className="chip ia">Ficou de {rotuloCurto(item.date)}</span> : null}
           lado={
             <IonButton
               fill="clear"
               className="apagar"
               aria-label={`Editar: ${rotulo}`}
               disabled={ocupado !== ""}
-              onClick={() => setEditando({ tarefa: item, title: item.title, date: item.date, repeat: item.repeat ?? "", parentId: item.parentId ?? "" })}
+              onClick={() =>
+                setEditando({ tarefa: item, title: item.title, date: item.date, repeat: item.repeat ?? "", parentId: item.parentId ?? "", appointmentId: item.appointmentId ?? "" })
+              }
             >
               <IonIcon slot="icon-only" icon={createOutline} />
             </IonButton>
@@ -285,20 +302,32 @@ export function Hoje() {
                 </Grupo>
 
                 <Grupo titulo="Compromissos" vazio={dados.compromissos.length === 0}>
-                  {dados.compromissos.map((item) => (
-                    <Linha
-                      key={item.id}
-                      chave={item.id}
-                      feito={item.status === "done"}
-                      ocupado={ocupado === item.id}
-                      rotulo={`Compromisso ${item.title}`}
-                      onMarcar={(done) => void marcarCompromisso(item, done)}
-                      hora={item.allDay ? "Dia todo" : item.time}
-                      titulo={item.title}
-                      detalhe={[item.location, item.endTime ? `até ${item.endTime}` : ""].filter(Boolean).join(" · ")}
-                      lado={<span className="chip evento">{item.calendar}</span>}
-                    />
-                  ))}
+                  {dados.compromissos.map((item) => {
+                    const itens = checklistDe(item.id);
+                    const todos = itens.flatMap((raiz) => [raiz, ...arvoreDe(raiz.id)]);
+                    const prontos = todos.filter((tarefa) => tarefa.doneOn).length;
+                    return (
+                      <Fragment key={item.id}>
+                        <Linha
+                          chave={item.id}
+                          feito={item.status === "done"}
+                          ocupado={ocupado === item.id}
+                          rotulo={`Compromisso ${item.title}`}
+                          onMarcar={(done) => void marcarCompromisso(item, done)}
+                          hora={item.allDay ? "Dia todo" : item.time}
+                          titulo={item.title}
+                          detalhe={[item.location, item.endTime ? `até ${item.endTime}` : ""].filter(Boolean).join(" · ")}
+                          chip={todos.length > 0 ? <span className={`chip${prontos === todos.length ? " ok" : ""}`}>Checklist {prontos}/{todos.length}</span> : null}
+                          lado={
+                            <IonButton fill="clear" className="apagar" aria-label={`Item no checklist de ${item.title}`} disabled={ocupado !== ""} onClick={() => setItemDe(item)}>
+                              <IonIcon slot="icon-only" icon={addOutline} />
+                            </IonButton>
+                          }
+                        />
+                        {itens.map((raiz) => atividade(raiz, 1))}
+                      </Fragment>
+                    );
+                  })}
                 </Grupo>
 
                 <Grupo titulo={ehHoje ? "Pagamentos de hoje" : "Pagamentos do dia"} vazio={doDia.length === 0}>
@@ -337,7 +366,20 @@ export function Hoje() {
         {editando ? (
           <>
             <Campo icone={pricetagOutline} rotulo="Tarefa" value={editando.title} onMudar={(title) => setEditando({ ...editando, title })} maxLength={160} />
-            <Campo icone={calendarOutline} rotulo="Dia" type="date" value={editando.date} onMudar={(date) => setEditando({ ...editando, date })} />
+            {/* A tarefa da raiz vai para o checklist de um compromisso do dia, ou sai dele e volta a ser solta. */}
+            {!editando.tarefa.parentId && (dados?.compromissos.length || editando.tarefa.appointmentId) ? (
+              <Selecao
+                rotulo="No checklist de"
+                valor={editando.appointmentId}
+                vazio="Nenhum: tarefa solta"
+                opcoes={(dados?.compromissos ?? []).map((item) => ({ id: item.id, texto: `${item.allDay ? "Dia todo" : (item.time ?? "")} · ${item.title}` }))}
+                aoMudar={(appointmentId) => setEditando({ ...editando, appointmentId, parentId: appointmentId ? "" : editando.parentId, repeat: appointmentId ? "" : editando.repeat })}
+              />
+            ) : null}
+            {editando.appointmentId ? null : (
+              <Campo icone={calendarOutline} rotulo="Dia" type="date" value={editando.date} onMudar={(date) => setEditando({ ...editando, date })} />
+            )}
+            {editando.appointmentId ? null : (
             <Selecao
               rotulo="Subatividade de"
               valor={editando.parentId}
@@ -345,7 +387,8 @@ export function Hoje() {
               opcoes={tarefas.filter((item) => !descendentes(tarefas, editando.tarefa.id).has(item.id)).map((item) => ({ id: item.id, texto: item.title }))}
               aoMudar={(parentId) => setEditando({ ...editando, parentId, repeat: parentId ? "" : editando.repeat })}
             />
-            {editando.parentId ? null : (
+            )}
+            {editando.parentId || editando.appointmentId ? null : (
               <Selecao
                 rotulo="Repete"
                 valor={editando.repeat}
@@ -361,11 +404,15 @@ export function Hoje() {
               onClick={() => {
                 const { tarefa } = editando;
                 const parentId = editando.parentId || null;
+                const appointmentId = editando.appointmentId || null;
+                const trocaDeLista = !tarefa.parentId && appointmentId !== (tarefa.appointmentId ?? null);
                 void agir(
                   tarefa.id,
                   async () => {
-                    await enviar(`/api/tarefas/${tarefa.id}`, { title: editando.title.trim(), date: editando.date, parentId, repeat: parentId ? null : editando.repeat || null }, "PATCH");
-                    if (parentId !== tarefa.parentId) await enviar(`/api/tarefas/${tarefa.id}/mover`, { parentId, beforeId: null }, "PATCH");
+                    await enviar(`/api/tarefas/${tarefa.id}`, { title: editando.title.trim(), date: editando.date, parentId, repeat: parentId || appointmentId ? null : editando.repeat || null }, "PATCH");
+                    // Levar para o checklist (ou tirar dele) põe a tarefa, com a árvore, no dia da tela.
+                    if (trocaDeLista) await enviar(`/api/tarefas/${tarefa.id}/mover`, { parentId: null, beforeId: null, appointmentId, date: dados?.date }, "PATCH");
+                    else if (parentId !== tarefa.parentId) await enviar(`/api/tarefas/${tarefa.id}/mover`, { parentId, beforeId: null }, "PATCH");
                   },
                   "Não foi possível salvar a tarefa.",
                 ).then((ok) => ok && setEditando(null));
@@ -411,6 +458,20 @@ export function Hoje() {
         ) : null}
       </Folha>
 
+      <IonAlert
+        isOpen={itemDe !== null}
+        header={itemDe ? `Checklist de ${itemDe.title}` : "Checklist"}
+        message={itemDe && itemDe.repeats && checklistDe(itemDe.id).length === 0 ? "Escreva um item, ou traga o checklist da última vez que este compromisso teve um." : "Escreva um item do checklist deste dia."}
+        inputs={[{ name: "title", type: "text", placeholder: "Item do checklist", attributes: { maxlength: 160 } }]}
+        buttons={[
+          { text: "Cancelar", role: "cancel" },
+          ...(itemDe && itemDe.repeats && checklistDe(itemDe.id).length === 0
+            ? [{ text: "Trazer da última vez", handler: () => { const alvo = itemDe; if (alvo) void copiarChecklist(alvo); } }]
+            : []),
+          { text: "Adicionar", handler: (valores: { title?: string }) => { const alvo = itemDe; if (alvo) void anotarItem(alvo, valores.title ?? ""); } },
+        ]}
+        onDidDismiss={() => setItemDe(null)}
+      />
       <IonAlert
         isOpen={apagando !== null}
         header="Apagar esta tarefa?"

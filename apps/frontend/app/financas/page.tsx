@@ -39,11 +39,12 @@ import { Segmentado } from "../../components/ui/segmentado";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Chip } from "../../components/ui/chip";
 import { Troca } from "../../components/ui/movimento";
+import { FaixaDeAbas, inteiro, PainelDeAba, Secao, useAbas, type Aba } from "../../components/ui/abas";
 import { Icone } from "../../components/ui/icone";
 import { PageHeader } from "../../components/ui/page-header";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
-import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { AcoesTransacao, ControleExclusao } from "./acoes";
 import { OcorrenciasDoLancamento } from "./ocorrencias";
 import { TabelaLancamentos } from "./tabela";
@@ -99,6 +100,19 @@ type Rascunho = {
 };
 
 const field = cn(campo, "w-full");
+
+type AbaDoLancamento = "principal" | "tipo" | "conta" | "vencimento" | "detalhes" | "ocorrencias" | "situacao";
+
+// Vencimento só aparece na categoria que aceita regra de dia útil; Ocorrências e Situação, só na edição.
+const ABAS_DO_LANCAMENTO: Aba<AbaDoLancamento>[] = [
+  { id: "principal", label: "Principal" },
+  { id: "tipo", label: "Tipo" },
+  { id: "conta", label: "Conta" },
+  { id: "vencimento", label: "Vencimento" },
+  { id: "detalhes", label: "Detalhes" },
+  { id: "ocorrencias", label: "Ocorrências" },
+  { id: "situacao", label: "Situação" },
+];
 
 export default function Financas() {
   const toast = useToast();
@@ -197,6 +211,15 @@ export default function Financas() {
   });
   const padraoDoVencimento = draft && vista ? regraPadrao(vencimentos, draft.category, vista.mode) : REGRA_SEM_AJUSTE;
   const regraDoVencimento = draft?.dueRuleManual ? draft.dueRule : padraoDoVencimento;
+  const abas = useAbas<AbaDoLancamento>(
+    ABAS_DO_LANCAMENTO.filter((aba) => {
+      if (aba.id === "vencimento") return Boolean(draft && vista && aceitaRegraDeVencimento(draft.category));
+      if (aba.id === "ocorrencias") return Boolean(entrada && entrada.occurrences.length > 0);
+      if (aba.id === "situacao") return Boolean(entrada);
+      return true;
+    }),
+    "principal",
+  );
 
   // Os padrões de vencimento e os feriados da conta deixam a prévia igual ao que o backend grava.
   // Se falharem, a prévia usa os padrões iniciais e os feriados nacionais, e o backend continua mandando.
@@ -250,6 +273,7 @@ export default function Financas() {
       }
       setSessions(opcoes);
       setFoco(numero ?? null);
+      abas.reiniciar(numero == null ? "principal" : "ocorrencias");
       setDraft(rascunhoDe(entry));
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "O backend não respondeu.");
@@ -280,6 +304,7 @@ export default function Financas() {
         return;
       }
       setSessions(opcoes);
+      abas.reiniciar();
       setDraft({
         id: crypto.randomUUID(),
         sessionId: opcoes[0]?.id ?? "",
@@ -319,6 +344,7 @@ export default function Financas() {
     if (!draft || saving) return;
     const absoluto = reaisParaCentavos(draft.amount.replace(/^[-−]/, ""));
     if (absoluto == null) {
+      abas.mostrarErro("principal");
       toast.erro("Informe o valor.");
       return;
     }
@@ -469,295 +495,239 @@ export default function Financas() {
         </div>
         <Dialogo
           aberto={draft !== null}
-          largura={entrada ? "larga" : undefined}
+          largura="extra"
+          aria-labelledby="titulo-lancamento"
           onClose={() => setDraft(null)}
         >
-          <h2 className="mb-4 font-display text-lg">{editando ? "Editar lançamento" : "Novo lançamento"}</h2>
-          <form onSubmit={salvar}>
-            <div className="dialog-corpo grid gap-4">
-            <div className="grid gap-1">
-              <Rotulo htmlFor="lancamento-sessao" dica="Onde este lançamento entra. A sessão pertence a um grupo.">
-                Sessão
-              </Rotulo>
-              <select
-                id="lancamento-sessao"
-                value={draft?.sessionId ?? ""}
-                onChange={(event) =>
-                  setDraft((current) => {
-                    if (!current) return current;
-                    const escolhida = sessions.find((session) => session.id === event.target.value);
-                    return {
-                      ...current,
-                      sessionId: event.target.value,
-                      category: editando
-                        ? current.category
-                        : categoriaDaSessao(escolhida, current.category),
-                    };
-                  })
-                }
-                className={field}
-              >
-                {sessions
-                  .filter((session) => (draft ? sessaoAceitaNoMes(session, ...anoEMes(draft.date)) : true) || session.id === draft?.sessionId)
-                  .map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.groupName} · {session.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="dialog-par">
-              <CampoSelect
-                id="lancamento-conta"
-                label="Conta"
-                dica="De que conta o dinheiro sai ou em que conta entra. Sem conta, o lançamento só entra na sobra."
-                value={draft?.accountId ?? ""}
-                options={[{ value: "", label: "Sem conta" }, ...contas.map((conta) => ({ value: conta.id, label: conta.name }))]}
-                onChange={(accountId) => setDraft((current) => (current ? { ...current, accountId } : current))}
-              />
-              <label className="flex min-h-10 items-center gap-2 self-end text-sm">
-                <input
-                  type="checkbox"
-                  className={caixaDeMarcar}
-                  checked={draft?.transfer ?? false}
-                  onChange={(event) => setDraft((current) => (current ? { ...current, transfer: event.target.checked } : current))}
-                />
-                Transferência entre minhas contas (não entra na sobra)
-              </label>
-            </div>
-            <div className="grid gap-1">
-              <Rotulo htmlFor="lancamento-nome" dica="Como este lançamento aparece na lista.">
-                Nome
-              </Rotulo>
-              <input
-                id="lancamento-nome"
-                value={draft?.name ?? ""}
-                maxLength={160}
-                onChange={(event) =>
-                  setDraft((current) => (current ? { ...current, name: event.target.value } : current))
-                }
-                className={field}
-              />
-            </div>
-            <div className="grid gap-1">
-              <Rotulo htmlFor="lancamento-descricao" dica="Um detalhe a mais sobre este lançamento.">
-                Descrição
-              </Rotulo>
-              <textarea
-                id="lancamento-descricao"
-                value={draft?.description ?? ""}
-                maxLength={160}
-                rows={2}
-                placeholder="Opcional"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, description: event.target.value } : current,
-                  )
-                }
-                className={cn(field, "resize-y py-2")}
-              />
-            </div>
-            <div className="grid gap-1">
-              <Rotulo htmlFor="lancamento-justificativa" dica="Por que este valor existe.">
-                Justificativa
-              </Rotulo>
-              <textarea
-                id="lancamento-justificativa"
-                value={draft?.justification ?? ""}
-                maxLength={160}
-                rows={2}
-                placeholder="Opcional"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, justification: event.target.value } : current,
-                  )
-                }
-                className={cn(field, "resize-y py-2")}
-              />
-            </div>
-            {draft ? (
-              <CampoSelect
-                id="lancamento-cobertura"
-                label="Já entra em"
-                dica="Se este valor já faz parte de outro lançamento, ele não entra de novo na sobra. O outro é que conta."
-                value={draft.coveredById}
-                options={[
-                  { value: "", label: "Este valor entra na sobra" },
-                  ...destinos.map((entry) => ({
-                    value: entry.id,
-                    label: entry.name || entry.description || "Lançamento",
-                  })),
-                ]}
-                onChange={(coveredById) =>
-                  setDraft((current) => (current ? { ...current, coveredById } : current))
-                }
-              />
-            ) : null}
-            {serieResolvida ? (
-              <p className="text-sm text-ink-2">
-                O que já foi pago, cancelado ou estornado permanece. O valor e a regra novos valem para o que ainda está pendente.
-              </p>
-            ) : null}
-            <div className="dialog-par">
-              <div className="grid gap-1">
-                <Rotulo htmlFor="lancamento-data" dica="O dia deste lançamento.">
-                  Data
-                </Rotulo>
-                <input
-                  id="lancamento-data"
-                  type="date"
-                  value={draft?.date ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current ? { ...current, date: event.target.value } : current,
-                    )
-                  }
-                  className={field}
-                />
-              </div>
-              <div className="grid gap-1">
-                <Rotulo htmlFor="lancamento-valor" dica="O valor em reais. Os centavos entram enquanto você digita.">
-                  Valor
-                </Rotulo>
-                <CampoValor
-                  id="lancamento-valor"
-                  value={(draft?.amount ?? "").replace(/^[-−+]/, "")}
-                  onChange={(valor) =>
-                    setDraft((current) => (current ? { ...current, amount: valor } : current))
-                  }
-                className={field}
-              />
-              </div>
-            </div>
-            {editando && vista && regra && draft ? (
-              <p className="text-sm text-ink-2">{resumoDaBase(draft, vista, regra)}</p>
-            ) : null}
-            {editando ? null : (
-              <div className="dialog-par">
-                <CampoSelect
-                  id="lancamento-categoria"
-                  label="Categoria"
-                  dica="Os tipos que esta sessão aceita."
-                  value={draft?.category ?? "fixed"}
-                  options={(sessions.find((session) => session.id === draft?.sessionId)?.categories ??
-                    CATEGORIAS_TRANSACAO
-                  ).map((item) => ({
-                    value: item,
-                    label: ROTULO_CATEGORIA[item],
-                  }))}
-                  onChange={(category) =>
-                    setDraft((current) =>
-                      current ? { ...current, category: category as CategoriaTransacao } : current,
-                    )
-                  }
-                />
-                {vista && regra?.mode === null ? (
-                  <CampoSelect
-                    id="lancamento-movimento"
-                    label="Movimento"
-                    dica="Entrada ou saída. Algumas categorias já definem isso."
-                    value={vista.mode}
-                    options={MODOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_MODO[item] }))}
-                    onChange={(mode) =>
-                      setDraft((current) =>
-                        current ? { ...current, mode: mode as ModoTransacao } : current,
-                      )
-                    }
-                  />
-                ) : null}
-              </div>
-            )}
-            <div className="dialog-par">
-              {editando ? null : (
-              <CampoSelect
-                id="lancamento-status"
-                label="Status"
-                dica="Pendente, paga, cancelada ou estornada."
-                value={draft?.status ?? "pending"}
-                options={STATUS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_STATUS[item] }))}
-                onChange={(status) =>
-                  setDraft((current) =>
-                    current ? { ...current, status: status as StatusTransacao } : current,
-                  )
-                }
-              />
-              )}
-            </div>
-            {draft && regra?.installments ? (
-              <div className="dialog-par">
-                {editando ? null : (
-                <div className="grid gap-1">
-                  <Rotulo htmlFor="lancamento-parcela" dica="Qual parcela está em andamento.">
-                    Parcela atual
-                  </Rotulo>
-                  <input
-                    id="lancamento-parcela"
-                    inputMode="numeric"
-                    value={draft.installmentNumber}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current ? { ...current, installmentNumber: event.target.value } : current,
-                      )
-                    }
-                    className={field}
-                  />
-                </div>
-                )}
+          <h2 id="titulo-lancamento" className="mb-3 font-display text-lg">
+            {editando ? "Editar lançamento" : "Novo lançamento"}
+          </h2>
+          <FaixaDeAbas controle={abas} aria-label="Partes do lançamento" />
+          <form
+              onSubmit={salvar}
+            onInvalidCapture={abas.aoInvalidar}
+            onChangeCapture={abas.aoMudar}
+          >
+            <div className="dialog-corpo dialog-corpo-abas pt-6">
+              <PainelDeAba controle={abas} id="principal">
+                <Secao titulo="O lançamento">
                   <div className="grid gap-1">
-                    <Rotulo htmlFor="lancamento-parcelas" dica="Quantas parcelas este lançamento tem.">
-                      Total de parcelas
+                    <Rotulo htmlFor="lancamento-nome" dica="Como este lançamento aparece na lista.">
+                      Nome
                     </Rotulo>
                     <input
-                      id="lancamento-parcelas"
-                      inputMode="numeric"
-                      value={draft.installments}
+                      id="lancamento-nome"
+                      value={draft?.name ?? ""}
+                      maxLength={160}
+                      onChange={(event) =>
+                        setDraft((current) => (current ? { ...current, name: event.target.value } : current))
+                      }
+                      className={field}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="lancamento-sessao" dica="Onde este lançamento entra. A sessão pertence a um grupo.">
+                      Sessão
+                    </Rotulo>
+                    <select
+                      id="lancamento-sessao"
+                      value={draft?.sessionId ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => {
+                          if (!current) return current;
+                          const escolhida = sessions.find((session) => session.id === event.target.value);
+                          return {
+                            ...current,
+                            sessionId: event.target.value,
+                            category: editando
+                              ? current.category
+                              : categoriaDaSessao(escolhida, current.category),
+                          };
+                        })
+                      }
+                      className={field}
+                    >
+                      {sessions
+                        .filter((session) => (draft ? sessaoAceitaNoMes(session, ...anoEMes(draft.date)) : true) || session.id === draft?.sessionId)
+                        .map((session) => (
+                          <option key={session.id} value={session.id}>
+                            {session.groupName} · {session.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </Secao>
+                <Secao titulo="Valor e data">
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="lancamento-valor" dica="O valor em reais. Os centavos entram enquanto você digita.">
+                      Valor
+                    </Rotulo>
+                    <CampoValor
+                      id="lancamento-valor"
+                      value={(draft?.amount ?? "").replace(/^[-−+]/, "")}
+                      onChange={(valor) =>
+                        setDraft((current) => (current ? { ...current, amount: valor } : current))
+                      }
+                      className={field}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="lancamento-data" dica="O dia deste lançamento.">
+                      Data
+                    </Rotulo>
+                    <input
+                      id="lancamento-data"
+                      type="date"
+                      value={draft?.date ?? ""}
                       onChange={(event) =>
                         setDraft((current) =>
-                          current ? { ...current, installments: event.target.value } : current,
+                          current ? { ...current, date: event.target.value } : current,
                         )
                       }
                       className={field}
                     />
                   </div>
-              </div>
-            ) : null}
-            {draft && regra?.loan ? (
-              <div className="dialog-par">
-                <div className="grid gap-1">
-                  <Rotulo htmlFor="lancamento-pessoa" dica="Quem emprestou para você, ou quem recebeu de você.">
-                    Pessoa
-                  </Rotulo>
-                  <input
-                    id="lancamento-pessoa"
-                    maxLength={80}
-                    required
-                    value={draft.counterparty}
-                    onChange={(event) =>
-                      setDraft((current) => (current ? { ...current, counterparty: event.target.value } : current))
-                    }
-                    className={field}
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Rotulo
-                    htmlFor="lancamento-total"
-                    dica="O total combinado, com juros se houver. O saldo é ele menos o que já foi pago. O valor acima é a parcela combinada, só como previsão."
-                  >
-                    Total combinado
-                  </Rotulo>
-                  <CampoValor
-                    id="lancamento-total"
-                    required
-                    value={draft.principal}
-                    onChange={(principal) => setDraft((current) => (current ? { ...current, principal } : current))}
-                    className={field}
-                  />
-                </div>
-              </div>
-            ) : null}
-            {draft && regra?.recurrence ? (
-              <div className="grid gap-4">
-                  <div className="dialog-par">
+                  {editando ? null : (
+                    <CampoSelect
+                      id="lancamento-status"
+                      label="Status"
+                      dica="Pendente, paga, cancelada ou estornada."
+                      value={draft?.status ?? "pending"}
+                      options={STATUS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_STATUS[item] }))}
+                      onChange={(status) =>
+                        setDraft((current) =>
+                          current ? { ...current, status: status as StatusTransacao } : current,
+                        )
+                      }
+                    />
+                  )}
+                  {serieResolvida ? (
+                    <p className={cn("max-w-prose text-sm text-ink-2", inteiro)}>
+                      O que já foi pago, cancelado ou estornado permanece. O valor e a regra novos valem para o que ainda está pendente.
+                    </p>
+                  ) : null}
+                </Secao>
+              </PainelDeAba>
+
+              <PainelDeAba controle={abas} id="tipo">
+                <Secao titulo="Categoria">
+                  {editando && vista && regra && draft ? (
+                    <p className={cn("text-sm text-ink-2", inteiro)}>{resumoDaBase(draft, vista, regra)}</p>
+                  ) : null}
+                  {editando ? null : (
+                    <>
+                      <CampoSelect
+                        id="lancamento-categoria"
+                        label="Categoria"
+                        dica="Os tipos que esta sessão aceita."
+                        value={draft?.category ?? "fixed"}
+                        options={(sessions.find((session) => session.id === draft?.sessionId)?.categories ??
+                          CATEGORIAS_TRANSACAO
+                        ).map((item) => ({
+                          value: item,
+                          label: ROTULO_CATEGORIA[item],
+                        }))}
+                        onChange={(category) =>
+                          setDraft((current) =>
+                            current ? { ...current, category: category as CategoriaTransacao } : current,
+                          )
+                        }
+                      />
+                      {vista && regra?.mode === null ? (
+                        <CampoSelect
+                          id="lancamento-movimento"
+                          label="Movimento"
+                          dica="Entrada ou saída. Algumas categorias já definem isso."
+                          value={vista.mode}
+                          options={MODOS_TRANSACAO.map((item) => ({ value: item, label: ROTULO_MODO[item] }))}
+                          onChange={(mode) =>
+                            setDraft((current) =>
+                              current ? { ...current, mode: mode as ModoTransacao } : current,
+                            )
+                          }
+                        />
+                      ) : vista ? (
+                        <p className="flex items-center text-sm text-ink-2 tab:min-h-10 tab:self-end">
+                          {ROTULO_CATEGORIA[draft?.category ?? "fixed"]} é sempre {ROTULO_MODO[vista.mode].toLowerCase()}.
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </Secao>
+                {draft && regra?.installments ? (
+                  <Secao titulo="Parcelas">
+                    {editando ? null : (
+                      <div className="grid gap-1">
+                        <Rotulo htmlFor="lancamento-parcela" dica="Qual parcela está em andamento.">
+                          Parcela atual
+                        </Rotulo>
+                        <input
+                          id="lancamento-parcela"
+                          inputMode="numeric"
+                          value={draft.installmentNumber}
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              current ? { ...current, installmentNumber: event.target.value } : current,
+                            )
+                          }
+                          className={field}
+                        />
+                      </div>
+                    )}
+                    <div className="grid gap-1">
+                      <Rotulo htmlFor="lancamento-parcelas" dica="Quantas parcelas este lançamento tem.">
+                        Total de parcelas
+                      </Rotulo>
+                      <input
+                        id="lancamento-parcelas"
+                        inputMode="numeric"
+                        value={draft.installments}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current ? { ...current, installments: event.target.value } : current,
+                          )
+                        }
+                        className={field}
+                      />
+                    </div>
+                  </Secao>
+                ) : null}
+                {draft && regra?.loan ? (
+                  <Secao titulo="Empréstimo">
+                    <div className="grid gap-1">
+                      <Rotulo htmlFor="lancamento-pessoa" dica="Quem emprestou para você, ou quem recebeu de você.">
+                        Pessoa
+                      </Rotulo>
+                      <input
+                        id="lancamento-pessoa"
+                        maxLength={80}
+                        required
+                        value={draft.counterparty}
+                        onChange={(event) =>
+                          setDraft((current) => (current ? { ...current, counterparty: event.target.value } : current))
+                        }
+                        className={field}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <Rotulo
+                        htmlFor="lancamento-total"
+                        dica="O total combinado, com juros se houver. O saldo é ele menos o que já foi pago. O valor da aba Principal é a parcela combinada, só como previsão."
+                      >
+                        Total combinado
+                      </Rotulo>
+                      <CampoValor
+                        id="lancamento-total"
+                        required
+                        value={draft.principal}
+                        onChange={(principal) => setDraft((current) => (current ? { ...current, principal } : current))}
+                        className={field}
+                      />
+                    </div>
+                  </Secao>
+                ) : null}
+                {draft && regra?.recurrence ? (
+                  <Secao titulo="Recorrência">
                     <CampoSelect
                       id="lancamento-recorrencia"
                       label="Recorrência"
@@ -792,81 +762,170 @@ export default function Financas() {
                         className={field}
                       />
                     </div>
-                  </div>
-                {editando ? null : (
-                <div className="grid gap-1">
-                  <Rotulo htmlFor="lancamento-proximo" dica="A próxima data em que o valor fixo acontece.">
-                    Próximo vencimento
-                  </Rotulo>
-                  <input
-                    id="lancamento-proximo"
-                    type="date"
-                    value={draft.nextDueDate}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current ? { ...current, nextDueDate: event.target.value } : current,
-                      )
-                    }
-                    className={field}
+                    {editando ? null : (
+                      <div className="grid gap-1">
+                        <Rotulo htmlFor="lancamento-proximo" dica="A próxima data em que o valor fixo acontece.">
+                          Próximo vencimento
+                        </Rotulo>
+                        <input
+                          id="lancamento-proximo"
+                          type="date"
+                          value={draft.nextDueDate}
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              current ? { ...current, nextDueDate: event.target.value } : current,
+                            )
+                          }
+                          className={field}
+                        />
+                      </div>
+                    )}
+                  </Secao>
+                ) : null}
+              </PainelDeAba>
+
+              <PainelDeAba controle={abas} id="conta">
+                <Secao titulo="Conta">
+                  <CampoSelect
+                    id="lancamento-conta"
+                    label="Conta"
+                    dica="De que conta o dinheiro sai ou em que conta entra. Sem conta, o lançamento só entra na sobra."
+                    value={draft?.accountId ?? ""}
+                    options={[{ value: "", label: "Sem conta" }, ...contas.map((conta) => ({ value: conta.id, label: conta.name }))]}
+                    onChange={(accountId) => setDraft((current) => (current ? { ...current, accountId } : current))}
                   />
-                </div>
-                )}
-              </div>
-            ) : null}
-            {draft && vista && aceitaRegraDeVencimento(draft.category) ? (
-              // O padrão da conta vale sem a pessoa abrir isto. Quem precisa de outro dia útil abre.
-              <details className="grid gap-4" open={editando || draft.dueRuleManual}>
-                <summary className={cn("cursor-pointer text-sm text-ink-2", focusRing)}>Mais opções: vencimento em dia útil</summary>
-              <RegraDoVencimento
-                category={draft.category}
-                recurrence={draft.category === "fixed" ? draft.recurrence : null}
-                recurrenceInterval={numeroDoCampo(draft.recurrenceInterval)}
-                installments={numeroDoCampo(draft.installments)}
-                date={draft.date}
-                regra={regraDoVencimento}
-                padrao={padraoDoVencimento}
-                editando={editando}
-                calendario={calendario}
-                onChange={(dueRule, dueRuleManual) =>
-                  setDraft((current) => (current ? { ...current, dueRule, dueRuleManual } : current))
-                }
-              />
-              </details>
-            ) : null}
-            {entrada ? (
-              <OcorrenciasDoLancamento
-                entry={entrada}
-                foco={foco}
-                onAtualizar={async () => {
-                  const resposta = await carregar();
-                  const atual = resposta?.entries.find((item) => item.id === entrada.id);
-                  if (atual) setDraft(rascunhoDe(atual));
-                }}
-              />
-            ) : null}
-            {entrada ? (
-              <AcoesTransacao
-                embutido
-                entry={entrada}
-                entries={data?.entries ?? []}
-                year={entrada.startYear}
-                month={entrada.startMonth}
-                status={draft?.status}
-                commitmentId={draft?.commitmentId ?? ""}
-                onStatus={(status) =>
-                  setDraft((current) => (current ? { ...current, status } : current))
-                }
-                onCommitment={(commitmentId) =>
-                  setDraft((current) => (current ? { ...current, commitmentId } : current))
-                }
-                onClose={() => setDraft(null)}
-                onAtualizar={async () => {
-                  const resposta = await carregar();
-                  const atual = resposta?.entries.find((item) => item.id === entrada.id);
-                  if (atual) setDraft(rascunhoDe(atual));
-                }}
-              />
-            ) : null}
+                  <label className="flex min-h-10 items-center gap-2 self-end text-sm">
+                    <input
+                      type="checkbox"
+                      className={caixaDeMarcar}
+                      checked={draft?.transfer ?? false}
+                      onChange={(event) => setDraft((current) => (current ? { ...current, transfer: event.target.checked } : current))}
+                    />
+                    Transferência entre minhas contas (não entra na sobra)
+                  </label>
+                </Secao>
+                {draft ? (
+                  <Secao titulo="Sobra">
+                    <CampoSelect
+                      id="lancamento-cobertura"
+                      label="Já entra em"
+                      dica="Se este valor já faz parte de outro lançamento, ele não entra de novo na sobra. O outro é que conta."
+                      value={draft.coveredById}
+                      options={[
+                        { value: "", label: "Este valor entra na sobra" },
+                        ...destinos.map((entry) => ({
+                          value: entry.id,
+                          label: entry.name || entry.description || "Lançamento",
+                        })),
+                      ]}
+                      onChange={(coveredById) =>
+                        setDraft((current) => (current ? { ...current, coveredById } : current))
+                      }
+                    />
+                  </Secao>
+                ) : null}
+              </PainelDeAba>
+
+              {draft && vista && aceitaRegraDeVencimento(draft.category) ? (
+                // O padrão da conta vale sem a pessoa mexer. Quem precisa de outro dia útil muda aqui.
+                <PainelDeAba controle={abas} id="vencimento">
+                  <RegraDoVencimento
+                    category={draft.category}
+                    recurrence={draft.category === "fixed" ? draft.recurrence : null}
+                    recurrenceInterval={numeroDoCampo(draft.recurrenceInterval)}
+                    installments={numeroDoCampo(draft.installments)}
+                    date={draft.date}
+                    regra={regraDoVencimento}
+                    padrao={padraoDoVencimento}
+                    editando={editando}
+                    calendario={calendario}
+                    onChange={(dueRule, dueRuleManual) =>
+                      setDraft((current) => (current ? { ...current, dueRule, dueRuleManual } : current))
+                    }
+                  />
+                </PainelDeAba>
+              ) : null}
+
+              <PainelDeAba controle={abas} id="detalhes">
+                <Secao titulo="Anotações">
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="lancamento-descricao" dica="Um detalhe a mais sobre este lançamento.">
+                      Descrição
+                    </Rotulo>
+                    <textarea
+                      id="lancamento-descricao"
+                      value={draft?.description ?? ""}
+                      maxLength={160}
+                      rows={3}
+                      placeholder="Opcional"
+                      onChange={(event) =>
+                        setDraft((current) =>
+                          current ? { ...current, description: event.target.value } : current,
+                        )
+                      }
+                      className={cn(field, "resize-y py-2")}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="lancamento-justificativa" dica="Por que este valor existe.">
+                      Justificativa
+                    </Rotulo>
+                    <textarea
+                      id="lancamento-justificativa"
+                      value={draft?.justification ?? ""}
+                      maxLength={160}
+                      rows={3}
+                      placeholder="Opcional"
+                      onChange={(event) =>
+                        setDraft((current) =>
+                          current ? { ...current, justification: event.target.value } : current,
+                        )
+                      }
+                      className={cn(field, "resize-y py-2")}
+                    />
+                  </div>
+                </Secao>
+              </PainelDeAba>
+
+              {entrada && entrada.occurrences.length > 0 ? (
+                <PainelDeAba controle={abas} id="ocorrencias">
+                  <OcorrenciasDoLancamento
+                    entry={entrada}
+                    foco={foco}
+                    onAtualizar={async () => {
+                      const resposta = await carregar();
+                      const atual = resposta?.entries.find((item) => item.id === entrada.id);
+                      if (atual) setDraft(rascunhoDe(atual));
+                    }}
+                  />
+                </PainelDeAba>
+              ) : null}
+
+              {entrada ? (
+                <PainelDeAba controle={abas} id="situacao">
+                  <AcoesTransacao
+                    embutido
+                    entry={entrada}
+                    entries={data?.entries ?? []}
+                    year={entrada.startYear}
+                    month={entrada.startMonth}
+                    status={draft?.status}
+                    commitmentId={draft?.commitmentId ?? ""}
+                    onStatus={(status) =>
+                      setDraft((current) => (current ? { ...current, status } : current))
+                    }
+                    onCommitment={(commitmentId) =>
+                      setDraft((current) => (current ? { ...current, commitmentId } : current))
+                    }
+                    onClose={() => setDraft(null)}
+                    onAtualizar={async () => {
+                      const resposta = await carregar();
+                      const atual = resposta?.entries.find((item) => item.id === entrada.id);
+                      if (atual) setDraft(rascunhoDe(atual));
+                    }}
+                  />
+                </PainelDeAba>
+              ) : null}
             </div>
             <div className="dialog-acoes">
               {entrada ? (

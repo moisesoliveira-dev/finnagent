@@ -321,7 +321,7 @@ function Formulario({
   );
 
   if (embutido) {
-    return <div className="grid gap-4 border-t border-line pt-4">{corpo}</div>;
+    return <div className="grid min-w-0 gap-4">{corpo}</div>;
   }
 
   return (

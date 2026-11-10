@@ -26,10 +26,18 @@ const tarefa = z.object({
   date: dataIso,
   parentId: z.uuid().nullable().optional(),
   repeat: z.enum(REPETICOES_DE_TAREFA).nullable().optional(),
+  appointmentId: z.uuid().nullable().optional(),
 });
 const criarTarefa = tarefa.extend({ id: z.uuid() });
 const concluir = z.object({ done: z.boolean() });
-const mover = z.object({ parentId: z.uuid().nullable(), beforeId: z.uuid().nullable().optional() });
+const mover = z
+  .object({
+    parentId: z.uuid().nullable(),
+    beforeId: z.uuid().nullable().optional(),
+    appointmentId: z.uuid().nullable().optional(),
+    date: dataIso.optional(),
+  })
+  .refine((pedido) => !pedido.appointmentId || Boolean(pedido.date), { message: "Informe o dia do compromisso." });
 
 @Controller()
 export class HojeController {
@@ -69,6 +77,15 @@ export class HojeController {
     const pedido = mover.safeParse(body);
     if (!pedido.success) throw new BadRequestException("Diga para onde a tarefa vai.");
     return this.executar(() => this.hoje.mover(this.tenant(tenant), this.id(id), pedido.data));
+  }
+
+  @Post("compromissos/:id/checklist/copiar")
+  copiarChecklist(@Headers("x-tenant-id") tenant: string | undefined, @Param("id") id: string, @Body() body: unknown) {
+    const pedido = z.object({ date: dataIso }).safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Informe o dia.");
+    const compromisso = z.uuid().safeParse(id);
+    if (!compromisso.success) throw new NotFoundException("Compromisso não encontrado.");
+    return this.executar(() => this.hoje.copiarChecklist(this.tenant(tenant), compromisso.data, pedido.data.date));
   }
 
   @Delete("tarefas/:id")

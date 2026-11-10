@@ -1,12 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
   FUSO_PADRAO,
-  FUSOS_AGENDA,
   rotuloDoGoogle,
   type AgendaResposta,
   type CategoriaCompromisso,
@@ -28,6 +28,8 @@ import { useToast } from "../../components/ui/toast";
 import { caixaDeMarcar, campo, cn, focusRing } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Troca } from "../../components/ui/movimento";
+import { FaixaDeAbas, inteiro, PainelDeAba, Secao, useAbas, type Aba } from "../../components/ui/abas";
+import { ChecklistDoRascunho, type ItemDoRascunho } from "./checklist-do-rascunho";
 import { feriadosNoDia, SelosDoFeriado } from "./feriados";
 import { GradeMes } from "./grade";
 import { diasDoMes, ehHoje, itensNoDia, montarItens, rotuloDaCategoria, rotuloDoDia, rotuloDoFuso } from "./itens";
@@ -52,6 +54,8 @@ type Rascunho = {
   sessionId: string;
   askSpending: boolean;
   existente: boolean;
+  /** Só na criação: os itens que viram o checklist do primeiro dia. */
+  checklist: ItemDoRascunho[];
 };
 
 const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
@@ -63,6 +67,17 @@ const dicaDaCategoria: Record<CategoriaCompromisso, string> = {
 };
 
 const field = cn(campo, "w-full");
+
+type AbaDoCompromisso = "principal" | "repeticao" | "checklist" | "gastos" | "detalhes";
+
+// O checklist só existe na criação: depois ele mora na aba Hoje.
+const ABAS_DO_COMPROMISSO: Aba<AbaDoCompromisso>[] = [
+  { id: "principal", label: "Principal" },
+  { id: "repeticao", label: "Repetição" },
+  { id: "checklist", label: "Checklist" },
+  { id: "gastos", label: "Gastos" },
+  { id: "detalhes", label: "Detalhes" },
+];
 
 const meses = [
   "Janeiro",
@@ -101,6 +116,10 @@ export default function Agenda() {
   const [saving, setSaving] = useState(false);
   const [confirmaExcluir, setConfirmaExcluir] = useState(false);
   const [coarse, setCoarse] = useState(false);
+  const abas = useAbas<AbaDoCompromisso>(
+    draft?.existente ? ABAS_DO_COMPROMISSO.filter((aba) => aba.id !== "checklist") : ABAS_DO_COMPROMISSO,
+    "principal",
+  );
   const selectedRef = useRef(selected);
   useEffect(() => {
     selectedRef.current = selected;
@@ -249,6 +268,7 @@ export default function Agenda() {
   function novoCompromisso() {
     setDiaAberto(false);
     setMenu(null);
+    abas.reiniciar();
     setDraft({
       id: crypto.randomUUID(),
       title: "",
@@ -265,6 +285,7 @@ export default function Agenda() {
       sessionId: "",
       askSpending: true,
       existente: false,
+      checklist: [],
     });
   }
 
@@ -277,6 +298,7 @@ export default function Agenda() {
     setDiaAberto(false);
     setMenu(null);
     setConfirmaExcluir(false);
+    abas.reiniciar();
     setDraft({
       id: item.id,
       title: item.title,
@@ -296,6 +318,7 @@ export default function Agenda() {
       sessionId: item.sessionId ?? "",
       askSpending: item.askSpending,
       existente: true,
+      checklist: [],
     });
   }
 
@@ -339,12 +362,20 @@ export default function Agenda() {
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(body.message || "Não foi possível salvar o compromisso.");
+      const faltaram = draft.existente ? 0 : await criarChecklist(draft.id, dataIso(pedido.year, pedido.month, pedido.day), draft.checklist);
       const resposta = await carregar(pedido.year, pedido.month);
       setData(resposta);
       setCarregado({ year: pedido.year, month: pedido.month });
       setFalhou(false);
       setDraft(null);
       toast.sucesso(draft.existente ? "Compromisso atualizado." : "Compromisso criado.");
+      if (faltaram > 0) {
+        toast.alerta(
+          faltaram === 1
+            ? "1 item do checklist não entrou. Acrescente na aba Hoje."
+            : `${faltaram} itens do checklist não entraram. Acrescente na aba Hoje.`,
+        );
+      }
       irPara(pedido.year, pedido.month, pedido.day);
     } catch (error) {
       toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o compromisso.");
@@ -435,23 +466,6 @@ export default function Agenda() {
     }
   }
 
-  async function salvarFuso(timezone: FusoAgenda) {
-    try {
-      const response = await fetch("/api/calendarios", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "Pessoal", timezone }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { message?: string };
-      if (!response.ok) throw new Error(body.message || "Não foi possível salvar o fuso.");
-      const resposta = await carregar(year, month);
-      setData(resposta);
-      toast.sucesso("Fuso atualizado.");
-    } catch (error) {
-      toast.erro(error instanceof Error ? error.message : "Não foi possível salvar o fuso.");
-    }
-  }
-
   async function atualizarStatus(id: string, status: StatusCompromisso) {
     try {
       const response = await fetch(`/api/compromissos/${id}/status`, {
@@ -486,7 +500,9 @@ export default function Agenda() {
               />
               Google Calendar {rotuloDoGoogle(google?.estado ?? "desconectado").toLowerCase()}
             </span>
-            <span>{rotuloDoFuso(fusoDaAgenda(data, "Pessoal"))}</span>
+            <Link href="/configuracoes" className={cn("text-ink-2 underline-offset-4 hover:text-brand hover:underline", focusRing)} title="O fuso é escolhido em Configurações">
+              {rotuloDoFuso(fusoDaAgenda(data, "Pessoal"))}
+            </Link>
           </span>
         }
         actions={
@@ -514,24 +530,6 @@ export default function Agenda() {
             <Carregando texto="Carregando agenda." linhas={5} />
           ) : null}
           {google && !google.conectado ? <ConectarGoogle onConnect={conectarGoogle} /> : null}
-          <div className="grid max-w-prose gap-1">
-            <Rotulo htmlFor="fuso" dica="Pessoal e Trabalho usam este mesmo fuso.">
-              Fuso horário
-            </Rotulo>
-            <select
-              id="fuso"
-              className={field}
-              disabled={!data}
-              value={fusoDaAgenda(data, "Pessoal")}
-              onChange={(event) => void salvarFuso(event.target.value as FusoAgenda)}
-            >
-              {FUSOS_AGENDA.map((fuso) => (
-                <option key={fuso} value={fuso}>
-                  {rotuloDoFuso(fuso)}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1 font-display text-lg font-bold">
               <Button variant="quiet" className="min-w-10 px-0" aria-label="Mês anterior" onClick={mesAnterior}>
@@ -698,259 +696,302 @@ export default function Agenda() {
 
       <Dialogo
         aberto={draft !== null}
+        largura="extra"
         aria-labelledby="titulo-compromisso"
         onClose={() => setDraft(null)}
       >
-        <h2 id="titulo-compromisso" className="mb-4 font-display text-lg">
+        <h2 id="titulo-compromisso" className="mb-3 font-display text-lg">
           {draft?.existente ? "Editar compromisso" : "Novo compromisso"}
         </h2>
-        <form onSubmit={salvar}>
-          <div className="dialog-corpo grid gap-4">
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-titulo" dica="O nome do compromisso.">
-              Título
-            </Rotulo>
-            <input
-              id="compromisso-titulo"
-              required
-              maxLength={80}
-              placeholder="Ex.: Vence aluguel"
-              value={draft?.title ?? ""}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, title: event.target.value } : atual))
-              }
-              className={field}
-            />
-          </div>
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-descricao" dica="Um detalhe do compromisso.">
-              Descrição <span className="font-normal text-ink-2">(opcional)</span>
-            </Rotulo>
-            <input
-              id="compromisso-descricao"
-              maxLength={160}
-              value={draft?.description ?? ""}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, description: event.target.value } : atual))
-              }
-              className={field}
-            />
-          </div>
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-local" dica="Onde o compromisso acontece.">
-              Local <span className="font-normal text-ink-2">(opcional)</span>
-            </Rotulo>
-            <input
-              id="compromisso-local"
-              maxLength={160}
-              value={draft?.location ?? ""}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, location: event.target.value } : atual))
-              }
-              className={field}
-            />
-          </div>
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-categoria" dica="Uma vez, todo mês, ou todo mês até uma data.">
-              Categoria
-            </Rotulo>
-            <select
-              id="compromisso-categoria"
-              value={draft?.category ?? "fixed"}
-              onChange={(event) =>
-                setDraft((atual) =>
-                  atual ? { ...atual, category: event.target.value as CategoriaCompromisso } : atual,
-                )
-              }
-              className={field}
-            >
-              {CATEGORIAS_COMPROMISSO.map((categoria) => (
-                <option key={categoria} value={categoria}>
-                  {rotuloDaCategoria(categoria)}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-ink-2">{dicaDaCategoria[draft?.category ?? "fixed"]}</p>
-          </div>
-          <div className="grid gap-3 tab:grid-cols-2">
-            <div className="grid gap-1">
-              <Rotulo
-                htmlFor="compromisso-data"
-                dica={
-                  draft?.category === "fixed"
-                    ? "O dia deste compromisso."
-                    : "O primeiro dia em que a repetição acontece."
-                }
-              >
-                {draft?.category === "fixed" ? "Data" : "Primeiro dia"}
-              </Rotulo>
-              <input
-                id="compromisso-data"
-                type="date"
-                required
-                value={draft?.date ?? ""}
-                onChange={(event) =>
-                  setDraft((atual) => (atual ? { ...atual, date: event.target.value } : atual))
-                }
-                className={field}
-              />
-            </div>
-            {draft?.category === "time" ? (
-              <div className="grid gap-1">
-                <Rotulo htmlFor="compromisso-fim" dica="O último dia em que a repetição vale.">
-                  Válido até
-                </Rotulo>
-                <input
-                  id="compromisso-fim"
-                  type="date"
-                  required
-                  min={draft.date}
-                  value={draft.endDate}
-                  onChange={(event) =>
-                    setDraft((atual) => (atual ? { ...atual, endDate: event.target.value } : atual))
-                  }
-                  className={field}
+        <FaixaDeAbas controle={abas} aria-label="Partes do compromisso" />
+        <form
+          onSubmit={salvar}
+          onInvalidCapture={abas.aoInvalidar}
+          onChangeCapture={abas.aoMudar}
+        >
+          <div className="dialog-corpo dialog-corpo-abas pt-6">
+            <PainelDeAba controle={abas} id="principal">
+              <Secao titulo="O compromisso">
+                <div className={cn("grid gap-1", inteiro)}>
+                  <Rotulo htmlFor="compromisso-titulo" dica="O nome do compromisso.">
+                    Título
+                  </Rotulo>
+                  <input
+                    id="compromisso-titulo"
+                    required
+                    maxLength={80}
+                    placeholder="Ex.: Vence aluguel"
+                    value={draft?.title ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, title: event.target.value } : atual))
+                    }
+                    className={field}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Rotulo
+                    htmlFor="compromisso-data"
+                    dica={
+                      draft?.category === "fixed"
+                        ? "O dia deste compromisso."
+                        : "O primeiro dia em que a repetição acontece."
+                    }
+                  >
+                    {draft?.category === "fixed" ? "Data" : "Primeiro dia"}
+                  </Rotulo>
+                  <input
+                    id="compromisso-data"
+                    type="date"
+                    required
+                    value={draft?.date ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, date: event.target.value } : atual))
+                    }
+                    className={field}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Rotulo htmlFor="compromisso-agenda" dica="Em qual calendário este compromisso entra.">
+                    Agenda do Google
+                  </Rotulo>
+                  <select
+                    id="compromisso-agenda"
+                    value={draft?.calendar ?? "Pessoal"}
+                    onChange={(event) =>
+                      setDraft((atual) =>
+                        atual ? { ...atual, calendar: event.target.value as NomeAgenda } : atual,
+                      )
+                    }
+                    className={field}
+                  >
+                    {AGENDAS.map((nome) => (
+                      <option key={nome}>{nome}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-ink-2">
+                    Fuso: {rotuloDoFuso(fusoDaAgenda(data, draft?.calendar ?? "Pessoal"))} ·{" "}
+                    <Link href="/configuracoes" className={cn("underline underline-offset-4 hover:text-brand", focusRing)}>
+                      muda em Configurações
+                    </Link>
+                  </p>
+                </div>
+              </Secao>
+              <Secao titulo="Horário">
+                <label className={cn("flex min-h-10 items-center gap-2 text-sm", inteiro)}>
+                  <input
+                    type="checkbox"
+                    className={caixaDeMarcar}
+                    checked={draft?.allDay ?? false}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, allDay: event.target.checked } : atual))
+                    }
+                  />
+                  <span className="inline-flex items-center gap-1">
+                    Dia todo
+                    <Dica texto="O compromisso ocupa o dia inteiro, sem horário." />
+                  </span>
+                </label>
+                {draft?.allDay ? null : (
+                  <>
+                    <div className="grid gap-1">
+                      <Rotulo htmlFor="compromisso-hora" dica="A hora em que começa.">
+                        Hora inicial
+                      </Rotulo>
+                      <input
+                        id="compromisso-hora"
+                        type="time"
+                        required
+                        value={draft?.time ?? ""}
+                        onChange={(event) =>
+                          setDraft((atual) => (atual ? { ...atual, time: event.target.value } : atual))
+                        }
+                        className={field}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <Rotulo htmlFor="compromisso-hora-fim" dica="A hora em que termina.">
+                        Hora final
+                      </Rotulo>
+                      <input
+                        id="compromisso-hora-fim"
+                        type="time"
+                        required
+                        value={draft?.endTime ?? ""}
+                        onChange={(event) =>
+                          setDraft((atual) => (atual ? { ...atual, endTime: event.target.value } : atual))
+                        }
+                        className={field}
+                      />
+                    </div>
+                  </>
+                )}
+              </Secao>
+            </PainelDeAba>
+
+            <PainelDeAba controle={abas} id="repeticao">
+              <Secao titulo="Como se repete">
+                <div className="grid gap-1">
+                  <Rotulo htmlFor="compromisso-categoria" dica="Uma vez, todo mês, ou todo mês até uma data.">
+                    Categoria
+                  </Rotulo>
+                  <select
+                    id="compromisso-categoria"
+                    value={draft?.category ?? "fixed"}
+                    onChange={(event) =>
+                      setDraft((atual) =>
+                        atual ? { ...atual, category: event.target.value as CategoriaCompromisso } : atual,
+                      )
+                    }
+                    className={field}
+                  >
+                    {CATEGORIAS_COMPROMISSO.map((categoria) => (
+                      <option key={categoria} value={categoria}>
+                        {rotuloDaCategoria(categoria)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-ink-2">{dicaDaCategoria[draft?.category ?? "fixed"]}</p>
+                </div>
+                {draft?.category === "time" ? (
+                  <div className="grid gap-1">
+                    <Rotulo htmlFor="compromisso-fim" dica="O último dia em que a repetição vale.">
+                      Válido até
+                    </Rotulo>
+                    <input
+                      id="compromisso-fim"
+                      type="date"
+                      required
+                      min={draft.date}
+                      value={draft.endDate}
+                      onChange={(event) =>
+                        setDraft((atual) => (atual ? { ...atual, endDate: event.target.value } : atual))
+                      }
+                      className={field}
+                    />
+                  </div>
+                ) : null}
+              </Secao>
+              {draft?.existente && draft.category !== "fixed" ? (
+                <p className="max-w-prose text-sm text-ink-2">
+                  Este compromisso se repete. Mudar a data move a série inteira.
+                </p>
+              ) : null}
+            </PainelDeAba>
+
+            {draft && !draft.existente ? (
+              <PainelDeAba controle={abas} id="checklist">
+                <ChecklistDoRascunho
+                  itens={draft.checklist}
+                  repete={draft.category !== "fixed"}
+                  onChange={(checklist) => setDraft((atual) => (atual ? { ...atual, checklist } : atual))}
                 />
-              </div>
+              </PainelDeAba>
             ) : null}
-          </div>
-          <label className="flex min-h-10 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className={caixaDeMarcar}
-              checked={draft?.allDay ?? false}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, allDay: event.target.checked } : atual))
-              }
-            />
-            <span className="inline-flex items-center gap-1">
-              Dia todo
-              <Dica texto="O compromisso ocupa o dia inteiro, sem horário." />
-            </span>
-          </label>
-          {draft?.allDay ? null : (
-            <div className="grid gap-3 tab:grid-cols-2">
-              <div className="grid gap-1">
-                <Rotulo htmlFor="compromisso-hora" dica="A hora em que começa.">
-                  Hora inicial
-                </Rotulo>
-                <input
-                  id="compromisso-hora"
-                  type="time"
-                  required
-                  value={draft?.time ?? ""}
-                  onChange={(event) =>
-                    setDraft((atual) => (atual ? { ...atual, time: event.target.value } : atual))
-                  }
-                  className={field}
-                />
-              </div>
-              <div className="grid gap-1">
-                <Rotulo htmlFor="compromisso-hora-fim" dica="A hora em que termina.">
-                  Hora final
-                </Rotulo>
-                <input
-                  id="compromisso-hora-fim"
-                  type="time"
-                  required
-                  value={draft?.endTime ?? ""}
-                  onChange={(event) =>
-                    setDraft((atual) => (atual ? { ...atual, endTime: event.target.value } : atual))
-                  }
-                  className={field}
-                />
-              </div>
-            </div>
-          )}
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-agenda" dica="Em qual calendário este compromisso entra.">
-              Agenda do Google
-            </Rotulo>
-            <select
-              id="compromisso-agenda"
-              value={draft?.calendar ?? "Pessoal"}
-              onChange={(event) =>
-                setDraft((atual) =>
-                  atual ? { ...atual, calendar: event.target.value as NomeAgenda } : atual,
-                )
-              }
-              className={field}
-            >
-              {AGENDAS.map((nome) => (
-                <option key={nome}>{nome}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-1">
-            <Rotulo htmlFor="compromisso-vinculo" dica="Liga o compromisso a um lançamento. O dia passa a mostrar o valor.">
-              Vincular a uma transação <span className="font-normal text-ink-2">(opcional)</span>
-            </Rotulo>
-            <select
-              id="compromisso-vinculo"
-              value={draft?.entryId ?? ""}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, entryId: event.target.value } : atual))
-              }
-              className={field}
-            >
-              <option value="">Nenhuma</option>
-              {(data?.entries ?? [])
-                .filter((entry, indice, lista) => lista.findIndex((item) => item.id === entry.id) === indice)
-                .map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.sessionName} · {entry.groupName} · {entry.description}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-ink-2">
-              Com vínculo, o dia mostra o valor e o status da transação.
-            </p>
-          </div>
-          <div className="grid gap-1">
-            <Rotulo
-              htmlFor="compromisso-sessao"
-              dica="Os gastos do extrato que caírem neste dia vão para a sessão, e o compromisso mostra o total."
-            >
-              Sessão que acumula os gastos <span className="font-normal text-ink-2">(opcional)</span>
-            </Rotulo>
-            <select
-              id="compromisso-sessao"
-              value={draft?.sessionId ?? ""}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, sessionId: event.target.value } : atual))
-              }
-              className={field}
-            >
-              <option value="">Nenhuma</option>
-              {(data?.sessions ?? []).map((sessao) => (
-                <option key={sessao.id} value={sessao.id}>
-                  {sessao.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-ink-2">
-              Serve para gastos que se somam, como uma saída ou as corridas de um dia.
-            </p>
-          </div>
-          <label className="flex min-h-10 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className={caixaDeMarcar}
-              checked={draft?.askSpending ?? true}
-              onChange={(event) =>
-                setDraft((atual) => (atual ? { ...atual, askSpending: event.target.checked } : atual))
-              }
-            />
-            <span className="inline-flex items-center gap-1">
-              Perguntar se teve gasto quando terminar
-              <Dica texto="Depois do fim, a Hoje e a notificação perguntam se teve gasto. O dia todo só pergunta quando tem sessão de gastos, às 20h." />
-            </span>
-          </label>
-          {draft?.existente && draft.category !== "fixed" ? (
-            <p className="text-sm text-ink-2">
-              Este compromisso se repete. Mudar a data move a série inteira.
-            </p>
-          ) : null}
+
+            <PainelDeAba controle={abas} id="gastos">
+              <Secao titulo="Gastos do dia">
+                <div className="grid gap-1">
+                  <Rotulo
+                    htmlFor="compromisso-sessao"
+                    dica="Os gastos do extrato que caírem neste dia vão para a sessão, e o compromisso mostra o total."
+                  >
+                    Sessão que acumula os gastos <span className="font-normal text-ink-2">(opcional)</span>
+                  </Rotulo>
+                  <select
+                    id="compromisso-sessao"
+                    value={draft?.sessionId ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, sessionId: event.target.value } : atual))
+                    }
+                    className={field}
+                  >
+                    <option value="">Nenhuma</option>
+                    {(data?.sessions ?? []).map((sessao) => (
+                      <option key={sessao.id} value={sessao.id}>
+                        {sessao.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-ink-2">
+                    Serve para gastos que se somam, como uma saída ou as corridas de um dia.
+                  </p>
+                </div>
+                <label className={cn("flex min-h-10 items-center gap-2 text-sm", inteiro)}>
+                  <input
+                    type="checkbox"
+                    className={caixaDeMarcar}
+                    checked={draft?.askSpending ?? true}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, askSpending: event.target.checked } : atual))
+                    }
+                  />
+                  <span className="inline-flex items-center gap-1">
+                    Perguntar se teve gasto quando terminar
+                    <Dica texto="Depois do fim, a Hoje e a notificação perguntam se teve gasto. O dia todo só pergunta quando tem sessão de gastos, às 20h." />
+                  </span>
+                </label>
+              </Secao>
+              <Secao titulo="Lançamento ligado">
+                <div className={cn("grid gap-1", inteiro)}>
+                  <Rotulo htmlFor="compromisso-vinculo" dica="Liga o compromisso a um lançamento. O dia passa a mostrar o valor.">
+                    Vincular a uma transação <span className="font-normal text-ink-2">(opcional)</span>
+                  </Rotulo>
+                  <select
+                    id="compromisso-vinculo"
+                    value={draft?.entryId ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, entryId: event.target.value } : atual))
+                    }
+                    className={field}
+                  >
+                    <option value="">Nenhuma</option>
+                    {(data?.entries ?? [])
+                      .filter((entry, indice, lista) => lista.findIndex((item) => item.id === entry.id) === indice)
+                      .map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.sessionName} · {entry.groupName} · {entry.description}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-ink-2">
+                    Com vínculo, o dia mostra o valor e o status da transação.
+                  </p>
+                </div>
+              </Secao>
+            </PainelDeAba>
+
+            <PainelDeAba controle={abas} id="detalhes">
+              <Secao titulo="Onde e o quê">
+                <div className="grid gap-1">
+                  <Rotulo htmlFor="compromisso-local" dica="Onde o compromisso acontece.">
+                    Local <span className="font-normal text-ink-2">(opcional)</span>
+                  </Rotulo>
+                  <input
+                    id="compromisso-local"
+                    maxLength={160}
+                    value={draft?.location ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, location: event.target.value } : atual))
+                    }
+                    className={field}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Rotulo htmlFor="compromisso-descricao" dica="Um detalhe do compromisso.">
+                    Descrição <span className="font-normal text-ink-2">(opcional)</span>
+                  </Rotulo>
+                  <input
+                    id="compromisso-descricao"
+                    maxLength={160}
+                    value={draft?.description ?? ""}
+                    onChange={(event) =>
+                      setDraft((atual) => (atual ? { ...atual, description: event.target.value } : atual))
+                    }
+                    className={field}
+                  />
+                </div>
+              </Secao>
+            </PainelDeAba>
           </div>
           <div className="dialog-acoes">
             {draft?.existente ? (
@@ -1019,6 +1060,20 @@ function buscarAgenda(year: number, month: number) {
     if (!response.ok) throw new Error(body.message || "O backend não respondeu.");
     return body as AgendaResposta;
   });
+}
+
+/** Cria os itens do checklist do compromisso, na ordem, no dia dele. Devolve quantos não entraram. */
+async function criarChecklist(appointmentId: string, date: string, itens: ItemDoRascunho[]) {
+  let faltaram = 0;
+  for (const item of itens) {
+    const response = await fetch("/api/tarefas", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: crypto.randomUUID(), title: item.title, date, appointmentId }),
+    }).catch(() => null);
+    if (!response?.ok) faltaram += 1;
+  }
+  return faltaram;
 }
 
 function dataIso(year: number, month: number, day: number) {
