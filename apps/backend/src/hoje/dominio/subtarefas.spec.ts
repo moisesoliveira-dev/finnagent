@@ -2,7 +2,7 @@ import type { Tarefa } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import { ancestrais, descendentes, mudancasAoConcluir, ordemDepoisDeMover, podeMover } from "./subtarefas.js";
 
-const t = (id: string, parentId: string | null = null, doneOn: string | null = null): Tarefa => ({ id, title: id, date: "2026-11-06", doneOn, position: 0, parentId, repeat: null });
+const t = (id: string, parentId: string | null = null, doneOn: string | null = null): Tarefa => ({ id, title: id, date: "2026-11-06", doneOn, position: 0, parentId, repeat: null, appointmentId: null });
 const HOJE = "2026-11-06";
 // raiz > a > a1, a2; raiz > b
 const ARVORE = [t("raiz"), t("a", "raiz"), t("a1", "a"), t("a2", "a"), t("b", "raiz")];

@@ -65,13 +65,10 @@ export class HojeService {
     const today = await this.financas.hoje(tenantId);
     const dia = date ?? today;
     const [year, month, day] = dia.split("-").map(Number) as [number, number, number];
-    const [tarefas, agenda, financas] = await Promise.all([
-      this.tarefas.listarDoDia(tenantId, dia),
-      this.agenda.listar(tenantId, year, month),
-      this.financas.listar(tenantId),
-    ]);
-    const compromissos: CompromissoDoDia[] = agenda.appointments
-      .filter((item) => item.day === day)
+    const [agenda, financas] = await Promise.all([this.agenda.listar(tenantId, year, month), this.financas.listar(tenantId)]);
+    const doDia = agenda.appointments.filter((item) => item.day === day);
+    const tarefas = await this.tarefas.listarDoDia(tenantId, dia, [...new Set(doDia.map((item) => item.id))]);
+    const compromissos: CompromissoDoDia[] = doDia
       .map((item) => ({
         id: item.id,
         title: item.title,
@@ -81,6 +78,7 @@ export class HojeService {
         location: item.location,
         calendar: item.calendar,
         status: item.status,
+        repeats: item.category !== "fixed",
       }))
       .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title, "pt-BR"));
     const vencimentos: VencimentoDoDia[] = [];
@@ -162,7 +160,16 @@ export class HojeService {
     const resultado = await this.tarefas.criar(tenantId, id, pedido);
     if (resultado === "identificador") throw new Conflito("Esse identificador já pertence a outra tarefa.");
     if (resultado === "pai-ausente") throw new NaoEncontrado("A atividade dessa subatividade não existe.");
+    if (resultado === "compromisso-ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     return resultado;
+  }
+
+  /** Traz para o dia o checklist da última vez do compromisso que repete. */
+  async copiarChecklist(tenantId: string, appointmentId: string, date: string) {
+    const resultado = await this.tarefas.copiarChecklist(tenantId, appointmentId, date);
+    if (resultado === "ja-tem") throw new Conflito("Este dia já tem checklist.");
+    if (resultado === "sem-anterior") throw new NaoEncontrado("Este compromisso ainda não teve checklist em outro dia.");
+    return { tarefas: resultado };
   }
 
   async atualizar(tenantId: string, id: string, pedido: PedidoDeTarefa) {
@@ -183,6 +190,7 @@ export class HojeService {
     if (resultado === "ausente") throw new NaoEncontrado("Tarefa não encontrada.");
     if (resultado === "pai-ausente") throw new NaoEncontrado("A atividade de destino não existe.");
     if (resultado === "ciclo") throw new Conflito("Uma tarefa não pode entrar dentro de si mesma nem de uma subatividade dela.");
+    if (resultado === "compromisso-ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     return resultado;
   }
 

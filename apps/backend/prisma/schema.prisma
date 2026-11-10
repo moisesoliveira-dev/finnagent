@@ -216,6 +216,7 @@ model Appointment {
   entry         Entry?   @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
   session       Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   spendings     AppointmentSpending[]
+  checklist     Task[]
 
   @@unique([tenantId, googleEventId])
   @@index([tenantId, year, month])
@@ -250,10 +251,15 @@ model Task {
   parentId  String?   @map("parent_id")
   parent    Task?     @relation("Subtarefas", fields: [parentId], references: [id], onDelete: Cascade)
   children  Task[]    @relation("Subtarefas")
+  // Item do checklist de um compromisso, no dia da ocorrência (`date`). A árvore toda leva o compromisso. Apagar o
+  // compromisso apaga o checklist.
+  appointmentId String?      @map("appointment_id")
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, id])
   @@index([tenantId, date])
   @@index([tenantId, parentId])
+  @@index([tenantId, appointmentId, date])
   @@map("tasks")
 }
 
