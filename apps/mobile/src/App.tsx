@@ -14,6 +14,11 @@ import { Assistente } from "./paginas/Assistente";
 import { Contas } from "./paginas/Contas";
 import { DetalheDaConta } from "./paginas/contas/DetalheDaConta";
 import { Financas } from "./paginas/Financas";
+import { Configuracoes } from "./paginas/Configuracoes";
+import { ConfiguracaoDeIa } from "./paginas/configuracoes/ConfiguracaoDeIa";
+import { Eventos } from "./paginas/Eventos";
+import { Grupos } from "./paginas/Grupos";
+import { Relatorios } from "./paginas/Relatorios";
 import { Hoje } from "./paginas/Hoje";
 import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
@@ -134,10 +139,15 @@ export function App() {
                     <Route path="/financas" element={<Financas />} />
                     <Route path="/financas/contas" element={<Contas />} />
                     <Route path="/financas/contas/:id" element={<DetalheDaConta />} />
+                    <Route path="/financas/grupos" element={<Grupos />} />
+                    <Route path="/financas/relatorios" element={<Relatorios />} />
                     <Route path="/agenda" element={<Agenda />} />
                     <Route path="/assistente" element={<Assistente />} />
                     <Route path="/metas" element={<Metas />} />
                     <Route path="/perfil" element={<Perfil />} />
+                    <Route path="/configuracoes" element={<Configuracoes />} />
+                    <Route path="/configuracoes/ia" element={<ConfiguracaoDeIa />} />
+                    <Route path="/configuracoes/eventos" element={<Eventos />} />
                     <Route path="/extratos" element={<Extratos />} />
                     <Route path="/notificacoes" element={<Notificacoes />} />
                   </IonRouterOutlet>

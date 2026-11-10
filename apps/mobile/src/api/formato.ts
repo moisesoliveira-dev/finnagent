@@ -40,3 +40,26 @@ export function dataEHora(iso: string) {
 export function desde(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { month: "short", year: "numeric" }).format(new Date(iso)).replace(".", "");
 }
+
+/** Reais digitados ("1.234,56", "1234.56" ou "-50") em centavos, sem o sinal. null quando não é número. */
+export function centavosDe(texto: string) {
+  const limpo = texto.trim().replace(/^[-−]/, "").replace(/\s|R\$/g, "");
+  if (!limpo) return null;
+  // Com vírgula, o ponto é de milhar. Sem vírgula, "1.234" também é milhar; "12.5" é decimal.
+  const milhar = limpo.includes(",") || /^\d{1,3}(\.\d{3})+$/.test(limpo);
+  const normal = milhar ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const valor = Number(normal);
+  return Number.isFinite(valor) ? Math.round(valor * 100) : null;
+}
+
+/** Centavos no campo de texto, sem sinal e sem o R$: 123456 vira "1234,56". */
+export function paraCampo(cents: number) {
+  return (Math.abs(cents) / 100).toFixed(2).replace(".", ",");
+}
+
+export function hojeIso() {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+}
+
+export const ehDataIso = (texto: string) => /^\d{4}-\d{2}-\d{2}$/.test(texto) && !Number.isNaN(Date.parse(texto));

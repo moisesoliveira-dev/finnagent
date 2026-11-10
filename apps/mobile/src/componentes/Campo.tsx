@@ -10,7 +10,7 @@ type Base = {
   value: string;
   onMudar: (valor: string) => void;
   placeholder?: string;
-  type?: "text" | "email" | "search" | "tel" | "url" | "number";
+  type?: "text" | "email" | "search" | "tel" | "url" | "number" | "date";
   inputMode?: "text" | "email" | "search" | "tel" | "url" | "numeric" | "decimal";
   autoComplete?: string;
   autoCapitalize?: string;

@@ -1,6 +1,7 @@
 import { IonAlert, IonButton, IonButtons, IonIcon, useIonToast, useIonViewWillEnter } from "@ionic/react";
-import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, SessaoDaAgenda, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
-import { addOutline, cashOutline, chevronBack, chevronForward, sunnyOutline, trashOutline } from "ionicons/icons";
+import { REPETICOES_DE_TAREFA, ROTULO_DA_REPETICAO } from "@finnagent/contracts";
+import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, RepeticaoDeTarefa, SessaoDaAgenda, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
+import { addOutline, arrowDown, arrowUp, calendarOutline, cashOutline, chevronBack, chevronForward, createOutline, pricetagOutline, sunnyOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { Fragment, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -8,6 +9,7 @@ import { enviar, pedir } from "../api/cliente";
 import { reais } from "../api/formato";
 import { Campo } from "../componentes/Campo";
 import { Dinheiro, Estado } from "../componentes/Estado";
+import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
 import { Selecao } from "../componentes/Selecao";
 import { toque } from "../haptico";
@@ -29,7 +31,16 @@ import {
 /** O recuo de cada nível da árvore, em pixels: a caixa da filha alinha com o texto da mãe. */
 const RECUO = 28;
 
-/** O dia inteiro numa lista: anotar, marcar e apagar. A ordem e a edição ficam no web. */
+type Edicao = { tarefa: Tarefa; title: string; date: string; repeat: RepeticaoDeTarefa | ""; parentId: string };
+
+/** A tarefa e todas as que estão abaixo dela: não podem virar a mãe dela. */
+function descendentes(tarefas: Tarefa[], id: string): Set<string> {
+  const lista = new Set<string>([id]);
+  for (const filha of filhasDe(tarefas, id)) for (const item of descendentes(tarefas, filha.id)) lista.add(item);
+  return lista;
+}
+
+/** O dia inteiro numa lista: anotar, marcar, editar, reordenar e apagar. */
 export function Hoje() {
   const { search } = useLocation();
   const navegar = useNavigate();
@@ -41,6 +52,7 @@ export function Hoje() {
   const [ocupado, setOcupado] = useState("");
   const [novo, setNovo] = useState("");
   const [apagando, setApagando] = useState<Tarefa | null>(null);
+  const [editando, setEditando] = useState<Edicao | null>(null);
 
   useIonViewWillEnter(() => {
     if (dados) void recarregar();
@@ -141,8 +153,14 @@ export function Hoje() {
           detalhe={filhas.length > 0 ? `${feitasAqui} de ${filhas.length}` : undefined}
           chip={nivel === 0 && item.date < dados.date && !item.doneOn ? <span className="chip ia">Ficou de {rotuloCurto(item.date)}</span> : null}
           lado={
-            <IonButton fill="clear" className="apagar" aria-label={`Apagar: ${rotulo}`} disabled={ocupado !== ""} onClick={() => setApagando(item)}>
-              <IonIcon slot="icon-only" icon={trashOutline} />
+            <IonButton
+              fill="clear"
+              className="apagar"
+              aria-label={`Editar: ${rotulo}`}
+              disabled={ocupado !== ""}
+              onClick={() => setEditando({ tarefa: item, title: item.title, date: item.date, repeat: item.repeat ?? "", parentId: item.parentId ?? "" })}
+            >
+              <IonIcon slot="icon-only" icon={createOutline} />
             </IonButton>
           }
         />
@@ -314,6 +332,84 @@ export function Hoje() {
           ) : null}
         </Troca>
       </div>
+
+      <Folha aberta={editando !== null} titulo="Editar tarefa" aoFechar={() => setEditando(null)}>
+        {editando ? (
+          <>
+            <Campo icone={pricetagOutline} rotulo="Tarefa" value={editando.title} onMudar={(title) => setEditando({ ...editando, title })} maxLength={160} />
+            <Campo icone={calendarOutline} rotulo="Dia" type="date" value={editando.date} onMudar={(date) => setEditando({ ...editando, date })} />
+            <Selecao
+              rotulo="Subatividade de"
+              valor={editando.parentId}
+              vazio="Nenhuma: fica na lista principal"
+              opcoes={tarefas.filter((item) => !descendentes(tarefas, editando.tarefa.id).has(item.id)).map((item) => ({ id: item.id, texto: item.title }))}
+              aoMudar={(parentId) => setEditando({ ...editando, parentId, repeat: parentId ? "" : editando.repeat })}
+            />
+            {editando.parentId ? null : (
+              <Selecao
+                rotulo="Repete"
+                valor={editando.repeat}
+                vazio="Não repete"
+                opcoes={REPETICOES_DE_TAREFA.map((item) => ({ id: item, texto: ROTULO_DA_REPETICAO[item] }))}
+                aoMudar={(repeat) => setEditando({ ...editando, repeat: repeat as RepeticaoDeTarefa | "" })}
+              />
+            )}
+            <IonButton
+              expand="block"
+              className="principal"
+              disabled={ocupado !== "" || !editando.title.trim()}
+              onClick={() => {
+                const { tarefa } = editando;
+                const parentId = editando.parentId || null;
+                void agir(
+                  tarefa.id,
+                  async () => {
+                    await enviar(`/api/tarefas/${tarefa.id}`, { title: editando.title.trim(), date: editando.date, parentId, repeat: parentId ? null : editando.repeat || null }, "PATCH");
+                    if (parentId !== tarefa.parentId) await enviar(`/api/tarefas/${tarefa.id}/mover`, { parentId, beforeId: null }, "PATCH");
+                  },
+                  "Não foi possível salvar a tarefa.",
+                ).then((ok) => ok && setEditando(null));
+              }}
+            >
+              Salvar
+            </IonButton>
+            <div className="acoes-da-folha">
+              {(() => {
+                const irmas = filhasDe(tarefas, editando.tarefa.parentId);
+                const indice = irmas.findIndex((item) => item.id === editando.tarefa.id);
+                const mover = (beforeId: string | null) =>
+                  void agir(editando.tarefa.id, () => enviar(`/api/tarefas/${editando.tarefa.id}/mover`, { parentId: editando.tarefa.parentId, beforeId }, "PATCH"), "Não foi possível mover a tarefa.").then(
+                    (ok) => ok && setEditando(null),
+                  );
+                return (
+                  <>
+                    <IonButton fill="outline" disabled={ocupado !== "" || indice <= 0} onClick={() => mover(irmas[indice - 1]?.id ?? null)}>
+                      <IonIcon slot="start" icon={arrowUp} />
+                      Subir
+                    </IonButton>
+                    <IonButton fill="outline" disabled={ocupado !== "" || indice < 0 || indice >= irmas.length - 1} onClick={() => mover(irmas[indice + 2]?.id ?? null)}>
+                      <IonIcon slot="start" icon={arrowDown} />
+                      Descer
+                    </IonButton>
+                  </>
+                );
+              })()}
+              <IonButton
+                fill="clear"
+                color="danger"
+                disabled={ocupado !== ""}
+                onClick={() => {
+                  const alvo = editando.tarefa;
+                  setEditando(null);
+                  setApagando(alvo);
+                }}
+              >
+                Apagar
+              </IonButton>
+            </div>
+          </>
+        ) : null}
+      </Folha>
 
       <IonAlert
         isOpen={apagando !== null}
