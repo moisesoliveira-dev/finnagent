@@ -829,7 +829,7 @@ export default function Conferencia() {
                 }}
               />
               <select
-                className={cn(field, "w-auto")}
+                className={cn(field, "w-full min-w-0 tab:w-auto tab:max-w-full")}
                 aria-label="Movimento"
                 value={movimento}
                 onChange={(event) => {
@@ -842,7 +842,7 @@ export default function Conferencia() {
               </select>
               {contas.length > 1 ? (
                 <select
-                  className={cn(field, "w-auto")}
+                  className={cn(field, "w-full min-w-0 tab:w-auto tab:max-w-full")}
                   aria-label="Conta"
                   value={conta}
                   onChange={(event) => {
@@ -859,7 +859,7 @@ export default function Conferencia() {
               ) : null}
               {arquivos.length > 1 ? (
                 <select
-                  className={cn(field, "w-auto max-w-full")}
+                  className={cn(field, "w-full min-w-0 tab:w-auto tab:max-w-full")}
                   aria-label="Arquivo"
                   value={arquivo}
                   onChange={(event) => {
