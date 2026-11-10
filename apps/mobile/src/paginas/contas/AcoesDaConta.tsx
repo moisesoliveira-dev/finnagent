@@ -5,6 +5,7 @@ import {
   type Caixinha,
   type Conta,
   type Fatura,
+  type Meta,
   type MovimentoDaCaixinha,
 } from "@finnagent/contracts";
 import { calendarOutline, cardOutline, cashOutline, documentTextOutline, walletOutline } from "ionicons/icons";
@@ -28,12 +29,14 @@ const nomeDoMes = (month: string) => `${MESES[Number(month.slice(5, 7)) - 1]} de
 
 /**
  * As ações da conta, uma folha por vez: conferir o saldo (o ajuste), transferir, pagar a fatura do cartão,
- * editar e excluir a conta, e criar, movimentar ou excluir uma caixinha. Os mesmos pedidos do web.
+ * editar e excluir a conta, e criar, editar, movimentar ou excluir uma caixinha. Os mesmos pedidos do web.
  */
 export function AcoesDaConta({
   acao,
   conta,
   contas,
+  caixinhas,
+  metas,
   saldoHoje,
   aoFechar,
   aoMudar,
@@ -42,6 +45,9 @@ export function AcoesDaConta({
   acao: AcaoDaConta | null;
   conta: Conta;
   contas: Conta[];
+  /** Todas as caixinhas, de todas as contas: a meta que já guarda numa delas não aparece na escolha. */
+  caixinhas: Caixinha[];
+  metas: Meta[];
   saldoHoje: number;
   aoFechar: () => void;
   aoMudar: () => Promise<void>;
@@ -49,7 +55,9 @@ export function AcoesDaConta({
 }) {
   const titulo =
     acao?.tipo === "conferir"
-      ? "Conferir o saldo"
+      ? conta.kind === "cartao"
+        ? "Conferir a fatura"
+        : "Conferir o saldo"
       : acao?.tipo === "transferir"
         ? "Transferir"
         : acao?.tipo === "editar"
@@ -69,15 +77,19 @@ export function AcoesDaConta({
       {acao?.tipo === "transferir" ? <Transferir conta={conta} contas={contas} aoPronto={pronto} /> : null}
       {acao?.tipo === "editar" ? <Editar conta={conta} aoPronto={pronto} aoExcluida={aoExcluida} /> : null}
       {acao?.tipo === "pagar" ? <PagarFatura cartao={conta} fatura={acao.fatura} contas={contas} aoPronto={pronto} /> : null}
-      {acao?.tipo === "caixinha" ? <FolhaDaCaixinha conta={conta} caixinha={acao.caixinha} aoPronto={pronto} /> : null}
+      {acao?.tipo === "caixinha" ? <FolhaDaCaixinha conta={conta} caixinha={acao.caixinha} caixinhas={caixinhas} metas={metas} aoPronto={pronto} /> : null}
     </Folha>
   );
 }
 
-/** "A conta mostra R$ X no dia D": a diferença vira um ajuste lançado nesse dia. */
+/**
+ * "A conta mostra R$ X no dia D": a diferença vira um ajuste lançado nesse dia. No cartão, a pessoa informa a fatura em
+ * aberto, sem sinal: é o que o cartão deve, então o saldo vai sempre negativo, como no web.
+ */
 function Conferir({ conta, saldoHoje, aoPronto }: { conta: Conta; saldoHoje: number; aoPronto: () => Promise<void> }) {
   const { ocupado, agir } = useAcao();
-  const [saldo, setSaldo] = useState(paraCampo(saldoHoje));
+  const cartao = conta.kind === "cartao";
+  const [saldo, setSaldo] = useState(paraCampo(cartao ? Math.abs(saldoHoje) : saldoHoje));
   const [negativo, setNegativo] = useState(saldoHoje < 0);
   const [date, setDate] = useState(hojeIso());
   const [foraDaSobra, setForaDaSobra] = useState(false);
@@ -85,20 +97,26 @@ function Conferir({ conta, saldoHoje, aoPronto }: { conta: Conta; saldoHoje: num
 
   async function salvar() {
     const cents = centavosDe(saldo);
-    if (cents === null) return setErro("Informe o saldo em reais.");
+    if (cents === null) return setErro(cartao ? "Informe o valor da fatura." : "Informe o saldo em reais.");
     if (!ehDataIso(date)) return setErro("Informe a data.");
     setErro("");
-    const saldoCents = negativo ? -cents : cents;
-    if (await agir("conferir", () => enviar(`/api/contas/${conta.id}/ajuste`, { saldoCents, date, foraDaSobra }), "Saldo conferido.")) await aoPronto();
+    const saldoCents = cartao ? -Math.abs(cents) : negativo ? -cents : cents;
+    if (await agir("conferir", () => enviar(`/api/contas/${conta.id}/ajuste`, { saldoCents, date, foraDaSobra }), cartao ? "Fatura conferida." : "Saldo conferido.")) await aoPronto();
   }
 
   return (
     <>
-      <p className="fraco">Diga quanto a {conta.kind === "cartao" ? "fatura" : "conta"} mostra no banco. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia.</p>
-      <Campo icone={cashOutline} rotulo="Saldo no banco" value={saldo} onMudar={setSaldo} inputMode="decimal" />
-      <IonToggle checked={negativo} onIonChange={(evento) => setNegativo(evento.detail.checked)} labelPlacement="start" justify="space-between">
-        Saldo negativo
-      </IonToggle>
+      <p className="fraco">
+        {cartao
+          ? "Diga a fatura em aberto que o app do cartão mostra, sem sinal. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."
+          : "Diga quanto a conta mostra no banco. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."}
+      </p>
+      <Campo icone={cashOutline} rotulo={cartao ? "Fatura em aberto" : "Saldo no banco"} value={saldo} onMudar={setSaldo} inputMode="decimal" />
+      {cartao ? null : (
+        <IonToggle checked={negativo} onIonChange={(evento) => setNegativo(evento.detail.checked)} labelPlacement="start" justify="space-between">
+          Saldo negativo
+        </IonToggle>
+      )}
       <Campo icone={calendarOutline} rotulo="Data" type="date" value={date} onMudar={setDate} />
       <IonToggle checked={foraDaSobra} onIonChange={(evento) => setForaDaSobra(evento.detail.checked)} labelPlacement="start" justify="space-between">
         Não contar na sobra do mês
@@ -261,11 +279,84 @@ function Editar({ conta, aoPronto, aoExcluida }: { conta: Conta; aoPronto: () =>
   );
 }
 
-/** Uma caixinha nova, ou a existente: rendimento, aplicação, resgate, conferir o saldo e excluir. */
-function FolhaDaCaixinha({ conta, caixinha, aoPronto }: { conta: Conta; caixinha: Caixinha | null; aoPronto: () => Promise<void> }) {
+/**
+ * Nome, saldo inicial, o dia desse saldo e a meta ligada: o mesmo corpo na criação (POST) e na edição (PATCH), como no
+ * web. A meta que já guarda em outra caixinha não aparece: cada meta guarda numa só.
+ */
+function FormDaCaixinha({
+  conta,
+  caixinha,
+  caixinhas,
+  metas,
+  aoPronto,
+  aoVoltar,
+}: {
+  conta: Conta;
+  caixinha: Caixinha | null;
+  caixinhas: Caixinha[];
+  metas: Meta[];
+  aoPronto: () => Promise<void>;
+  aoVoltar?: () => void;
+}) {
+  const { ocupado, agir } = useAcao();
+  const [name, setName] = useState(caixinha?.name ?? "");
+  const [inicial, setInicial] = useState(caixinha ? paraCampo(caixinha.openingCents) : "");
+  const [openingOn, setOpeningOn] = useState(caixinha ? (caixinha.openingOn ?? "") : hojeIso());
+  const [goalId, setGoalId] = useState(caixinha?.goalId ?? "");
+  const [erro, setErro] = useState("");
+  const livres = metas.filter((meta) => meta.id === caixinha?.goalId || !caixinhas.some((item) => item.goalId === meta.id));
+
+  async function salvar() {
+    const openingCents = inicial.trim() ? centavosDe(inicial) : 0;
+    if (!name.trim()) return setErro("Dê um nome à caixinha.");
+    if (openingCents === null || openingCents < 0) return setErro("Informe o saldo inicial em reais.");
+    if (openingOn && !ehDataIso(openingOn)) return setErro("Informe o dia do saldo inicial.");
+    setErro("");
+    const corpo = { name: name.trim(), openingCents, openingOn: openingOn || null, goalId: goalId || null };
+    const feito = caixinha
+      ? await agir("salvar", () => enviar(`/api/caixinhas/${caixinha.id}`, corpo, "PATCH"), "Caixinha salva.")
+      : await agir("criar", () => enviar(`/api/contas/${conta.id}/caixinhas`, { id: crypto.randomUUID(), ...corpo }), "Caixinha criada.");
+    if (feito) await aoPronto();
+  }
+
+  return (
+    <>
+      {caixinha ? null : <p className="fraco">Uma reserva dentro da {conta.name}, com o rendimento dela.</p>}
+      <Campo icone={walletOutline} rotulo="Nome" value={name} onMudar={setName} placeholder="Reserva, viagem" maxLength={60} />
+      <Campo icone={cashOutline} rotulo="Saldo inicial" value={inicial} onMudar={setInicial} inputMode="decimal" placeholder="0,00" />
+      <Campo icone={calendarOutline} rotulo="Saldo em" type="date" value={openingOn} onMudar={setOpeningOn} />
+      <p className="fraco">Só o que acontece a partir desse dia conta no saldo da caixinha. Vazio: tudo conta.</p>
+      <Selecao rotulo="Meta" valor={goalId} vazio="Sem meta" opcoes={livres.map((meta) => ({ id: meta.id, texto: meta.name }))} aoMudar={setGoalId} />
+      <p className="fraco">Com meta, o saldo da caixinha soma no guardado da meta, e o que a meta separa vira aplicação aqui.</p>
+      {erro ? <p className="erro">{erro}</p> : null}
+      <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvar()}>
+        {caixinha ? "Salvar" : "Criar caixinha"}
+      </IonButton>
+      {aoVoltar ? (
+        <IonButton expand="block" fill="clear" disabled={Boolean(ocupado)} onClick={aoVoltar}>
+          Voltar
+        </IonButton>
+      ) : null}
+    </>
+  );
+}
+
+/** Uma caixinha nova, ou a existente: rendimento, aplicação, resgate, conferir o saldo, editar e excluir. */
+function FolhaDaCaixinha({
+  conta,
+  caixinha,
+  caixinhas,
+  metas,
+  aoPronto,
+}: {
+  conta: Conta;
+  caixinha: Caixinha | null;
+  caixinhas: Caixinha[];
+  metas: Meta[];
+  aoPronto: () => Promise<void>;
+}) {
   const { ocupado, agir, confirmar } = useAcao();
-  const [name, setName] = useState("");
-  const [inicial, setInicial] = useState("");
+  const [editando, setEditando] = useState(false);
   const [tipo, setTipo] = useState<MovimentoDaCaixinha>("aplicacao");
   const [valor, setValor] = useState("");
   const [perda, setPerda] = useState(false);
@@ -273,26 +364,8 @@ function FolhaDaCaixinha({ conta, caixinha, aoPronto }: { conta: Conta; caixinha
   const [saldo, setSaldo] = useState("");
   const [erro, setErro] = useState("");
 
-  if (!caixinha) {
-    const criar = async () => {
-      const openingCents = inicial.trim() ? centavosDe(inicial) : 0;
-      if (!name.trim()) return setErro("Dê um nome à caixinha.");
-      if (openingCents === null) return setErro("Informe o valor em reais.");
-      setErro("");
-      if (await agir("criar", () => enviar(`/api/contas/${conta.id}/caixinhas`, { id: crypto.randomUUID(), name: name.trim(), openingCents, goalId: null }), "Caixinha criada.")) await aoPronto();
-    };
-    return (
-      <>
-        <p className="fraco">Uma reserva dentro da {conta.name}, com o rendimento dela.</p>
-        <Campo icone={walletOutline} rotulo="Nome" value={name} onMudar={setName} placeholder="Reserva, viagem" maxLength={60} />
-        <Campo icone={cashOutline} rotulo="Quanto tem hoje" value={inicial} onMudar={setInicial} inputMode="decimal" placeholder="0,00" />
-        {erro ? <p className="erro">{erro}</p> : null}
-        <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void criar()}>
-          Criar caixinha
-        </IonButton>
-      </>
-    );
-  }
+  if (!caixinha) return <FormDaCaixinha conta={conta} caixinha={null} caixinhas={caixinhas} metas={metas} aoPronto={aoPronto} />;
+  if (editando) return <FormDaCaixinha conta={conta} caixinha={caixinha} caixinhas={caixinhas} metas={metas} aoPronto={aoPronto} aoVoltar={() => setEditando(false)} />;
 
   const atual = caixinha;
   async function movimentar() {
@@ -336,6 +409,9 @@ function FolhaDaCaixinha({ conta, caixinha, aoPronto }: { conta: Conta; caixinha
         </IonButton>
       </section>
       {erro ? <p className="erro">{erro}</p> : null}
+      <IonButton expand="block" fill="outline" disabled={Boolean(ocupado)} onClick={() => setEditando(true)}>
+        Editar
+      </IonButton>
       <IonButton
         expand="block"
         fill="clear"
