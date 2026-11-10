@@ -50,10 +50,13 @@ export class PainelService {
       const ocorrencias = await this.agenda.ocorrencias(tenantId, year, mes);
       compromissos.push(...ocorrencias.map((item) => comValor(item, base.entries, base.workflow, hoje)));
     }
-    // O painel mostra a sobra do próprio mês e, à parte, a acumulada: a sobra levada não entra em nenhuma das duas.
+    // Os totais mostram a sobra do próprio mês e, à parte, a acumulada: a sobra levada não entra em nenhuma das duas.
+    // Mas ela é um lançamento do mês (sessão Sobras), então aparece na lista, como em Finanças.
     const painel = montarPainel(scope, year, month, day, base.workflow, base.entries.filter((entry) => !entry.carryOf), compromissos);
+    const comSobras = montarPainel(scope, year, month, day, base.workflow, base.entries, compromissos);
     return {
       ...painel,
+      items: comSobras.items,
       avisos: avisosDe(preferencias, compromissos, base.entries),
       semConferir: await this.extratos.semConferir(tenantId, year, scope === "ano" ? null : month),
     };
