@@ -1,4 +1,4 @@
-import { IonButton, IonToggle } from "@ionic/react";
+import { IonButton, IonToggle, useIonToast } from "@ionic/react";
 import {
   AGENDAS,
   CATEGORIAS_COMPROMISSO,
@@ -17,6 +17,23 @@ import { Folha } from "../../componentes/Folha";
 import { Hora } from "../../componentes/Hora";
 import { Fichas, Selecao } from "../../componentes/Selecao";
 import { toque } from "../../haptico";
+import { ChecklistDoRascunho, type ItemDoRascunho } from "./ChecklistDoRascunho";
+
+/**
+ * Cria cada item do checklist como tarefa do compromisso, no dia dele e na ordem da lista, como o web
+ * (criarChecklist em app/agenda/page.tsx). Devolve quantos itens não entraram: o compromisso já está criado.
+ */
+async function criarChecklist(appointmentId: string, date: string, itens: ItemDoRascunho[]) {
+  let faltaram = 0;
+  for (const item of itens) {
+    try {
+      await enviar("/api/tarefas", { id: crypto.randomUUID(), title: item.title, date, appointmentId });
+    } catch {
+      faltaram += 1;
+    }
+  }
+  return faltaram;
+}
 
 export const ROTULO_DA_REPETICAO: Record<CategoriaCompromisso, string> = {
   fixed: "Só neste dia",
@@ -101,10 +118,13 @@ export function FormCompromisso({
   const [draft, setDraft] = useState<Rascunho>(() => rascunhoNovo(dataInicial));
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [checklist, setChecklist] = useState<ItemDoRascunho[]>([]);
+  const [avisar] = useIonToast();
 
   useEffect(() => {
     if (!aberta) return;
     setErro("");
+    setChecklist([]);
     setDraft(compromisso ? rascunhoDe(compromisso) : rascunhoNovo(dataInicial));
   }, [aberta, compromisso, dataInicial]);
 
@@ -142,7 +162,20 @@ export function FormCompromisso({
     setErro("");
     try {
       if (compromisso) await enviar(`/api/compromissos/${compromisso.id}`, pedido, "PATCH");
-      else await enviar("/api/compromissos", { id: crypto.randomUUID(), ...pedido });
+      else {
+        const id = crypto.randomUUID();
+        await enviar("/api/compromissos", { id, ...pedido });
+        // O checklist entra depois do compromisso, no primeiro dia dele; o que falhar não desfaz o compromisso.
+        const faltaram = await criarChecklist(id, draft.date, checklist);
+        if (faltaram > 0) {
+          void avisar({
+            message: faltaram === 1 ? "1 item do checklist não entrou. Acrescente na aba Hoje." : `${faltaram} itens do checklist não entraram. Acrescente na aba Hoje.`,
+            duration: 4200,
+            position: "top",
+            cssClass: "aviso-de-erro",
+          });
+        }
+      }
       toque();
       aoSalvo();
     } catch (error) {
@@ -204,6 +237,8 @@ export function FormCompromisso({
       {opcoesDeLancamento.length > 0 ? (
         <Selecao rotulo="Lançamento ligado" valor={draft.entryId} vazio="Nenhum" opcoes={opcoesDeLancamento} aoMudar={(valor) => mudar("entryId", valor)} />
       ) : null}
+
+      {compromisso ? null : <ChecklistDoRascunho itens={checklist} repete={draft.category !== "fixed"} aoMudar={setChecklist} />}
 
       <AreaDeTexto rotulo="Descrição" value={draft.description} onMudar={(valor) => mudar("description", valor)} linhas={2} maxLength={160} />
       {erro ? <p className="erro">{erro}</p> : null}

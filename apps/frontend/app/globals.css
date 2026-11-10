@@ -269,6 +269,10 @@ dialog[data-largura="larga"] {
   width: min(48rem, calc(100vw - 2rem));
 }
 
+dialog[data-largura="extra"] {
+  width: min(64rem, calc(100vw - 2rem));
+}
+
 dialog > * {
   flex-shrink: 0;
 }
@@ -291,6 +295,18 @@ dialog > .dialog-miolo {
   overflow: auto;
   padding-right: 1rem;
   padding-bottom: 1.5rem;
+}
+
+/* Corpo de formulário em abas: a altura não muda de uma aba para outra. Encolhe com a tela e rola por dentro. */
+.dialog-corpo-abas {
+  height: 28rem;
+}
+
+/* No celular o diálogo ocupa a altura da tela: o corpo encolhe até caber, igual em todas as abas. */
+@media (width < 760px) {
+  .dialog-corpo-abas {
+    height: 100dvh;
+  }
 }
 
 .dialog-par {

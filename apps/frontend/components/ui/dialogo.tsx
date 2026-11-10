@@ -18,7 +18,7 @@ export function Dialogo({
   children,
   onClose,
   ...props
-}: Omit<ComponentProps<"dialog">, "open"> & { aberto?: boolean; largura?: "media" | "larga" }) {
+}: Omit<ComponentProps<"dialog">, "open"> & { aberto?: boolean; largura?: "media" | "larga" | "extra" }) {
   const proprio = useRef<HTMLDialogElement | null>(null);
   const reduzir = useReducedMotion();
   const [visto, setVisto] = useState<{ children: ReactNode; largura?: string }>({ children, largura });
