@@ -1,9 +1,15 @@
-import { useIonViewWillEnter } from "@ionic/react";
+import { IonButton, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import type { AgendaResposta, Compromisso } from "@finnagent/contracts";
-import { calendarOutline } from "ionicons/icons";
+import { addOutline, calendarOutline, syncOutline } from "ionicons/icons";
 import { motion } from "motion/react";
-import { useMemo } from "react";
-import { diaDaSemana, rotuloDoMes } from "../api/formato";
+import { useMemo, useState } from "react";
+import { enviar, pedir } from "../api/cliente";
+import { dataCurta, diaDaSemana, ehDataIso, hojeIso, rotuloDoMes } from "../api/formato";
+import { Campo } from "../componentes/Campo";
+import { Folha } from "../componentes/Folha";
+import { toque } from "../haptico";
+import { useAcao } from "../useAcao";
+import { FormCompromisso, ROTULO_DA_REPETICAO } from "./agenda/FormCompromisso";
 import { Estado, Vazio } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
 import { SeletorDeMes } from "../componentes/SeletorDeMes";
@@ -32,12 +38,51 @@ export function Agenda() {
   const hoje = new Date();
   const ehEsteMes = hoje.getFullYear() === mes.ano && hoje.getMonth() + 1 === mes.mes;
 
+  const { ocupado, agir, confirmar } = useAcao();
+  const [aberto, setAberto] = useState<Compromisso | null>(null);
+  const [formulario, setFormulario] = useState<{ compromisso: Compromisso | null } | null>(null);
+  const [novoDia, setNovoDia] = useState("");
+  const conectado = dados && dados.google !== "desconectado";
+  const dataNova = ehEsteMes ? hojeIso() : `${mes.ano}-${String(mes.mes).padStart(2, "0")}-01`;
+
   useIonViewWillEnter(() => {
     if (dados) void recarregar();
   });
 
+  async function fazer(chave: string, acao: () => Promise<unknown>, sucesso: string, fechar = false) {
+    if (!(await agir(chave, acao, sucesso))) return;
+    if (fechar) setAberto(null);
+    await recarregar();
+  }
+
+  function abrir(item: Compromisso) {
+    toque();
+    setNovoDia(`${item.year}-${String(item.month).padStart(2, "0")}-${String(item.day).padStart(2, "0")}`);
+    setAberto(item);
+  }
+
   return (
-    <Pagina titulo="Agenda" etiqueta="Compromissos e feriados" aoAtualizar={recarregar}>
+    <Pagina
+      titulo="Agenda"
+      etiqueta="Compromissos e feriados"
+      aoAtualizar={recarregar}
+      fim={
+        <>
+          <IonButton aria-label="Novo compromisso" onClick={() => setFormulario({ compromisso: null })}>
+            <IonIcon slot="icon-only" icon={addOutline} />
+          </IonButton>
+          {conectado ? (
+            <IonButton
+              aria-label="Sincronizar com o Google Agenda"
+              disabled={Boolean(ocupado)}
+              onClick={() => void fazer("sincronizar", () => enviar("/api/agenda/sincronizar", {}), "Agenda sincronizada com o Google.")}
+            >
+              <IonIcon slot="icon-only" icon={syncOutline} />
+            </IonButton>
+          ) : null}
+        </>
+      }
+    >
       <div className="pagina">
         <SeletorDeMes mes={mes} direcao={direcao} aoMudar={mudar} />
 
@@ -45,7 +90,7 @@ export function Agenda() {
           <Estado carregando={carregando} erro={erro} tem={Boolean(dados)} aoTentar={() => void recarregar()} />
 
           {dados && dias.length === 0 ? (
-            <Vazio icone={calendarOutline} titulo="Mês livre" texto="Nenhum compromisso nem feriado. Peça ao consultor para marcar algo." />
+            <Vazio icone={calendarOutline} titulo="Mês livre" texto="Nenhum compromisso nem feriado. Toque em + para marcar algo." />
           ) : null}
 
           {dados && dias.length > 0 ? (
@@ -68,13 +113,19 @@ export function Agenda() {
                         </div>
                       ))}
                       {dia.compromissos.map((compromisso) => (
-                        <motion.div key={compromisso.id} className="linha evento" whileTap={{ backgroundColor: "var(--surface-2)" }}>
+                        <motion.button
+                          type="button"
+                          key={compromisso.id}
+                          className="linha evento linha-botao"
+                          whileTap={{ backgroundColor: "var(--surface-2)" }}
+                          onClick={() => abrir(compromisso)}
+                        >
                           <div className="texto">
                             <span style={compromisso.status === "done" ? { textDecoration: "line-through", color: "var(--ink-2)" } : undefined}>{compromisso.title}</span>
                             <span className="etiqueta">{[compromisso.allDay ? "Dia todo" : compromisso.time, compromisso.location].filter(Boolean).join(" · ")}</span>
                           </div>
                           {compromisso.status === "done" ? <span className="etiqueta pos">Feito</span> : null}
-                        </motion.div>
+                        </motion.button>
                       ))}
                     </div>
                   </Bloco>
@@ -84,6 +135,97 @@ export function Agenda() {
           ) : null}
         </Troca>
       </div>
+
+      <Folha aberta={aberto !== null} titulo={aberto?.title ?? ""} aoFechar={() => setAberto(null)}>
+        {aberto ? (
+          <>
+            <div className="cartao">
+              <span className="etiqueta">
+                {dataCurta(`${aberto.year}-${String(aberto.month).padStart(2, "0")}-${String(aberto.day).padStart(2, "0")}`)} ·{" "}
+                {aberto.allDay ? "Dia todo" : `${aberto.time ?? ""}${aberto.endTime ? `–${aberto.endTime}` : ""}`}
+              </span>
+              <strong>{aberto.title}</strong>
+              <div className="chips">
+                <span className="chip">{ROTULO_DA_REPETICAO[aberto.category]}</span>
+                <span className="chip">{aberto.calendar}</span>
+                {aberto.status === "done" ? <span className="chip ok">Feito</span> : null}
+              </div>
+              {aberto.location ? <span className="fraco">{aberto.location}</span> : null}
+              {aberto.description ? <span className="fraco">{aberto.description}</span> : null}
+              {aberto.sessionLabel ? <span className="fraco">Gastos em {aberto.sessionLabel}</span> : null}
+            </div>
+            <div className="acoes-da-folha">
+              <IonButton
+                className="principal"
+                disabled={Boolean(ocupado)}
+                onClick={() =>
+                  void fazer(
+                    "status",
+                    () => enviar(`/api/compromissos/${aberto.id}/status`, { status: aberto.status === "done" ? "undone" : "done" }, "PATCH"),
+                    aberto.status === "done" ? "Voltou a pendente." : "Marcado como feito.",
+                    true,
+                  )
+                }
+              >
+                {aberto.status === "done" ? "Desmarcar" : "Marcar como feito"}
+              </IonButton>
+              <IonButton
+                fill="outline"
+                disabled={Boolean(ocupado)}
+                onClick={() => {
+                  const item = aberto;
+                  setAberto(null);
+                  setFormulario({ compromisso: item });
+                }}
+              >
+                Editar
+              </IonButton>
+            </div>
+            <section className="secao">
+              <h2 className="etiqueta">Mudar o dia</h2>
+              <Campo icone={calendarOutline} rotulo="Novo dia" type="date" value={novoDia} onMudar={setNovoDia} />
+              <IonButton
+                fill="outline"
+                disabled={Boolean(ocupado) || !ehDataIso(novoDia)}
+                onClick={() => {
+                  const [year, month, day] = novoDia.split("-").map(Number);
+                  void fazer("mover", () => enviar(`/api/compromissos/${aberto.id}/mover`, { year, month, day }), "Compromisso movido.", true);
+                }}
+              >
+                Mover para este dia
+              </IonButton>
+            </section>
+            <IonButton
+              expand="block"
+              fill="clear"
+              color="danger"
+              disabled={Boolean(ocupado)}
+              onClick={() =>
+                confirmar(
+                  "Apagar este compromisso?",
+                  aberto.category === "fixed" ? "Não pode ser desfeito." : "Ele se repete: todas as vezes saem da agenda. Não pode ser desfeito.",
+                  "Apagar",
+                  () => void fazer("apagar", () => pedir(`/api/compromissos/${aberto.id}`, { method: "DELETE" }), "Compromisso apagado.", true),
+                )
+              }
+            >
+              Apagar o compromisso
+            </IonButton>
+          </>
+        ) : null}
+      </Folha>
+
+      <FormCompromisso
+        aberta={formulario !== null}
+        compromisso={formulario?.compromisso ?? null}
+        agenda={dados}
+        dataInicial={dataNova}
+        aoFechar={() => setFormulario(null)}
+        aoSalvo={() => {
+          setFormulario(null);
+          void recarregar();
+        }}
+      />
     </Pagina>
   );
 }

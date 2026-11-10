@@ -756,6 +756,18 @@ ion-tab-button ion-icon {
   text-align: center;
 }
 
+/* Teclado aberto: a tela encolhe e o topo centralizado subiria para baixo da barra de status. Fica só o formulário. */
+@media (max-height: 600px) {
+  .topo-login {
+    flex: 0 0 auto;
+    padding: calc(16px + env(safe-area-inset-top)) 24px 8px;
+  }
+
+  .topo-login > * {
+    display: none;
+  }
+}
+
 .frase-login {
   max-width: 14ch;
   margin: 0;
@@ -932,6 +944,7 @@ ion-tab-button ion-icon {
 
 .chip {
   padding: 4px 8px;
+  white-space: nowrap;
   font-family: var(--fonte-mono);
   font-size: 0.6875rem;
   text-transform: uppercase;
@@ -1212,6 +1225,11 @@ ion-modal.folha-de-selecao ion-title {
   color: inherit;
   background: transparent;
   border: 0;
+}
+
+/* O valor e o selo não encolhem: o título à esquerda é quem quebra a linha, e a seta fica no lugar dela. */
+.cabeca-da-linha > :not(:first-child) {
+  flex-shrink: 0;
 }
 
 .opcao-de-valor {
@@ -1771,4 +1789,67 @@ ion-button.apagar {
 .saldo-corrido {
   font-size: 0.75rem;
   color: var(--ink-2);
+}
+
+/* ---------- Ações nas folhas (lançamento, compromisso, meta, conta) ---------- */
+
+.acoes-da-folha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.acoes-da-folha ion-button {
+  margin: 0;
+  min-height: 44px;
+}
+
+/* Uma linha que abre o item: o botão ocupa a linha inteira, com o texto à esquerda. */
+.linha.linha-botao {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+}
+
+.linha.ocorrencia {
+  align-items: flex-start;
+}
+
+.lado-da-ocorrencia {
+  display: grid;
+  flex-shrink: 0;
+  justify-items: end;
+  gap: 4px;
+}
+
+.acoes-da-ocorrencia {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.acoes-da-ocorrencia ion-button {
+  margin: 0;
+}
+
+.cartao.destaque {
+  border-color: var(--brand);
+}
+
+.codigo {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
 }

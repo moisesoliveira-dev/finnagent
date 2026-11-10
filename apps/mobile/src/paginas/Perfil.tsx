@@ -1,6 +1,6 @@
 import { IonAlert, IonButton, IonButtons, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonToast } from "@ionic/react";
 import type { PerfilDoUsuario } from "@finnagent/contracts";
-import { chevronBack, logOutOutline } from "ionicons/icons";
+import { chevronBack, logOutOutline, settingsOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -103,6 +103,9 @@ export function Perfil() {
       aoAtualizar={recarregar}
       fim={
         <IonButtons>
+          <IonButton routerLink="/configuracoes" aria-label="Configurações">
+            <IonIcon slot="icon-only" icon={settingsOutline} />
+          </IonButton>
           <IonButton routerLink="/inicio" routerDirection="back" aria-label="Voltar">
             <IonIcon slot="icon-only" icon={chevronBack} />
           </IonButton>

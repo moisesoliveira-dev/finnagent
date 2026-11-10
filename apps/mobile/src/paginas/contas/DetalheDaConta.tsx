@@ -12,7 +12,8 @@ import {
   type StatusExtrato,
 } from "@finnagent/contracts";
 import { chevronBack, walletOutline } from "ionicons/icons";
-import { Link, useParams } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { MESES, MESES_CURTOS, dataCurta, reais, rotuloDoMes } from "../../api/formato";
 import { diaEMes } from "../../api/arquivo";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
@@ -22,6 +23,7 @@ import { Bloco, Cascata, Troca } from "../../movimento";
 import { useDados } from "../../useDados";
 import { useMes } from "../../useMes";
 import { hojeIso, movimentosDoMes } from "./movimentos";
+import { AcoesDaConta, type AcaoDaConta } from "./AcoesDaConta";
 
 const ROTULO_DO_EXTRATO: Record<StatusExtrato, string> = {
   importado: "Importado",
@@ -40,6 +42,8 @@ export function DetalheDaConta() {
   const extratos = useDados<ExtratosResposta>("/api/extratos");
   const { mes, direcao, mudar } = useMes();
   const hoje = hojeIso();
+  const navegar = useNavigate();
+  const [acao, setAcao] = useState<AcaoDaConta | null>(null);
 
   const recarregar = () => Promise.all([contas.recarregar(), financas.recarregar(), extratos.recarregar()]).then(() => undefined);
   useIonViewWillEnter(() => {
@@ -103,6 +107,17 @@ export function DetalheDaConta() {
                 </div>
               ) : null}
             </div>
+            <div className="acoes-da-folha">
+              <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "conferir" })}>
+                Conferir saldo
+              </IonButton>
+              <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "transferir" })}>
+                Transferir
+              </IonButton>
+              <IonButton size="small" fill="clear" onClick={() => setAcao({ tipo: "editar" })}>
+                Editar
+              </IonButton>
+            </div>
           </Bloco>
 
           {cartao ? (
@@ -111,7 +126,7 @@ export function DetalheDaConta() {
                 <span className="etiqueta">Faturas</span>
                 <span className="etiqueta">{conta.closingDay && conta.dueDay ? `Fecha dia ${conta.closingDay} · vence dia ${conta.dueDay}` : ""}</span>
               </div>
-              {!conta.closingDay || !conta.dueDay ? <p className="fraco">Informe o fechamento e o vencimento do cartão pelo site para ver as faturas.</p> : null}
+              {!conta.closingDay || !conta.dueDay ? <p className="fraco">Informe o fechamento e o vencimento do cartão em Editar para ver as faturas.</p> : null}
               {faturas.length > 0 ? (
                 <div className="lista">
                   {faturas.map((fatura) => (
@@ -128,6 +143,11 @@ export function DetalheDaConta() {
                       <span className="texto" style={{ textAlign: "right" }}>
                         <Dinheiro cents={-fatura.totalCents} />
                         <span className={`chip ${fatura.status === "paga" ? "ok" : fatura.status === "vencida" ? "neg" : ""}`}>{ROTULO_DO_STATUS_DA_FATURA[fatura.status]}</span>
+                        {fatura.status !== "paga" && fatura.totalCents > fatura.paidCents ? (
+                          <IonButton size="small" fill={fatura.status === "aberta" ? "clear" : "solid"} className={fatura.status === "aberta" ? undefined : "principal"} onClick={() => setAcao({ tipo: "pagar", fatura })}>
+                            {fatura.status === "aberta" ? "Pagar antecipado" : "Pagar"}
+                          </IonButton>
+                        ) : null}
                       </span>
                     </div>
                   ))}
@@ -136,26 +156,31 @@ export function DetalheDaConta() {
             </Bloco>
           ) : null}
 
-          {!cartao && caixinhas.length > 0 ? (
+          {!cartao ? (
             <Bloco className="secao">
               <div className="titulo-do-dia">
                 <span className="etiqueta">Caixinhas desta conta</span>
-                <span className="etiqueta">Rendeu em {MESES_CURTOS[mes.mes - 1]}</span>
+                <IonButton size="small" fill="clear" onClick={() => setAcao({ tipo: "caixinha", caixinha: null })}>
+                  + Caixinha
+                </IonButton>
               </div>
+              {caixinhas.length === 0 ? <p className="fraco">Nenhuma caixinha. Uma caixinha é uma reserva dentro da conta, com rendimento.</p> : null}
               <div className="lista">
                 {caixinhas.map((caixinha) => {
                   const resumoDela = resumoDaCaixinha(caixinha, entries, hoje, chaveDoMes);
                   return (
-                    <div key={caixinha.id} className="linha">
+                    <button key={caixinha.id} type="button" className="linha linha-botao" onClick={() => setAcao({ tipo: "caixinha", caixinha })}>
                       <div className="texto" style={{ flex: 1 }}>
                         <span>{caixinha.name}</span>
-                        <span className="etiqueta">{caixinha.goalId ? "Guarda uma meta · " : ""}no total rendeu {reais(resumoDela.rendimentoTotalCents)}</span>
+                        <span className="etiqueta">
+                          {caixinha.goalId ? "Guarda uma meta · " : ""}no total rendeu {reais(resumoDela.rendimentoTotalCents)}
+                        </span>
                       </div>
                       <span className="texto" style={{ textAlign: "right" }}>
                         <Dinheiro cents={resumoDela.saldoCents} />
-                        <span className="saldo-corrido">{reais(resumoDela.rendimentoDoMesCents)}</span>
+                        <span className="saldo-corrido">em {MESES_CURTOS[mes.mes - 1]} {reais(resumoDela.rendimentoDoMesCents)}</span>
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -226,6 +251,22 @@ export function DetalheDaConta() {
             ) : null}
           </Bloco>
         </Cascata>
+      ) : null}
+
+      {conta && resumo ? (
+        <AcoesDaConta
+          acao={acao}
+          conta={conta}
+          contas={contas.dados?.accounts ?? []}
+          saldoHoje={resumo.saldoCents}
+          aoFechar={() => setAcao(null)}
+          aoMudar={recarregar}
+          aoExcluida={() => {
+            setAcao(null);
+            navegar("/financas/contas", { replace: true });
+            void contas.recarregar();
+          }}
+        />
       ) : null}
     </Pagina>
   );
