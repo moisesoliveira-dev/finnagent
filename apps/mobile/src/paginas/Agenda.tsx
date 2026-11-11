@@ -5,7 +5,6 @@ import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { enviar, pedir } from "../api/cliente";
 import { dataCurta, diaDaSemana, ehDataIso, hojeIso, rotuloDoMes } from "../api/formato";
-import { Campo } from "../componentes/Campo";
 import { Data } from "../componentes/Data";
 import { Folha } from "../componentes/Folha";
 import { toque } from "../haptico";
