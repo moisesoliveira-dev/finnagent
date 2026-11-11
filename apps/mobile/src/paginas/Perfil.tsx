@@ -1,6 +1,6 @@
-import { IonAlert, IonButton, IonButtons, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonToast } from "@ionic/react";
+import { IonAlert, IonButton, IonButtons, IonIcon, useIonToast } from "@ionic/react";
 import type { PerfilDoUsuario } from "@finnagent/contracts";
-import { chevronBack, logOutOutline, settingsOutline } from "ionicons/icons";
+import { chevronBack, chevronForward, lockClosedOutline, logOutOutline, notificationsOutline, personOutline, phonePortraitOutline, settingsOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -9,9 +9,10 @@ import { desde } from "../api/formato";
 import { atualizarUsuario, encerrarSessao } from "../api/sessao";
 import { Avatar } from "../componentes/Avatar";
 import { Estado } from "../componentes/Estado";
+import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
 import { toque } from "../haptico";
-import { Bloco, Cascata, Troca, mola, toqueDoDedo } from "../movimento";
+import { Bloco, Cascata, mola, toqueDoDedo } from "../movimento";
 import { desligarPushNoCelular } from "../notificacoes/push";
 import { useDados } from "../useDados";
 import { AbaAvisos } from "./perfil/AbaAvisos";
@@ -21,6 +22,14 @@ import { AbaSessoes } from "./perfil/AbaSessoes";
 
 type Aba = "perfil" | "avisos" | "seguranca" | "sessoes";
 const ABAS: Aba[] = ["perfil", "avisos", "seguranca", "sessoes"];
+
+// O que se mexe no perfil, em linhas como as de um aparelho: cada uma abre a sua folha.
+const SECOES: Array<{ aba: Aba; icone: string; titulo: string; texto: string }> = [
+  { aba: "perfil", icone: personOutline, titulo: "Dados do perfil", texto: "Nome, cargo, cidade e avatar" },
+  { aba: "avisos", icone: notificationsOutline, titulo: "Avisos", texto: "Em que canal cada aviso chega" },
+  { aba: "seguranca", icone: lockClosedOutline, titulo: "Segurança", texto: "A senha da conta" },
+  { aba: "sessoes", icone: phonePortraitOutline, titulo: "Sessões", texto: "Onde você está conectado" },
+];
 
 const dadosDe = (perfil: PerfilDoUsuario): DadosDoPerfil => ({
   name: perfil.name,
@@ -38,12 +47,11 @@ export function Perfil() {
   // A lista de notificações abre o perfil direto na aba dos avisos.
   const { search } = useLocation();
   const pedida = new URLSearchParams(search).get("aba");
-  const [aba, setAba] = useState<Aba>(ABAS.includes(pedida as Aba) ? (pedida as Aba) : "perfil");
-  // O Ionic mantém a tela montada: um link novo com `?aba=` troca a aba aberta.
+  const [aberta, setAberta] = useState<Aba | null>(ABAS.includes(pedida as Aba) ? (pedida as Aba) : null);
+  // O Ionic mantém a tela montada: um link novo com `?aba=` abre a folha pedida.
   useEffect(() => {
-    if (pedida && ABAS.includes(pedida as Aba)) setAba(pedida as Aba);
+    if (pedida && ABAS.includes(pedida as Aba)) setAberta(pedida as Aba);
   }, [pedida]);
-  const [direcao, setDirecao] = useState(1);
   const [salvando, setSalvando] = useState(false);
   const [erroAoSalvar, setErroAoSalvar] = useState("");
   const [saindo, setSaindo] = useState(false);
@@ -86,13 +94,6 @@ export function Perfil() {
     // Revoga no servidor; se ele não responder, a sessão sai do aparelho do mesmo jeito.
     await pedir<void>("/api/auth/sair", { method: "POST" }).catch(() => undefined);
     await encerrarSessao();
-  }
-
-  function trocarDeAba(proxima: Aba) {
-    if (proxima === aba) return;
-    toque();
-    setDirecao(ABAS.indexOf(proxima) > ABAS.indexOf(aba) ? 1 : -1);
-    setAba(proxima);
   }
 
   return (
@@ -139,48 +140,20 @@ export function Perfil() {
             </div>
           </Bloco>
 
-          <Bloco>
-            <IonSegment value={aba} onIonChange={(evento) => trocarDeAba((evento.detail.value as Aba) ?? "perfil")}>
-              <IonSegmentButton value="perfil">
-                <IonLabel>Perfil</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="avisos">
-                <IonLabel>Avisos</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="seguranca">
-                <IonLabel>Segurança</IonLabel>
-              </IonSegmentButton>
-              <IonSegmentButton value="sessoes">
-                <IonLabel>Sessões</IonLabel>
-              </IonSegmentButton>
-            </IonSegment>
-          </Bloco>
-
-          <Bloco className="cartao">
-            <Troca chave={aba} direcao={direcao}>
-              {aba === "perfil" ? (
-                <AbaPerfil
-                  rascunho={rascunho}
-                  email={perfil.email}
-                  somenteLeitura={somenteLeitura}
-                  alterado={alterado}
-                  salvando={salvando}
-                  erro={erroAoSalvar}
-                  aoMudar={(parcial) => setRascunho((atual) => (atual ? { ...atual, ...parcial } : atual))}
-                  aoSalvar={() => void salvar()}
-                  aoDescartar={() => {
-                    setRascunho(dadosDe(perfil));
-                    setErroAoSalvar("");
-                  }}
-                />
-              ) : aba === "avisos" ? (
-                <AbaAvisos somenteLeitura={somenteLeitura} />
-              ) : aba === "seguranca" ? (
-                <AbaSeguranca somenteLeitura={somenteLeitura} />
-              ) : (
-                <AbaSessoes somenteLeitura={somenteLeitura} />
-              )}
-            </Troca>
+          <Bloco className="secao">
+            <div className="lista">
+              {SECOES.map((secao) => (
+                <button key={secao.aba} type="button" className="linha linha-botao atalho-de-linha" onClick={() => (toque(), setAberta(secao.aba))}>
+                  <IonIcon icon={secao.icone} aria-hidden />
+                  <span className="texto" style={{ flex: 1 }}>
+                    <strong>{secao.titulo}</strong>
+                    <span className="etiqueta">{secao.texto}</span>
+                  </span>
+                  {secao.aba === "perfil" && alterado ? <span className="chip ia">Não salvo</span> : null}
+                  <IonIcon icon={chevronForward} aria-hidden />
+                </button>
+              ))}
+            </div>
           </Bloco>
 
           <Bloco>
@@ -193,6 +166,28 @@ export function Perfil() {
           </Bloco>
         </Cascata>
       ) : null}
+
+      <Folha aberta={aberta !== null} titulo={SECOES.find((secao) => secao.aba === aberta)?.titulo ?? ""} aoFechar={() => setAberta(null)}>
+        {perfil && rascunho && aberta === "perfil" ? (
+          <AbaPerfil
+            rascunho={rascunho}
+            email={perfil.email}
+            somenteLeitura={somenteLeitura}
+            alterado={alterado}
+            salvando={salvando}
+            erro={erroAoSalvar}
+            aoMudar={(parcial) => setRascunho((atual) => (atual ? { ...atual, ...parcial } : atual))}
+            aoSalvar={() => void salvar()}
+            aoDescartar={() => {
+              setRascunho(dadosDe(perfil));
+              setErroAoSalvar("");
+            }}
+          />
+        ) : null}
+        {aberta === "avisos" ? <AbaAvisos somenteLeitura={somenteLeitura} /> : null}
+        {aberta === "seguranca" ? <AbaSeguranca somenteLeitura={somenteLeitura} /> : null}
+        {aberta === "sessoes" ? <AbaSessoes somenteLeitura={somenteLeitura} /> : null}
+      </Folha>
 
       <IonAlert
         isOpen={confirmandoSaida}
