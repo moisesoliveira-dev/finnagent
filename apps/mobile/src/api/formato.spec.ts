@@ -1,4 +1,4 @@
-import { lerReais } from "@finnagent/contracts";
+import { lerReais, mascaraDeValor, proximaMascara } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import { centavosDe, dataCurta, paraCampo, rotuloDoMes, somarMes } from "./formato";
 
@@ -52,6 +52,36 @@ describe("lerReais, a leitura de reais da web e do celular", () => {
   it("o celular lê sem o sinal, como sempre leu", () => {
     expect(centavosDe("-50")).toBe(5000);
     expect(centavosDe("12.5")).toBe(1250);
+  });
+});
+
+describe("máscara do campo de valor", () => {
+  it("os centavos entram pela direita", () => {
+    expect(mascaraDeValor("1")).toBe("0,01");
+    expect(mascaraDeValor("12")).toBe("0,12");
+    expect(mascaraDeValor("123456")).toBe("1.234,56");
+    expect(mascaraDeValor("")).toBe("");
+    expect(mascaraDeValor("000")).toBe("0,00");
+  });
+
+  it("digitar, apagar e colar passam pela mesma regra", () => {
+    let campo = "";
+    for (const digito of "12345") campo = proximaMascara(campo, campo + digito);
+    expect(campo).toBe("123,45");
+    expect(proximaMascara(campo, "123,4")).toBe("12,34");
+    expect(proximaMascara("0,05", "0,0")).toBe("");
+    // O teclado do celular pode deixar letra ou sinal na caixa: nada disso vira valor.
+    expect(proximaMascara("1,23", "1,23a")).toBe("1,23");
+    expect(proximaMascara("1,23", "-1,23")).toBe("1,23");
+  });
+
+  it("não passa do que o banco guarda e o texto mostrado volta a ser lido igual", () => {
+    expect(lerReais(mascaraDeValor("2147483647"))).toBe(2147483647);
+    // Um dígito a mais passaria do limite: a máscara não aceita.
+    expect(lerReais(mascaraDeValor("21474836470"))).toBe(2147483647);
+    expect(lerReais(mascaraDeValor("99999999999"))).toBe(999999999);
+    expect(lerReais(mascaraDeValor("123456"))).toBe(123456);
+    expect(centavosDe(mascaraDeValor("123456"))).toBe(123456);
   });
 });
 
