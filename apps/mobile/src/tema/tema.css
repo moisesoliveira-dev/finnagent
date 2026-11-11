@@ -2023,3 +2023,53 @@ ion-fab-button.acao-principal {
 .rodape-da-folha .erro {
   margin: 0;
 }
+
+/* Uma linha que se leva para o lado: o fundo com a ação fica por baixo e a linha corre por cima. */
+.deslizar {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+
+.deslizar:last-child {
+  border-bottom: 0;
+}
+
+.deslizar .linha-do-dia {
+  border-bottom: 0;
+}
+
+.deslizar-conteudo {
+  position: relative;
+  background: var(--surface);
+  touch-action: pan-y;
+}
+
+.deslizar-fundo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  color: var(--brand-ink);
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deslizar-fundo.inicio {
+  justify-content: flex-start;
+}
+
+.deslizar-fundo.fim {
+  justify-content: flex-end;
+}
+
+.deslizar-fundo.ok {
+  background: var(--pos);
+}
+
+.deslizar-fundo.neg {
+  background: var(--neg);
+}

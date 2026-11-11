@@ -1,16 +1,16 @@
-import { IonButton, IonIcon, IonToggle, useIonViewWillEnter } from "@ionic/react";
+import { IonButton, IonToggle, useIonViewWillEnter } from "@ionic/react";
 import type { Caixinha, ContasResposta, Meta, MetasResposta } from "@finnagent/contracts";
-import { arrowDown, arrowUp, flagOutline, pricetagOutline } from "ionicons/icons";
+import { flagOutline, pricetagOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
 import { centavosDe, MESES, MESES_CURTOS, paraCampo, reais } from "../api/formato";
 import { Campo, CampoDeValor } from "../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
+import { ItemOrdenavel, ListaOrdenavel } from "../componentes/Ordenavel";
 import { Pagina } from "../componentes/Pagina";
 import { Selecao } from "../componentes/Selecao";
-import { toque } from "../haptico";
 import { Bloco, Cascata, Contagem, Preenchimento, toqueDoDedo } from "../movimento";
 import { useAcao } from "../useAcao";
 import { useDados } from "../useDados";
@@ -36,6 +36,12 @@ export function Metas() {
   const [caixinha, setCaixinha] = useState<{ meta: Meta; opcoes: Array<Caixinha & { accountName: string }>; escolha: string } | null>(null);
   const [erroDaFolha, setErroDaFolha] = useState("");
   const metas = [...(dados?.goals ?? [])].sort((a, b) => a.position - b.position);
+  // A ordem que a pessoa está arrastando. O servidor devolve a gravada, e ela volta a valer a cada carga.
+  const [ordem, setOrdem] = useState<string[]>([]);
+  const ordemRef = useRef<string[]>([]);
+  ordemRef.current = ordem;
+  useEffect(() => setOrdem(metas.map((meta) => meta.id)), [dados]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lista = ordem.length === metas.length && ordem.every((id) => metas.some((meta) => meta.id === id)) ? ordem.map((id) => metas.find((meta) => meta.id === id) as Meta) : metas;
 
   useIonViewWillEnter(() => {
     if (dados) void recarregar();
@@ -62,14 +68,26 @@ export function Metas() {
     if (await fazer("criar", () => enviar("/api/metas", corpo), "Meta salva.")) setNova(null);
   }
 
-  function mover(indice: number, passo: number) {
-    const destino = indice + passo;
-    if (destino < 0 || destino >= metas.length) return;
-    const ids = metas.map((meta) => meta.id);
-    const [id] = ids.splice(indice, 1);
-    ids.splice(destino, 0, id as string);
-    toque();
-    void fazer("ordem", () => enviar("/api/metas/ordem", { ids }, "PUT"), "Prioridade salva.");
+  /** Grava a ordem das metas. Se o servidor recusar, a lista volta à ordem gravada. */
+  function gravarOrdem(ids: string[]) {
+    void fazer("ordem", () => enviar("/api/metas/ordem", { ids }, "PUT"), "Prioridade salva.").then((ok) => {
+      if (!ok) setOrdem(metas.map((meta) => meta.id));
+    });
+  }
+
+  // O dedo soltou a meta: a ordem arrastada vale.
+  const soltarMeta = () => gravarOrdem(ordemRef.current);
+
+  // As setas do teclado na alça movem uma posição.
+  function moverMeta(id: string, passo: -1 | 1) {
+    const ids = [...ordemRef.current];
+    const de = ids.indexOf(id);
+    const para = de + passo;
+    if (de < 0 || para < 0 || para >= ids.length) return;
+    [ids[de], ids[para]] = [ids[para] as string, ids[de] as string];
+    ordemRef.current = ids;
+    setOrdem(ids);
+    gravarOrdem(ids);
   }
 
   function abrirDivisao() {
@@ -152,7 +170,9 @@ export function Metas() {
             </Bloco>
           ) : null}
 
-          {metas.map((meta, indice) => {
+          {metas.length > 1 ? <p className="fraco">Segure a alça ao lado do número e arraste para mudar a prioridade.</p> : null}
+          <ListaOrdenavel itens={ordem} aoMudar={setOrdem} className="pagina sem-margem">
+          {lista.map((meta, indice) => {
             const parte = dados.division[meta.id];
             const pendente = parte && !parte.approved;
             const porcento = porcentoDe(meta);
@@ -161,8 +181,11 @@ export function Metas() {
             const porMes = meses && meses > 0 && restante > 0 ? Math.ceil(restante / meses) : null;
             const sugerido = dados.suggested[meta.id] ?? 0;
             return (
-              <Bloco key={meta.id} className="cartao">
+              <ItemOrdenavel key={meta.id} valor={meta.id} nome={meta.name} aoSoltar={soltarMeta} aoMover={(passo) => moverMeta(meta.id, passo)} className="cartao ordenavel">
+                {(alca) => (
+                <>
                 <div className="linha-da-meta">
+                  {alca}
                   <span className="posicao" aria-label={`Prioridade ${indice + 1}`}>
                     {indice + 1}
                   </span>
@@ -223,19 +246,16 @@ export function Metas() {
                   <IonButton size="small" fill="clear" disabled={Boolean(ocupado)} onClick={() => void abrirCaixinha(meta)}>
                     Caixinha
                   </IonButton>
-                  <IonButton size="small" fill="clear" aria-label="Subir na prioridade" disabled={Boolean(ocupado) || indice === 0} onClick={() => mover(indice, -1)}>
-                    <IonIcon slot="icon-only" icon={arrowUp} />
-                  </IonButton>
-                  <IonButton size="small" fill="clear" aria-label="Descer na prioridade" disabled={Boolean(ocupado) || indice === metas.length - 1} onClick={() => mover(indice, 1)}>
-                    <IonIcon slot="icon-only" icon={arrowDown} />
-                  </IonButton>
                   <IonButton size="small" fill="clear" color="danger" disabled={Boolean(ocupado)} onClick={() => excluir(meta)}>
                     Excluir
                   </IonButton>
                 </div>
-              </Bloco>
+                </>
+                )}
+              </ItemOrdenavel>
             );
           })}
+          </ListaOrdenavel>
         </Cascata>
       ) : null}
 

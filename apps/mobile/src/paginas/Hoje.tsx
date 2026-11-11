@@ -8,6 +8,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { enviar, pedir } from "../api/cliente";
 import { reais } from "../api/formato";
 import { Campo } from "../componentes/Campo";
+import { Deslizar, type AcaoDeslizada } from "../componentes/Deslizar";
 import { Data } from "../componentes/Data";
 import { Dinheiro, Estado } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
@@ -15,6 +16,7 @@ import { Pagina } from "../componentes/Pagina";
 import { Selecao } from "../componentes/Selecao";
 import { toque } from "../haptico";
 import { Bloco, Cascata, Preenchimento, Troca, toqueDoDedo } from "../movimento";
+import { useApagarComDesfazer } from "../useApagarComDesfazer";
 import { useDados } from "../useDados";
 import {
   andamento,
@@ -55,8 +57,9 @@ export function Hoje() {
   const [novo, setNovo] = useState("");
   // O compromisso que está recebendo um item no checklist.
   const [itemDe, setItemDe] = useState<CompromissoDoDia | null>(null);
-  const [apagando, setApagando] = useState<Tarefa | null>(null);
   const [editando, setEditando] = useState<Edicao | null>(null);
+
+  const { ocultos, apagar: apagarComDesfazer } = useApagarComDesfazer(recarregar);
 
   useIonViewWillEnter(() => {
     if (dados) void recarregar();
@@ -94,7 +97,13 @@ export function Hoje() {
   const marcarTarefa = (item: Tarefa, done: boolean) =>
     agir(item.id, () => enviar(`/api/tarefas/${item.id}/concluir`, { done }, "PATCH"), "Não foi possível marcar a tarefa.");
 
-  const apagarTarefa = (item: Tarefa) => agir(`apagar-${item.id}`, () => pedir(`/api/tarefas/${item.id}`, { method: "DELETE" }), "Não foi possível apagar a tarefa.");
+  // Apagar some da lista na hora, com "Desfazer": o servidor só é chamado quando o prazo acaba.
+  const apagarTarefa = (item: Tarefa) =>
+    apagarComDesfazer(
+      item.id,
+      filhasDe(dados?.tarefas ?? [], item.id).length > 0 ? "Tarefa e subatividades apagadas" : "Tarefa apagada",
+      () => pedir(`/api/tarefas/${item.id}`, { method: "DELETE" }),
+    );
 
   /** Um item no checklist do compromisso, no dia da tela (o dia da ocorrência). */
   const anotarItem = (item: CompromissoDoDia, title: string) =>
@@ -139,7 +148,10 @@ export function Hoje() {
   const semGasto = (item: PerguntaDeGasto) =>
     agir(`gasto-${item.appointmentId}:${item.date}`, () => enviar(`/api/compromissos/${item.appointmentId}/sem-gasto`, { date: item.date }), "Não foi possível responder.");
 
-  const tarefas = dados?.tarefas ?? [];
+  // As tarefas que a pessoa acabou de apagar (e as subatividades delas) saem da lista enquanto o "Desfazer" vale.
+  const todasAsTarefas = dados?.tarefas ?? [];
+  const escondidas = new Set(ocultos.flatMap((id) => [id, ...descendentes(todasAsTarefas, id)]));
+  const tarefas = todasAsTarefas.filter((item) => !escondidas.has(item.id));
   // As tarefas soltas; o checklist de cada compromisso fica embaixo dele.
   const raizes = filhasDe(tarefas, null).filter((item) => !item.appointmentId);
   const checklistDe = (id: string) => filhasDe(tarefas, null).filter((item) => item.appointmentId === id);
@@ -165,6 +177,10 @@ export function Hoje() {
           ocupado={ocupado === item.id}
           rotulo={rotulo}
           onMarcar={(done) => void marcarTarefa(item, done)}
+          deslizar={{
+            inicio: { rotulo: item.doneOn ? "Reabrir" : "Concluir", tom: "ok", aoAcionar: () => void marcarTarefa(item, !item.doneOn) },
+            fim: { rotulo: "Apagar", tom: "neg", aoAcionar: () => apagarTarefa(item) },
+          }}
           titulo={item.title}
           detalhe={filhas.length > 0 ? `${feitasAqui} de ${filhas.length}` : undefined}
           chip={nivel === 0 && !item.appointmentId && item.date < dados.date && !item.doneOn ? <span className="chip ia">Ficou de {rotuloCurto(item.date)}</span> : null}
@@ -449,7 +465,7 @@ export function Hoje() {
                 onClick={() => {
                   const alvo = editando.tarefa;
                   setEditando(null);
-                  setApagando(alvo);
+                  apagarTarefa(alvo);
                 }}
               >
                 Apagar
@@ -472,16 +488,6 @@ export function Hoje() {
           { text: "Adicionar", handler: (valores: { title?: string }) => { const alvo = itemDe; if (alvo) void anotarItem(alvo, valores.title ?? ""); } },
         ]}
         onDidDismiss={() => setItemDe(null)}
-      />
-      <IonAlert
-        isOpen={apagando !== null}
-        header="Apagar esta tarefa?"
-        message={apagando ? `"${apagando.title}"${filhasDe(tarefas, apagando.id).length > 0 ? " e as subatividades dela" : ""} sai da lista. Não pode ser desfeito.` : ""}
-        buttons={[
-          { text: "Cancelar", role: "cancel" },
-          { text: "Apagar", role: "destructive", handler: () => (apagando ? void apagarTarefa(apagando) : undefined) },
-        ]}
-        onDidDismiss={() => setApagando(null)}
       />
     </Pagina>
   );
@@ -514,6 +520,7 @@ function Linha({
   detalhe,
   chip,
   lado,
+  deslizar,
 }: {
   chave: string;
   nivel?: number;
@@ -526,9 +533,12 @@ function Linha({
   detalhe?: string;
   chip?: ReactNode;
   lado?: ReactNode;
+  /** Levar a linha para o lado: para a direita faz `inicio`, para a esquerda faz `fim`. */
+  deslizar?: { inicio?: AcaoDeslizada; fim?: AcaoDeslizada };
 }) {
   const id = `item-${chave}`;
   return (
+    <Deslizar inicio={deslizar?.inicio} fim={deslizar?.fim}>
     <motion.div
       className={`linha-do-dia${feito ? " feita" : ""}`}
       style={{ paddingLeft: 16 + nivel * RECUO }}
@@ -559,6 +569,7 @@ function Linha({
       </label>
       {lado ? <span className="lado">{lado}</span> : null}
     </motion.div>
+    </Deslizar>
   );
 }
 
