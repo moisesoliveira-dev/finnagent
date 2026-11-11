@@ -35,22 +35,27 @@ import {
   sparklesOutline,
   timeOutline,
   trashOutline,
+  colorPaletteOutline,
+  informationCircleOutline,
+  checkmark,
 } from "ionicons/icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { enviar, ler, pedir } from "../api/cliente";
+import { enviar, pedir } from "../api/cliente";
 import { sessaoAtual } from "../api/sessao";
+import pacote from "../../package.json";
+import { aplicarTema } from "../tema/tema";
 import { MESES } from "../api/formato";
 import { Campo, CampoDeSenha } from "../componentes/Campo";
 import { Data } from "../componentes/Data";
 import { Estado } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
-import { Fichas, Selecao } from "../componentes/Selecao";
+import { Selecao } from "../componentes/Selecao";
 import { useAcao } from "../useAcao";
 import { useDados } from "../useDados";
 
-type Secao = "conta" | "financas" | "feriados" | "google" | "avisos" | "usuarios" | "eventos" | "dados";
+type Secao = "conta" | "aparencia" | "financas" | "feriados" | "google" | "avisos" | "usuarios" | "eventos" | "dados";
 
 const ROTULO_DO_FUSO: Record<FusoAgenda, string> = {
   "America/Sao_Paulo": "Brasília (GMT−3)",
@@ -81,6 +86,24 @@ export function Configuracoes() {
     if (dados) void recarregar();
   });
 
+  // O tema é a mesma preferência do site: o que está salvo na conta vale aqui também.
+  useEffect(() => {
+    if (dados) aplicarTema(dados.theme);
+  }, [dados]);
+
+  /** Troca o tema na hora e grava na conta; se o servidor recusar, volta ao que estava. */
+  async function escolherTema(tema: Tema) {
+    if (!dados) return;
+    aplicarTema(tema);
+    const ok = await agir("tema", () => enviar("/api/configuracoes", { ...formularioDe(dados), theme: tema }, "PUT"));
+    if (ok) {
+      setSecao(null);
+      await recarregar();
+    } else {
+      aplicarTema(dados.theme);
+    }
+  }
+
   // Cada folha parte do que está salvo: fechar sem salvar descarta.
   function abrir(qual: Secao) {
     if (dados) setForm(formularioDe(dados));
@@ -104,15 +127,43 @@ export function Configuracoes() {
     </IonButton>
   );
 
-  const linhas: Array<{ id: Secao; icone: string; titulo: string; texto: string; so?: boolean }> = [
-    { id: "conta", icone: personOutline, titulo: "Conta", texto: "Nome, fuso e o tema do site" },
-    { id: "financas", icone: calendarOutline, titulo: "Finanças e vencimentos", texto: "Início do workflow e o ajuste em dia não útil" },
-    { id: "feriados", icone: calendarOutline, titulo: "Feriados", texto: "Na agenda e os feriados da sua cidade" },
-    { id: "google", icone: logoGoogle, titulo: "Google Agenda", texto: dados ? rotuloDoGoogle(dados.google) : "" },
-    { id: "avisos", icone: notificationsOutline, titulo: "Lembretes e vencimentos", texto: "Os avisos do Início" },
-    { id: "usuarios", icone: peopleOutline, titulo: "Usuários", texto: master ? "Quem mais usa a conta" : "Só o master gerencia" },
-    { id: "eventos", icone: pulseOutline, titulo: "Eventos e histórico", texto: "Por quanto tempo guardar o histórico" },
-    { id: "dados", icone: documentTextOutline, titulo: "Dados e privacidade", texto: "Importar, desfazer a conferência, recomeçar" },
+  type Linha = { id: Secao; icone: string; titulo: string; texto: string } | { para: string; icone: string; titulo: string; texto: string };
+  // As configurações em grupos, como as de um aparelho: cada grupo com o título dele e as linhas abaixo.
+  const grupos: Array<{ titulo: string; linhas: Linha[] }> = [
+    {
+      titulo: "Conta",
+      linhas: [
+        { id: "conta", icone: personOutline, titulo: "Conta", texto: "Nome e fuso" },
+        { id: "usuarios", icone: peopleOutline, titulo: "Usuários", texto: master ? "Quem mais usa a conta" : "Só o master gerencia" },
+      ],
+    },
+    {
+      titulo: "Aparência",
+      linhas: [{ id: "aparencia", icone: colorPaletteOutline, titulo: "Tema", texto: dados ? ROTULO_DO_TEMA[dados.theme] : "" }],
+    },
+    {
+      titulo: "Assistente",
+      linhas: [{ para: "/configuracoes/ia", icone: sparklesOutline, titulo: "Inteligência artificial", texto: "Provedores, agentes e comportamento" }],
+    },
+    {
+      titulo: "Finanças e agenda",
+      linhas: [
+        { id: "financas", icone: calendarOutline, titulo: "Finanças e vencimentos", texto: "Início do workflow e o ajuste em dia não útil" },
+        { id: "feriados", icone: calendarOutline, titulo: "Feriados", texto: "Na agenda e os feriados da sua cidade" },
+        { id: "google", icone: logoGoogle, titulo: "Google Agenda", texto: dados ? rotuloDoGoogle(dados.google) : "" },
+      ],
+    },
+    {
+      titulo: "Avisos",
+      linhas: [{ id: "avisos", icone: notificationsOutline, titulo: "Lembretes e vencimentos", texto: "Os avisos do Início" }],
+    },
+    {
+      titulo: "Dados",
+      linhas: [
+        { id: "eventos", icone: pulseOutline, titulo: "Eventos e histórico", texto: "Por quanto tempo guardar o histórico" },
+        { id: "dados", icone: documentTextOutline, titulo: "Dados e privacidade", texto: "Importar, desfazer a conferência, recomeçar" },
+      ],
+    },
   ];
 
   return (
@@ -129,25 +180,46 @@ export function Configuracoes() {
     >
       <div className="pagina">
         <Estado carregando={carregando} erro={erro} tem={Boolean(dados)} aoTentar={() => void recarregar()} />
-        <div className="lista">
-          <Link to="/configuracoes/ia" className="linha atalho-de-linha">
-            <IonIcon icon={sparklesOutline} aria-hidden />
-            <span className="texto" style={{ flex: 1 }}>
-              <strong>Inteligência artificial</strong>
-              <span className="etiqueta">Provedores, agentes e comportamento</span>
-            </span>
-            <IonIcon icon={chevronForward} aria-hidden />
-          </Link>
-          {linhas.map((linha) => (
-            <button key={linha.id} type="button" className="linha linha-botao atalho-de-linha" disabled={!dados} onClick={() => abrir(linha.id)}>
-              <IonIcon icon={linha.icone} aria-hidden />
+        {grupos.map((grupo) => (
+          <div key={grupo.titulo} className="secao">
+            <span className="etiqueta">{grupo.titulo}</span>
+            <div className="lista">
+              {grupo.linhas.map((linha) =>
+                "para" in linha ? (
+                  <Link key={linha.para} to={linha.para} className="linha atalho-de-linha">
+                    <IonIcon icon={linha.icone} aria-hidden />
+                    <span className="texto" style={{ flex: 1 }}>
+                      <strong>{linha.titulo}</strong>
+                      <span className="etiqueta">{linha.texto}</span>
+                    </span>
+                    <IonIcon icon={chevronForward} aria-hidden />
+                  </Link>
+                ) : (
+                  <button key={linha.id} type="button" className="linha linha-botao atalho-de-linha" disabled={!dados} onClick={() => abrir(linha.id)}>
+                    <IonIcon icon={linha.icone} aria-hidden />
+                    <span className="texto" style={{ flex: 1 }}>
+                      <strong>{linha.titulo}</strong>
+                      <span className="etiqueta">{linha.texto}</span>
+                    </span>
+                    <IonIcon icon={chevronForward} aria-hidden />
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        ))}
+
+        <div className="secao">
+          <span className="etiqueta">Sobre</span>
+          <div className="lista">
+            <div className="linha">
+              <IonIcon icon={informationCircleOutline} aria-hidden />
               <span className="texto" style={{ flex: 1 }}>
-                <strong>{linha.titulo}</strong>
-                <span className="etiqueta">{linha.texto}</span>
+                <strong>Prumo</strong>
+                <span className="etiqueta">Versão {pacote.version}</span>
               </span>
-              <IonIcon icon={chevronForward} aria-hidden />
-            </button>
-          ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -156,14 +228,23 @@ export function Configuracoes() {
           <>
             <Campo icone={personOutline} rotulo="Nome da conta" value={form.name} onMudar={(valor) => mudar("name", valor)} maxLength={80} />
             <Selecao rotulo="Fuso" valor={form.timezone} opcoes={FUSOS_AGENDA.map((fuso) => ({ id: fuso, texto: ROTULO_DO_FUSO[fuso] }))} aoMudar={(valor) => mudar("timezone", valor as FusoAgenda)} />
-            <div className="campo">
-              <span className="etiqueta">Tema do site</span>
-              <Fichas<Tema> rotulo="Tema do site" valor={form.theme} opcoes={(["auto", "light", "dark"] as const).map((tema) => ({ id: tema, texto: ROTULO_DO_TEMA[tema] }))} aoMudar={(valor) => mudar("theme", valor)} />
-              <span className="fraco">O aplicativo segue o tema do celular.</span>
-            </div>
             {botaoSalvar}
           </>
         ) : null}
+      </Folha>
+
+      <Folha aberta={secao === "aparencia"} titulo="Tema" aoFechar={() => setSecao(null)}>
+        <p className="fraco">Vale para o site e para este aplicativo. Automático segue o tema do celular.</p>
+        <div className="lista">
+          {(["auto", "light", "dark"] as const).map((tema) => (
+            <button key={tema} type="button" className="linha linha-botao" disabled={Boolean(ocupado)} aria-pressed={dados?.theme === tema} onClick={() => void escolherTema(tema)}>
+              <span className="texto" style={{ flex: 1 }}>
+                <strong>{ROTULO_DO_TEMA[tema]}</strong>
+              </span>
+              {dados?.theme === tema ? <IonIcon icon={checkmark} aria-hidden /> : null}
+            </button>
+          ))}
+        </div>
       </Folha>
 
       <Folha aberta={secao === "financas"} titulo="Finanças e vencimentos" aoFechar={() => setSecao(null)}>

@@ -27,8 +27,9 @@
   --fonte-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* Escuro: pelo celular (a menos que o tema tenha sido fixado em claro) ou pela escolha da pessoa. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg: #0d1111;
     --surface: #13181a;
@@ -46,6 +47,25 @@
     --event: oklch(0.72 0.14 268);
     --pontos: rgb(237 237 236 / 0.07);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1111;
+  --surface: #13181a;
+  --surface-2: #171d20;
+  --ink: #ededec;
+  --ink-2: #8b9291;
+  --line: #263034;
+  --brand: oklch(0.74 0.12 222.9);
+  --brand-ink: #061318;
+  --pending: oklch(0.78 0.12 75);
+  --pending-soft: oklch(0.28 0.05 70);
+  --pending-line: oklch(0.5 0.1 70);
+  --pos: oklch(0.76 0.14 155);
+  --neg: oklch(0.72 0.16 27);
+  --event: oklch(0.72 0.14 268);
+  --pontos: rgb(237 237 236 / 0.07);
 }
 
 /* Ponte para as variáveis do Ionic. */
@@ -1590,10 +1610,15 @@ button.entrada-com-icone.selecao.hora {
 }
 
 @media (prefers-color-scheme: light) {
-  .roda-de-hora ion-datetime {
+  :root:not([data-theme="dark"]) .roda-de-hora ion-datetime {
     --background-rgb: 255, 255, 255;
     --wheel-fade-background-rgb: 255, 255, 255;
   }
+}
+
+:root[data-theme="light"] .roda-de-hora ion-datetime {
+  --background-rgb: 255, 255, 255;
+  --wheel-fade-background-rgb: 255, 255, 255;
 }
 
 

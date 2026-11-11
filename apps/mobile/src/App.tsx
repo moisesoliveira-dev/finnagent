@@ -29,6 +29,7 @@ import { Notificacoes } from "./paginas/Notificacoes";
 import { Perfil } from "./paginas/Perfil";
 import { recontar } from "./notificacoes/contagem";
 import { ouvirPush } from "./notificacoes/push";
+import { TemaDaConta } from "./tema/TemaDaConta";
 
 type Estado = "carregando" | "entrou" | "saiu";
 
@@ -159,6 +160,7 @@ export function App() {
                   <BarraDeAbas />
                 </IonTabs>
                 <AvisosDoApp />
+                <TemaDaConta />
               </IonReactRouter>
             </motion.div>
           )}
