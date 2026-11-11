@@ -335,10 +335,11 @@ export default function Extratos() {
   return (
     <>
       <PageHeader
+        flutuante={{ rotulo: "Importar extrato", onClick: () => abrir() }}
         title="Importações"
         subtitle="Importe extratos bancários e acompanhe o que já foi enviado."
         actions={
-          <Button variant="primary" onClick={() => abrir()}>
+          <Button variant="primary" className="hidden tab:inline-flex" onClick={() => abrir()}>
             Importar extrato
           </Button>
         }
@@ -455,7 +456,7 @@ export default function Extratos() {
                     >
                       {item.format.toUpperCase()}
                     </span>
-                    <div className="grid min-w-0 flex-1 gap-1">
+                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-1">
                       <div className="font-medium break-all">{item.filename}</div>
                       <div className="text-sm text-ink-2">{item.accountName}</div>
                       {item.note ? (
