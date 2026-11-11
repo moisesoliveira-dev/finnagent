@@ -1,7 +1,7 @@
 import { IonApp, IonIcon, IonLabel, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from "@ionic/react";
 import { IonReactRouter } from "@ionic/react-router";
 import { App as AppNativo } from "@capacitor/app";
-import { calendarOutline, chatbubbleEllipsesOutline, flagOutline, homeOutline, walletOutline } from "ionicons/icons";
+import { calendarOutline, chatbubbleEllipsesOutline, ellipsisHorizontal, homeOutline, walletOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, useLocation, useNavigate } from "react-router-dom";
@@ -22,6 +22,7 @@ import { Relatorios } from "./paginas/Relatorios";
 import { Hoje } from "./paginas/Hoje";
 import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
+import { Mais } from "./paginas/Mais";
 import { Metas } from "./paginas/Metas";
 import { Extratos } from "./paginas/Extratos";
 import { Notificacoes } from "./paginas/Notificacoes";
@@ -36,8 +37,11 @@ const ABAS = [
   { tab: "financas", rotulo: "Finanças", icone: walletOutline },
   { tab: "assistente", rotulo: "Assistente", icone: chatbubbleEllipsesOutline },
   { tab: "agenda", rotulo: "Agenda", icone: calendarOutline },
-  { tab: "metas", rotulo: "Metas", icone: flagOutline },
+  { tab: "mais", rotulo: "Mais", icone: ellipsisHorizontal },
 ];
+
+/** As abas que têm tela própria. O resto (Metas, Extratos, Configurações...) se abre pelo "Mais" e conta como ele. */
+const ABAS_PROPRIAS = ["inicio", "financas", "assistente", "agenda"];
 
 /** A barra de abas: a linha da aba atual desliza de uma para a outra, como a barra do menu no web. */
 function BarraDeAbas() {
@@ -45,9 +49,9 @@ function BarraDeAbas() {
   return (
     <IonTabBar slot="bottom">
       {ABAS.map((aba) => {
-        const ativa = pathname.startsWith(`/${aba.tab}`);
+        const ativa = aba.tab === "mais" ? !ABAS_PROPRIAS.some((tab) => pathname.startsWith(`/${tab}`)) : pathname.startsWith(`/${aba.tab}`);
         return (
-          <IonTabButton key={aba.tab} tab={aba.tab} href={`/${aba.tab}`}>
+          <IonTabButton key={aba.tab} tab={aba.tab} href={`/${aba.tab}`} className={ativa ? "ativa" : undefined}>
             {ativa ? <motion.span layoutId="aba" className="indicador" transition={mola} /> : null}
             <motion.span style={{ display: "inline-flex" }} animate={{ scale: ativa ? 1.12 : 1, y: ativa ? -1 : 0 }} transition={mola}>
               <IonIcon icon={aba.icone} />
@@ -143,6 +147,7 @@ export function App() {
                     <Route path="/financas/relatorios" element={<Relatorios />} />
                     <Route path="/agenda" element={<Agenda />} />
                     <Route path="/assistente" element={<Assistente />} />
+                    <Route path="/mais" element={<Mais />} />
                     <Route path="/metas" element={<Metas />} />
                     <Route path="/perfil" element={<Perfil />} />
                     <Route path="/configuracoes" element={<Configuracoes />} />

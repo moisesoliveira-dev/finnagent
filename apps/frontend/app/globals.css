@@ -386,3 +386,18 @@ textarea,
   line-height: 1.4;
   box-shadow: none;
 }
+
+/* Celular: a barra de navegação de baixo ocupa esta altura. O que gruda na base da tela fica acima dela. */
+:root {
+  --barra-inferior: 3.5rem;
+}
+
+.acima-da-barra {
+  bottom: calc(var(--barra-inferior) + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 760px) {
+  .acima-da-barra {
+    bottom: 0;
+  }
+}

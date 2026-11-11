@@ -488,6 +488,7 @@ export default function Agenda() {
   return (
     <div className="mx-auto min-w-0 max-w-5xl">
       <PageHeader
+        flutuante={{ rotulo: "Novo compromisso", onClick: novoCompromisso }}
         title="Agenda"
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-2">
@@ -519,7 +520,7 @@ export default function Agenda() {
                 setVisao(id);
               }}
             />
-            <Button variant="primary" onClick={novoCompromisso}>
+            <Button variant="primary" className="hidden tab:inline-flex" onClick={novoCompromisso}>
               Novo compromisso
             </Button>
           </>

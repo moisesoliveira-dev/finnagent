@@ -483,7 +483,7 @@ export function Chat() {
           <div ref={fim} />
         </div>
 
-        <div className="sticky bottom-0 z-10 bg-bg pt-3 pr-12 pb-4">
+        <div className="acima-da-barra sticky z-10 bg-bg pt-3 pr-12 pb-4">
           <div className="relative mx-auto w-full max-w-3xl">
             <AnimatePresence>
               {longe ? (

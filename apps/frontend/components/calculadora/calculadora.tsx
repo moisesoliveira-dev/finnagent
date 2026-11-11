@@ -178,7 +178,8 @@ export function BotaoDaCalculadora() {
           whileTap={{ scale: 0.92 }}
           transition={curva}
           className={cn(
-            "fixed right-4 bottom-4 z-30 inline-flex size-12 cursor-grab touch-none items-center justify-center border border-line bg-surface text-ink transition-colors hover:text-brand active:cursor-grabbing",
+            // No celular a calculadora abre pelo "Mais" da barra de baixo: o botão solto cobriria o conteúdo.
+            "fixed right-4 bottom-4 z-30 hidden size-12 cursor-grab touch-none items-center justify-center border border-line bg-surface text-ink transition-colors hover:text-brand active:cursor-grabbing tab:inline-flex",
             aberta && "border-brand bg-brand-soft text-brand",
             focusRing,
           )}
