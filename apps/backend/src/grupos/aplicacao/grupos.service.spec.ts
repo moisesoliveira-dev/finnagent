@@ -41,3 +41,24 @@ describe("atualizar a sessão", () => {
     await expect(servico.atualizarSessao(TENANT, ID, dados, "acumulo")).rejects.toThrow("Sessão não encontrada.");
   });
 });
+
+describe("ordem dos grupos e das sessões", () => {
+  const grupos = (resposta: "ok" | "diferente") =>
+    new GruposService({ reordenarGrupos: async () => resposta } as unknown as GruposRepositorio);
+  const sessoes = (resposta: "ok" | "diferente" | "grupo-ausente") =>
+    new GruposService({ reordenarSessoes: async () => resposta } as unknown as GruposRepositorio);
+
+  it("aceita a ordem que tem todos os itens", async () => {
+    await expect(grupos("ok").reordenarGrupos(TENANT, [ID])).resolves.toBeUndefined();
+    await expect(sessoes("ok").reordenarSessoes(TENANT, "g1", [ID])).resolves.toBeUndefined();
+  });
+
+  it("recusa a lista que não é a dos grupos ou das sessões que existem", async () => {
+    await expect(grupos("diferente").reordenarGrupos(TENANT, [ID])).rejects.toThrow("todos os grupos");
+    await expect(sessoes("diferente").reordenarSessoes(TENANT, "g1", [ID])).rejects.toThrow("todas as sessões");
+  });
+
+  it("diz que o grupo não existe", async () => {
+    await expect(sessoes("grupo-ausente").reordenarSessoes(TENANT, "g1", [ID])).rejects.toThrow("Grupo não encontrado");
+  });
+});
