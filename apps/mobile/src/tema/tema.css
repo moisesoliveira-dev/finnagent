@@ -181,6 +181,8 @@ ion-button.principal {
 
 .cartao {
   display: grid;
+  /* Uma coluna que cabe no cartão: sem ela, a frase mais longa estica a coluna e o texto não quebra. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 16px;
   background: var(--surface);

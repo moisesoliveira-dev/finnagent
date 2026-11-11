@@ -16,6 +16,7 @@ import {
   type GruposResposta,
   type LancamentoVista,
   type ModoTransacao,
+  type AgendaResposta,
   type Recorrencia,
   type RegraDeVencimento,
   type Sessao,
@@ -52,6 +53,10 @@ type Rascunho = {
   recurrence: Recorrencia;
   recurrenceInterval: string;
   accountId: string;
+  /** "Já entra em": o outro lançamento que já conta este valor na sobra. Vazio: este valor entra na sobra. */
+  coveredById: string;
+  /** O compromisso do mês a que o lançamento está ligado. */
+  commitmentId: string;
   dueRule: RegraDeVencimento;
 };
 
@@ -94,6 +99,8 @@ function rascunhoDe(entry: LancamentoVista): Rascunho {
     recurrence: entry.recurrence ?? "monthly",
     recurrenceInterval: String(entry.recurrenceInterval ?? 1),
     accountId: entry.accountId ?? "",
+    coveredById: entry.coveredById ?? "",
+    commitmentId: entry.commitmentId ?? "",
     dueRule: entry.dueRule ?? REGRA_SEM_AJUSTE,
   };
 }
@@ -119,6 +126,8 @@ function rascunhoNovo(data: string): Rascunho {
     recurrence: "monthly",
     recurrenceInterval: "1",
     accountId: "",
+    coveredById: "",
+    commitmentId: "",
     dueRule: REGRA_SEM_AJUSTE,
   };
 }
@@ -145,6 +154,7 @@ export function FormLancamento({
   const [draft, setDraft] = useState<Rascunho>(() => rascunhoNovo(dataInicial ?? hojeIso()));
   const [sessoes, setSessoes] = useState<SessaoComGrupo[]>([]);
   const [contas, setContas] = useState<ContasResposta["accounts"]>([]);
+  const [compromissos, setCompromissos] = useState<AgendaResposta["appointments"]>([]);
   const [regraManual, setRegraManual] = useState(false);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -177,6 +187,24 @@ export function FormLancamento({
       vivo = false;
     };
   }, [aberta, entry, editando, dataInicial]);
+
+  // Os compromissos do mês do lançamento, para ligar o lançamento a um deles (só na edição, como no web).
+  useEffect(() => {
+    if (!aberta || !entry) return;
+    const [ano, mes] = entry.date.split("-").map(Number) as [number, number];
+    let vivo = true;
+    void ler<AgendaResposta>(`/api/agenda?year=${ano}&month=${mes}`)
+      .then((agenda) => vivo && setCompromissos(agenda.appointments))
+      .catch(() => vivo && setCompromissos([]));
+    return () => {
+      vivo = false;
+    };
+  }, [aberta, entry]);
+
+  // Os lançamentos que podem conter este: não ele mesmo e nenhum que já esteja dentro de outro (a não ser o escolhido).
+  const destinosDaCobertura = (vista?.entries ?? [])
+    .filter((item) => item.id !== entry?.id && (!item.coveredById || item.id === draft.coveredById))
+    .map((item) => ({ id: item.id, texto: item.name || item.description || "Lançamento" }));
 
   const sessao = sessoes.find((item) => item.id === draft.sessionId);
   const regra = vista?.rules[draft.category] ?? null;
@@ -231,6 +259,7 @@ export function FormLancamento({
           recurrence: draft.recurrence,
           recurrenceInterval: numero(draft.recurrenceInterval),
           accountId: draft.accountId || null,
+          coveredById: draft.coveredById || null,
           transfer: entry?.transfer ?? false,
           // Sem escolha da pessoa, vai null e o backend aplica o padrão das configurações.
           dueRule: comRegra ? { ...draft.dueRule, ordem: draft.dueRule.tipo === "dia_util" ? (draft.dueRule.ordem ?? 5) : null } : null,
@@ -240,6 +269,10 @@ export function FormLancamento({
       // O status mudado na edição tem rota própria, como no web.
       if (editando && entry && draft.status !== entry.status && !entry.actions.series) {
         await enviar(`/api/lancamentos/${id}/status`, { status: draft.status }, "PATCH");
+      }
+      // O compromisso ligado tem rota própria, como no web.
+      if (editando && entry && draft.commitmentId && draft.commitmentId !== (entry.commitmentId ?? "")) {
+        await enviar(`/api/lancamentos/${id}/compromisso`, { commitmentId: draft.commitmentId });
       }
       toque();
       aoSalvo();
@@ -371,6 +404,25 @@ export function FormLancamento({
 
       {contas.length > 0 ? (
         <Selecao rotulo="Conta" valor={draft.accountId} vazio="Sem conta (só conta na sobra)" opcoes={contas.map((conta) => ({ id: conta.id, texto: conta.name }))} aoMudar={(valor) => mudar("accountId", valor)} />
+      ) : null}
+
+      <Selecao
+        rotulo="Já entra em"
+        valor={draft.coveredById}
+        vazio="Este valor entra na sobra"
+        opcoes={destinosDaCobertura}
+        aoMudar={(valor) => mudar("coveredById", valor)}
+      />
+      <span className="fraco">Se este valor já faz parte de outro lançamento, ele não entra de novo na sobra: o outro é que conta.</span>
+
+      {editando ? (
+        <Selecao
+          rotulo="Compromisso"
+          valor={draft.commitmentId}
+          vazio="Sem compromisso ligado"
+          opcoes={compromissos.map((item) => ({ id: item.id, texto: `${item.day} · ${item.title}` }))}
+          aoMudar={(valor) => mudar("commitmentId", valor)}
+        />
       ) : null}
 
       <AreaDeTexto rotulo="Descrição" value={draft.description} onMudar={(valor) => mudar("description", valor)} linhas={2} maxLength={160} />
