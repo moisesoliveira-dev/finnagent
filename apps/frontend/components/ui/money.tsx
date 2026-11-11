@@ -1,4 +1,5 @@
 import { cn } from "./cn";
+import { MASCARA_DO_VALOR, valoresOcultos } from "./valores";
 
 const formatoDeReais = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -7,6 +8,7 @@ const formatoDeReais = new Intl.NumberFormat("pt-BR", {
 
 /** Valor em reais como texto, para rótulo e frase. Na tela, use `Money`. */
 export function formatarReais(cents: number) {
+  if (valoresOcultos()) return MASCARA_DO_VALOR;
   return formatoDeReais.format(cents / 100);
 }
 

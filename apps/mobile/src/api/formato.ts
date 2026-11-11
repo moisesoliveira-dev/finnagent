@@ -1,9 +1,10 @@
 import { lerReais } from "@finnagent/contracts";
+import { MASCARA_DO_VALOR, valoresOcultos } from "../valores";
 
 const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 /** Centavos em reais. Sinal e cor ficam com quem chama. */
-export const reais = (cents: number) => MOEDA.format(cents / 100);
+export const reais = (cents: number) => (valoresOcultos() ? MASCARA_DO_VALOR : MOEDA.format(cents / 100));
 
 export const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 export const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];

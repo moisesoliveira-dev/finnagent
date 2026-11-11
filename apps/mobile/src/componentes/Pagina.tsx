@@ -12,10 +12,11 @@ import {
   IonToolbar,
   type RefresherEventDetail,
 } from "@ionic/react";
-import { addOutline, notificationsOutline, personCircleOutline } from "ionicons/icons";
+import { addOutline, eyeOffOutline, eyeOutline, notificationsOutline, personCircleOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { toque } from "../haptico";
+import { definirValoresOcultos, useValoresOcultos } from "../valores";
 import { Simbolo } from "./Simbolo";
 import { curvaCheia, mola, toqueDoDedo } from "../movimento";
 import { useNaoLidas } from "../notificacoes/contagem";
@@ -77,6 +78,9 @@ export function Pagina({
   semSino?: boolean;
   rodape?: ReactNode;
 }) {
+  // Ao ocultar ou mostrar os valores o conteúdo é desenhado de novo: nenhum texto com valor fica para trás.
+  const escondidos = useValoresOcultos();
+
   async function atualizar(evento: CustomEvent<RefresherEventDetail>) {
     toque();
     try {
@@ -95,6 +99,16 @@ export function Pagina({
           </span>
           <IonButtons slot="end">
             {fim}
+            <IonButton
+              aria-label={escondidos ? "Mostrar os valores" : "Ocultar os valores"}
+              aria-pressed={escondidos}
+              onClick={() => {
+                toque();
+                definirValoresOcultos(!escondidos);
+              }}
+            >
+              <IonIcon slot="icon-only" icon={escondidos ? eyeOffOutline : eyeOutline} />
+            </IonButton>
             {semSino ? null : <Sino />}
             {semPerfil ? null : (
               <motion.span style={{ display: "inline-flex" }} whileTap={toqueDoDedo}>
@@ -116,7 +130,7 @@ export function Pagina({
           {etiqueta ? <span className="etiqueta">{etiqueta}</span> : null}
           <h1 className="titulo">{titulo}</h1>
         </motion.div>
-        {children}
+        <Fragment key={escondidos ? "valores-ocultos" : "valores-visiveis"}>{children}</Fragment>
         {acao ? <div className="espaco-da-acao" aria-hidden="true" /> : null}
         {acao ? (
           <IonFab slot="fixed" vertical="bottom" horizontal="end">

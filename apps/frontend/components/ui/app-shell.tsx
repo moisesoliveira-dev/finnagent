@@ -10,6 +10,7 @@ import { SessaoExpirada } from "../auth/sessao-expirada";
 import { BotaoDaCalculadora, CalculadoraProvider, JanelaDaCalculadora, useCalculadora } from "../calculadora/calculadora";
 import { SinoDoMenu } from "../notificacoes/central";
 import { BotaoDoTema } from "./botao-do-tema";
+import { BotaoDosValores, useValoresOcultos } from "./valores";
 import { cn, focusRing } from "./cn";
 import { Icone } from "./icone";
 import { LogoDoPrumo } from "./logo";
@@ -262,6 +263,8 @@ function FolhaDoMais({ aberta, pathname, aoFechar }: { aberta: boolean; pathname
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const recolhido = useMenuRecolhido();
+  // Ao ocultar ou mostrar os valores a tela é desenhada de novo: nenhum texto com valor fica para trás.
+  const escondidos = useValoresOcultos();
   // O "Mais" do celular: abre pela barra de baixo e fecha ao escolher uma aba, ao tocar fora ou no Escape.
   const [gaveta, setGaveta] = useState(false);
 
@@ -305,6 +308,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 border-b border-line bg-bg px-2 py-2 tab:hidden">
         <Logo />
         <span className="flex-1" />
+        <BotaoDosValores />
         <BotaoDoTema />
         <SinoDoMenu />
         <MenuDaConta />
@@ -342,11 +346,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SessaoExpirada />
       {/* Tablet e desktop: o canto de cima à direita com tema, avisos e a conta. */}
       <div className="hidden items-center justify-end gap-1 px-8 pt-6 tab:flex">
+        <BotaoDosValores />
         <BotaoDoTema />
         <SinoDoMenu />
         <MenuDaConta />
       </div>
-      <main className="min-w-0 px-4 pt-6 pb-[calc(var(--barra-inferior)+1.5rem)] tab:px-8 tab:pt-4 tab:pb-12">
+      <main key={escondidos ? "valores-ocultos" : "valores-visiveis"} className="min-w-0 px-4 pt-6 pb-[calc(var(--barra-inferior)+1.5rem)] tab:px-8 tab:pt-4 tab:pb-12">
         {children}
       </main>
       <BotaoDaCalculadora />
