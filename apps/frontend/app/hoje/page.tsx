@@ -24,6 +24,7 @@ import { formatarReais, Money } from "../../components/ui/money";
 import { ItemAnimado, ListaAnimada, Troca } from "../../components/ui/movimento";
 import { PageHeader } from "../../components/ui/page-header";
 import { useToast } from "../../components/ui/toast";
+import { useApagarComDesfazer } from "../../components/ui/use-apagar-com-desfazer";
 import { CampoValor } from "../financas/campo-valor";
 import { reaisParaCentavos } from "../financas/reais";
 import { ROTULO_CATEGORIA } from "../financas/rotulos";
@@ -128,6 +129,8 @@ export default function Hoje() {
     };
   }, [dia, carregar]);
 
+  const { ocultos, apagar: apagarComDesfazer } = useApagarComDesfazer(() => carregar(dia));
+
   async function agir(chave: string, acao: () => Promise<unknown>, erro: string) {
     if (ocupado) return false;
     setOcupado(chave);
@@ -196,8 +199,13 @@ export default function Hoje() {
   const tarefa = (item: Tarefa, done: boolean) =>
     agir(item.id, () => api(`/api/tarefas/${item.id}/concluir`, { method: "PATCH", body: JSON.stringify({ done }) }), "Não foi possível marcar a tarefa.");
 
+  // Apagar some da lista na hora, com "Desfazer": o servidor só é chamado quando o prazo acaba.
   const apagarTarefa = (item: Tarefa) =>
-    agir(`apagar-${item.id}`, () => api(`/api/tarefas/${item.id}`, { method: "DELETE" }), "Não foi possível apagar a tarefa.");
+    apagarComDesfazer(
+      item.id,
+      (dados?.tarefas ?? []).some((outra) => outra.parentId === item.id) ? "Tarefa e subatividades apagadas." : "Tarefa apagada.",
+      () => api(`/api/tarefas/${item.id}`, { method: "DELETE" }),
+    );
 
   const salvarTarefa = async (item: Tarefa, title: string, date: string, repeat: RepeticaoDeTarefa | null) => {
     const feito = await agir(
@@ -287,7 +295,10 @@ export default function Hoje() {
       "Não foi possível marcar o pagamento.",
     );
 
-  const tarefas = dados?.tarefas ?? [];
+  // As tarefas que a pessoa acabou de apagar (e as subatividades delas) saem da lista enquanto o "Desfazer" vale.
+  const todasAsTarefas = dados?.tarefas ?? [];
+  const escondidas = new Set(ocultos.flatMap((id) => [id, ...descendentes(todasAsTarefas, id)]));
+  const tarefas = todasAsTarefas.filter((item) => !escondidas.has(item.id));
   const filhasDe = (id: string | null) => tarefas.filter((item) => item.parentId === id);
   // As tarefas soltas; o checklist de cada compromisso fica embaixo dele.
   const raizes = filhasDe(null).filter((item) => !item.appointmentId);

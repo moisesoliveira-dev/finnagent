@@ -4,7 +4,7 @@ import {  } from "ionicons/icons";
 import { useEffect, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, dataCurta, hojeIso, MESES, paraCampo, reais, type Mes } from "../../api/formato";
-import { Campo, CampoDeValor } from "../../componentes/Campo";
+import { CampoDeValor } from "../../componentes/Campo";
 import { Data } from "../../componentes/Data";
 import { Dinheiro } from "../../componentes/Estado";
 import { Folha } from "../../componentes/Folha";

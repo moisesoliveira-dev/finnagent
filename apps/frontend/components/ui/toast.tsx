@@ -11,12 +11,16 @@ type Aviso = {
   id: number;
   tom: Tom;
   texto: string;
+  /** Um botão no aviso, como "Desfazer". */
+  acao?: { rotulo: string; aoTocar: () => void };
 };
 
 type ToastApi = {
   sucesso: (texto: string) => void;
   erro: (texto: string) => void;
   alerta: (texto: string) => void;
+  /** Avisa com o botão "Desfazer", que fica na tela um pouco mais. */
+  desfazer: (texto: string, aoDesfazer: () => void) => void;
 };
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -28,6 +32,7 @@ const rotulo: Record<Tom, string> = {
 };
 
 const duracao = 5000;
+const duracaoDoDesfazer = 6000;
 
 export function useToast() {
   const api = useContext(ToastContext);
@@ -50,14 +55,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const publicar = useCallback(
-    (tom: Tom, texto: string) => {
+    (tom: Tom, texto: string, acao?: Aviso["acao"]) => {
       const mensagem = texto.trim();
       if (!mensagem) return;
       const id = ++sequencia.current;
-      setAvisos((atual) => [...atual, { id, tom, texto: mensagem }].slice(-4));
+      setAvisos((atual) => [...atual, { id, tom, texto: mensagem, acao }].slice(-4));
       temporizadores.current.set(
         id,
-        window.setTimeout(() => fechar(id), duracao),
+        window.setTimeout(() => fechar(id), acao ? duracaoDoDesfazer : duracao),
       );
     },
     [fechar],
@@ -68,6 +73,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       sucesso: (texto) => publicar("sucesso", texto),
       erro: (texto) => publicar("erro", texto),
       alerta: (texto) => publicar("alerta", texto),
+      desfazer: (texto, aoDesfazer) => publicar("alerta", texto, { rotulo: "Desfazer", aoTocar: aoDesfazer }),
     }),
     [publicar],
   );
@@ -131,6 +137,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               </span>
               <span className="mt-1 block">{aviso.texto}</span>
             </p>
+            {aviso.acao ? (
+              <button
+                type="button"
+                className={cn("etiqueta inline-flex min-h-10 shrink-0 items-center justify-center px-3 text-brand", focusRing)}
+                onClick={() => {
+                  aviso.acao?.aoTocar();
+                  fechar(aviso.id);
+                }}
+              >
+                {aviso.acao.rotulo}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label="Fechar"
