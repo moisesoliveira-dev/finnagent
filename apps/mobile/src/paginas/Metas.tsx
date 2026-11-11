@@ -1,11 +1,11 @@
 import { IonButton, IonIcon, IonToggle, useIonViewWillEnter } from "@ionic/react";
 import type { Caixinha, ContasResposta, Meta, MetasResposta } from "@finnagent/contracts";
-import { arrowDown, arrowUp, cashOutline, flagOutline, pricetagOutline } from "ionicons/icons";
+import { arrowDown, arrowUp, flagOutline, pricetagOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
 import { centavosDe, MESES, MESES_CURTOS, paraCampo, reais } from "../api/formato";
-import { Campo } from "../componentes/Campo";
+import { Campo, CampoDeValor } from "../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
@@ -239,12 +239,26 @@ export function Metas() {
         </Cascata>
       ) : null}
 
-      <Folha aberta={nova !== null} titulo="Nova meta" aoFechar={() => setNova(null)}>
+      <Folha
+        aberta={nova !== null}
+        titulo="Nova meta"
+        aoFechar={() => setNova(null)}
+        rodape={
+          nova ? (
+            <>
+              {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
+              <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void criar()}>
+                Criar meta
+              </IonButton>
+            </>
+          ) : undefined
+        }
+      >
         {nova ? (
           <>
             <Campo icone={pricetagOutline} rotulo="Nome" value={nova.name} onMudar={(name) => setNova({ ...nova, name })} placeholder="Viagem, reserva, carro" maxLength={80} />
-            <Campo icone={cashOutline} rotulo="Quanto quer juntar" value={nova.target} onMudar={(target) => setNova({ ...nova, target })} inputMode="decimal" placeholder="0,00" />
-            <Campo icone={cashOutline} rotulo="Quanto já tem" value={nova.saved} onMudar={(saved) => setNova({ ...nova, saved })} inputMode="decimal" placeholder="0,00" />
+            <CampoDeValor rotulo="Quanto quer juntar" value={nova.target} onMudar={(target) => setNova({ ...nova, target })} />
+            <CampoDeValor rotulo="Quanto já tem" value={nova.saved} onMudar={(saved) => setNova({ ...nova, saved })} />
             <IonToggle checked={nova.comPrazo} onIonChange={(evento) => setNova({ ...nova, comPrazo: evento.detail.checked })} labelPlacement="start" justify="space-between">
               Com prazo
             </IonToggle>
@@ -254,10 +268,6 @@ export function Metas() {
                 <Campo icone={flagOutline} rotulo="Ano" value={nova.dueYear} onMudar={(dueYear) => setNova({ ...nova, dueYear })} inputMode="numeric" maxLength={4} />
               </div>
             ) : null}
-            {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
-            <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void criar()}>
-              Criar meta
-            </IonButton>
           </>
         ) : null}
       </Folha>
@@ -266,7 +276,7 @@ export function Metas() {
         {separando ? (
           <>
             <p className="fraco">O valor sai da sobra deste mês e vai para a sessão da meta{separando.meta.box ? ` e para a caixinha ${separando.meta.box.name}` : ""}.</p>
-            <Campo icone={cashOutline} rotulo="Valor" value={separando.valor} onMudar={(valor) => setSeparando({ ...separando, valor })} inputMode="decimal" placeholder="0,00" />
+            <CampoDeValor rotulo="Valor" value={separando.valor} onMudar={(valor) => setSeparando({ ...separando, valor })} />
             <IonButton
               expand="block"
               className="principal"

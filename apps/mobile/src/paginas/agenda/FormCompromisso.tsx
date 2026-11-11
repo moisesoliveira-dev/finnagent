@@ -8,11 +8,12 @@ import {
   type Compromisso,
   type NomeAgenda,
 } from "@finnagent/contracts";
-import { calendarOutline, locationOutline, pricetagOutline } from "ionicons/icons";
+import { locationOutline, pricetagOutline } from "ionicons/icons";
 import { useEffect, useState } from "react";
 import { enviar } from "../../api/cliente";
 import { ehDataIso } from "../../api/formato";
 import { AreaDeTexto, Campo } from "../../componentes/Campo";
+import { Data } from "../../componentes/Data";
 import { Folha } from "../../componentes/Folha";
 import { Hora } from "../../componentes/Hora";
 import { Fichas, Selecao } from "../../componentes/Selecao";
@@ -194,9 +195,21 @@ export function FormCompromisso({
   if (draft.entryId && !opcoesDeLancamento.some((item) => item.id === draft.entryId)) opcoesDeLancamento.unshift({ id: draft.entryId, texto: "O lançamento ligado" });
 
   return (
-    <Folha aberta={aberta} titulo={compromisso ? "Editar compromisso" : "Novo compromisso"} aoFechar={aoFechar}>
+    <Folha
+      aberta={aberta}
+      titulo={compromisso ? "Editar compromisso" : "Novo compromisso"}
+      aoFechar={aoFechar}
+      rodape={
+        <>
+          {erro ? <p className="erro">{erro}</p> : null}
+          <IonButton expand="block" className="principal" disabled={salvando} onClick={() => void salvar()}>
+            {salvando ? "Salvando" : compromisso ? "Salvar" : "Marcar"}
+          </IonButton>
+        </>
+      }
+    >
       <Campo icone={pricetagOutline} rotulo="Título" value={draft.title} onMudar={(valor) => mudar("title", valor)} placeholder="Consulta, reunião, aniversário" maxLength={80} />
-      <Campo icone={calendarOutline} rotulo="Dia" type="date" value={draft.date} onMudar={(valor) => mudar("date", valor)} />
+      <Data rotulo="Dia" valor={draft.date} aoMudar={(valor) => mudar("date", valor)} />
 
       <IonToggle checked={draft.allDay} onIonChange={(evento) => mudar("allDay", evento.detail.checked)} labelPlacement="start" justify="space-between">
         Dia todo
@@ -220,7 +233,7 @@ export function FormCompromisso({
         opcoes={CATEGORIAS_COMPROMISSO.map((item) => ({ id: item, texto: ROTULO_DA_REPETICAO[item] }))}
         aoMudar={(valor) => mudar("category", valor as CategoriaCompromisso)}
       />
-      {draft.category === "time" ? <Campo icone={calendarOutline} rotulo="Até" type="date" value={draft.endDate} onMudar={(valor) => mudar("endDate", valor)} /> : null}
+      {draft.category === "time" ? <Data rotulo="Até" valor={draft.endDate} aoMudar={(valor) => mudar("endDate", valor)} /> : null}
 
       <div className="campo">
         <span className="etiqueta">Agenda</span>
@@ -241,10 +254,6 @@ export function FormCompromisso({
       {compromisso ? null : <ChecklistDoRascunho itens={checklist} repete={draft.category !== "fixed"} aoMudar={setChecklist} />}
 
       <AreaDeTexto rotulo="Descrição" value={draft.description} onMudar={(valor) => mudar("description", valor)} linhas={2} maxLength={160} />
-      {erro ? <p className="erro">{erro}</p> : null}
-      <IonButton expand="block" className="principal" disabled={salvando} onClick={() => void salvar()}>
-        {salvando ? "Salvando" : compromisso ? "Salvar" : "Marcar"}
-      </IonButton>
     </Folha>
   );
 }

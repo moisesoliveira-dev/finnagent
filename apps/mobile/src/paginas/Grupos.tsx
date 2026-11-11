@@ -1,10 +1,10 @@
 import { IonButton, IonCheckbox, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import { ROTULO_DO_TIPO_DE_SESSAO, TIPOS_SESSAO, type Grupo, type GruposResposta, type Sessao, type TipoSessao, type ViradaResposta } from "@finnagent/contracts";
-import { arrowBack, cashOutline, folderOpenOutline, pricetagOutline } from "ionicons/icons";
+import { arrowBack, folderOpenOutline, pricetagOutline } from "ionicons/icons";
 import { useEffect, useRef, useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
 import { centavosDe, paraCampo, reais } from "../api/formato";
-import { AreaDeTexto, Campo } from "../componentes/Campo";
+import { AreaDeTexto, Campo, CampoDeValor } from "../componentes/Campo";
 import { Estado, Vazio } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
 import { ItemOrdenavel, ListaOrdenavel } from "../componentes/Ordenavel";
@@ -272,15 +272,25 @@ export function Grupos() {
         ) : null}
       </div>
 
-      <Folha aberta={grupo !== null} titulo={grupo?.id ? "Editar grupo" : "Novo grupo"} aoFechar={() => (setGrupo(null), setErroDaFolha(""))}>
+      <Folha
+        aberta={grupo !== null}
+        titulo={grupo?.id ? "Editar grupo" : "Novo grupo"}
+        aoFechar={() => (setGrupo(null), setErroDaFolha(""))}
+        rodape={
+          grupo ? (
+            <>
+              {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
+              <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvarGrupo()}>
+                {grupo.id ? "Salvar" : "Criar grupo"}
+              </IonButton>
+            </>
+          ) : undefined
+        }
+      >
         {grupo ? (
           <>
             <Campo icone={folderOpenOutline} rotulo="Nome" value={grupo.name} onMudar={(name) => setGrupo({ ...grupo, name })} placeholder="Casa, Renda, Lazer" maxLength={80} />
             <AreaDeTexto rotulo="Descrição" value={grupo.description} onMudar={(description) => setGrupo({ ...grupo, description })} linhas={2} maxLength={160} />
-            {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
-            <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvarGrupo()}>
-              {grupo.id ? "Salvar" : "Criar grupo"}
-            </IonButton>
             {grupo.id ? (
               <IonButton expand="block" fill="clear" color="danger" disabled={Boolean(ocupado)} onClick={() => apagarGrupo(grupo)}>
                 Excluir o grupo
@@ -290,7 +300,21 @@ export function Grupos() {
         ) : null}
       </Folha>
 
-      <Folha aberta={sessao !== null} titulo={sessao?.id ? "Editar sessão" : "Nova sessão"} aoFechar={() => (setSessao(null), setErroDaFolha(""))}>
+      <Folha
+        aberta={sessao !== null}
+        titulo={sessao?.id ? "Editar sessão" : "Nova sessão"}
+        aoFechar={() => (setSessao(null), setErroDaFolha(""))}
+        rodape={
+          sessao ? (
+            <>
+              {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
+              <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvarSessao()}>
+                {sessao.id ? "Salvar" : "Criar sessão"}
+              </IonButton>
+            </>
+          ) : undefined
+        }
+      >
         {sessao ? (
           <>
             <Campo icone={pricetagOutline} rotulo="Nome" value={sessao.name} onMudar={(name) => setSessao({ ...sessao, name })} placeholder="Salário, Mercado, Aluguel" maxLength={80} />
@@ -301,14 +325,10 @@ export function Grupos() {
               <span className="fraco">{sessao.kind === "valor" ? "Fixo guarda uma transação por mês." : "Acúmulo junta várias transações no mês."}</span>
             </div>
             {sessao.kind === "acumulo" ? (
-              <Campo icone={cashOutline} rotulo="Limite de saídas por mês (opcional)" value={sessao.limit} onMudar={(limit) => setSessao({ ...sessao, limit })} inputMode="decimal" placeholder="Sem limite" />
+              <CampoDeValor rotulo="Limite de saídas por mês (opcional)" value={sessao.limit} onMudar={(limit) => setSessao({ ...sessao, limit })} placeholder="Sem limite" />
             ) : null}
             <AreaDeTexto rotulo="Descrição" value={sessao.description} onMudar={(description) => setSessao({ ...sessao, description })} linhas={2} maxLength={160} />
             <AreaDeTexto rotulo="Por que existe" value={sessao.justification} onMudar={(justification) => setSessao({ ...sessao, justification })} linhas={2} maxLength={160} />
-            {erroDaFolha ? <p className="erro">{erroDaFolha}</p> : null}
-            <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvarSessao()}>
-              {sessao.id ? "Salvar" : "Criar sessão"}
-            </IonButton>
             {sessao.id ? (
               <IonButton expand="block" fill="clear" color="danger" disabled={Boolean(ocupado)} onClick={() => apagarSessao(sessao)}>
                 Excluir a sessão

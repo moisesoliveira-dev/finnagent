@@ -8,11 +8,12 @@ import {
   type Meta,
   type MovimentoDaCaixinha,
 } from "@finnagent/contracts";
-import { calendarOutline, cardOutline, cashOutline, documentTextOutline, walletOutline } from "ionicons/icons";
+import { cardOutline, documentTextOutline, walletOutline } from "ionicons/icons";
 import { useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, ehDataIso, hojeIso, MESES, paraCampo, reais } from "../../api/formato";
-import { Campo } from "../../componentes/Campo";
+import { Campo, CampoDeValor } from "../../componentes/Campo";
+import { Data } from "../../componentes/Data";
 import { Folha } from "../../componentes/Folha";
 import { Fichas, Selecao } from "../../componentes/Selecao";
 import { useAcao } from "../../useAcao";
@@ -111,13 +112,13 @@ function Conferir({ conta, saldoHoje, aoPronto }: { conta: Conta; saldoHoje: num
           ? "Diga a fatura em aberto que o app do cartão mostra, sem sinal. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."
           : "Diga quanto a conta mostra no banco. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."}
       </p>
-      <Campo icone={cashOutline} rotulo={cartao ? "Fatura em aberto" : "Saldo no banco"} value={saldo} onMudar={setSaldo} inputMode="decimal" />
+      <CampoDeValor rotulo={cartao ? "Fatura em aberto" : "Saldo no banco"} value={saldo} onMudar={setSaldo} />
       {cartao ? null : (
         <IonToggle checked={negativo} onIonChange={(evento) => setNegativo(evento.detail.checked)} labelPlacement="start" justify="space-between">
           Saldo negativo
         </IonToggle>
       )}
-      <Campo icone={calendarOutline} rotulo="Data" type="date" value={date} onMudar={setDate} />
+      <Data rotulo="Data" valor={date} aoMudar={setDate} />
       <IonToggle checked={foraDaSobra} onIonChange={(evento) => setForaDaSobra(evento.detail.checked)} labelPlacement="start" justify="space-between">
         Não contar na sobra do mês
       </IonToggle>
@@ -173,8 +174,8 @@ function Transferir({ conta, contas, aoPronto }: { conta: Conta; contas: Conta[]
         />
       </div>
       <Selecao rotulo={sentido === "sai" ? "Para" : "De"} valor={outra} opcoes={outras.map((item) => ({ id: item.id, texto: item.name }))} aoMudar={setOutra} />
-      <Campo icone={cashOutline} rotulo="Valor" value={valor} onMudar={setValor} inputMode="decimal" placeholder="0,00" />
-      <Campo icone={calendarOutline} rotulo="Data" type="date" value={date} onMudar={setDate} />
+      <CampoDeValor rotulo="Valor" value={valor} onMudar={setValor} />
+      <Data rotulo="Data" valor={date} aoMudar={setDate} />
       <Campo icone={documentTextOutline} rotulo="Observação (opcional)" value={note} onMudar={setNote} maxLength={160} />
       {erro ? <p className="erro">{erro}</p> : null}
       <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvar()}>
@@ -210,8 +211,8 @@ function PagarFatura({ cartao, fatura, contas, aoPronto }: { cartao: Conta; fatu
         {fatura.paidCents > 0 ? `, já pago ${reais(fatura.paidCents)}` : ""}.
       </p>
       <Selecao rotulo="Sai da conta" valor={origem} opcoes={origens.map((item) => ({ id: item.id, texto: item.name }))} aoMudar={setOrigem} />
-      <Campo icone={cashOutline} rotulo="Valor" value={valor} onMudar={setValor} inputMode="decimal" />
-      <Campo icone={calendarOutline} rotulo="Data" type="date" value={date} onMudar={setDate} />
+      <CampoDeValor rotulo="Valor" value={valor} onMudar={setValor} />
+      <Data rotulo="Data" valor={date} aoMudar={setDate} />
       {erro ? <p className="erro">{erro}</p> : null}
       <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void salvar()}>
         Pagar
@@ -255,7 +256,7 @@ function Editar({ conta, aoPronto, aoExcluida }: { conta: Conta; aoPronto: () =>
             <Campo icone={cardOutline} rotulo="Fecha dia" value={fecha} onMudar={setFecha} inputMode="numeric" maxLength={2} />
             <Campo icone={cardOutline} rotulo="Vence dia" value={vence} onMudar={setVence} inputMode="numeric" maxLength={2} />
           </div>
-          <Campo icone={cashOutline} rotulo="Limite" value={limite} onMudar={setLimite} inputMode="decimal" placeholder="Sem limite" />
+          <CampoDeValor rotulo="Limite" value={limite} onMudar={setLimite} placeholder="Sem limite" />
         </>
       ) : null}
       {erro ? <p className="erro">{erro}</p> : null}
@@ -323,8 +324,8 @@ function FormDaCaixinha({
     <>
       {caixinha ? null : <p className="fraco">Uma reserva dentro da {conta.name}, com o rendimento dela.</p>}
       <Campo icone={walletOutline} rotulo="Nome" value={name} onMudar={setName} placeholder="Reserva, viagem" maxLength={60} />
-      <Campo icone={cashOutline} rotulo="Saldo inicial" value={inicial} onMudar={setInicial} inputMode="decimal" placeholder="0,00" />
-      <Campo icone={calendarOutline} rotulo="Saldo em" type="date" value={openingOn} onMudar={setOpeningOn} />
+      <CampoDeValor rotulo="Saldo inicial" value={inicial} onMudar={setInicial} />
+      <Data rotulo="Saldo em" valor={openingOn} aoMudar={setOpeningOn} limpavel />
       <p className="fraco">Só o que acontece a partir desse dia conta no saldo da caixinha. Vazio: tudo conta.</p>
       <Selecao rotulo="Meta" valor={goalId} vazio="Sem meta" opcoes={livres.map((meta) => ({ id: meta.id, texto: meta.name }))} aoMudar={setGoalId} />
       <p className="fraco">Com meta, o saldo da caixinha soma no guardado da meta, e o que a meta separa vira aplicação aqui.</p>
@@ -389,13 +390,13 @@ function FolhaDaCaixinha({
       <section className="secao">
         <h2 className="etiqueta">Movimento</h2>
         <Fichas rotulo="Movimento" valor={tipo} opcoes={MOVIMENTOS_DA_CAIXINHA.map((item) => ({ id: item, texto: ROTULO_DO_MOVIMENTO_DA_CAIXINHA[item] }))} aoMudar={setTipo} />
-        <Campo icone={cashOutline} rotulo="Valor" value={valor} onMudar={setValor} inputMode="decimal" placeholder="0,00" />
+        <CampoDeValor rotulo="Valor" value={valor} onMudar={setValor} />
         {tipo === "rendimento" ? (
           <IonToggle checked={perda} onIonChange={(evento) => setPerda(evento.detail.checked)} labelPlacement="start" justify="space-between">
             Foi perda
           </IonToggle>
         ) : null}
-        <Campo icone={calendarOutline} rotulo="Data" type="date" value={date} onMudar={setDate} />
+        <Data rotulo="Data" valor={date} aoMudar={setDate} />
         <IonButton expand="block" className="principal" disabled={Boolean(ocupado)} onClick={() => void movimentar()}>
           Registrar
         </IonButton>
@@ -403,7 +404,7 @@ function FolhaDaCaixinha({
       <section className="secao">
         <h2 className="etiqueta">Conferir o saldo</h2>
         <p className="fraco">Quanto a caixinha mostra hoje no banco: a diferença vira rendimento ou perda.</p>
-        <Campo icone={cashOutline} rotulo="Saldo hoje" value={saldo} onMudar={setSaldo} inputMode="decimal" placeholder="0,00" />
+        <CampoDeValor rotulo="Saldo hoje" value={saldo} onMudar={setSaldo} />
         <IonButton expand="block" fill="outline" disabled={Boolean(ocupado)} onClick={() => void conferirSaldo()}>
           Conferir
         </IonButton>

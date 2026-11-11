@@ -5,24 +5,7 @@ const formato = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 2,
 });
 
-export function mascaraDeValor(digitos: string) {
-  const so = digitos.replace(/\D/g, "");
-  if (!so) return "";
-  const limpo = so.replace(/^0+/, "");
-  if (!limpo) return formato.format(0);
-  const corte = limpo.length > 10 ? limpo.slice(0, 10) : limpo;
-  if (Number(corte) > 2_147_483_647) return mascaraDeValor(corte.slice(0, -1));
-  return formato.format(Number(corte) / 100);
-}
-
-export function proximaMascara(anterior: string, texto: string) {
-  const velhos = anterior.replace(/\D/g, "");
-  const novos = texto.replace(/\D/g, "");
-  const significativos = velhos.replace(/^0+/, "");
-  if (novos.length < velhos.length) return mascaraDeValor(significativos.slice(0, -1));
-  if (novos.length > velhos.length) return mascaraDeValor(significativos + novos.slice(velhos.length));
-  return mascaraDeValor(novos);
-}
+export { mascaraDeValor, proximaMascara } from "@finnagent/contracts";
 
 /** O valor digitado em centavos; zero, vazio e o que não é valor são null ("Informe o valor"). A leitura é a do contrato. */
 export function reaisParaCentavos(texto: string) {

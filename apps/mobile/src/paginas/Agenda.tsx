@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { enviar, pedir } from "../api/cliente";
 import { dataCurta, diaDaSemana, ehDataIso, hojeIso, rotuloDoMes } from "../api/formato";
 import { Campo } from "../componentes/Campo";
+import { Data } from "../componentes/Data";
 import { Folha } from "../componentes/Folha";
 import { toque } from "../haptico";
 import { useAcao } from "../useAcao";
@@ -181,7 +182,7 @@ export function Agenda() {
             </div>
             <section className="secao">
               <h2 className="etiqueta">Mudar o dia</h2>
-              <Campo icone={calendarOutline} rotulo="Novo dia" type="date" value={novoDia} onMudar={setNovoDia} />
+              <Data rotulo="Novo dia" valor={novoDia} aoMudar={setNovoDia} />
               <IonButton
                 fill="outline"
                 disabled={Boolean(ocupado) || !ehDataIso(novoDia)}

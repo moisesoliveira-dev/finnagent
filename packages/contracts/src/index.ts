@@ -349,6 +349,29 @@ export function lerReais(texto: string): number | null {
   return negativo && centavos ? -centavos : centavos;
 }
 
+const VALOR_COM_CENTAVOS = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Os dígitos digitados como valor em reais, com os centavos entrando pela direita: "123456" vira "1.234,56". */
+export function mascaraDeValor(digitos: string): string {
+  const so = digitos.replace(/\D/g, "");
+  if (!so) return "";
+  const limpo = so.replace(/^0+/, "");
+  if (!limpo) return VALOR_COM_CENTAVOS.format(0);
+  const corte = limpo.length > 10 ? limpo.slice(0, 10) : limpo;
+  if (Number(corte) > 2_147_483_647) return mascaraDeValor(corte.slice(0, -1));
+  return VALOR_COM_CENTAVOS.format(Number(corte) / 100);
+}
+
+/** O campo de valor depois de uma digitação: `anterior` é o que ele mostrava e `texto` o que ficou depois do toque. */
+export function proximaMascara(anterior: string, texto: string): string {
+  const velhos = anterior.replace(/\D/g, "");
+  const novos = texto.replace(/\D/g, "");
+  const significativos = velhos.replace(/^0+/, "");
+  if (novos.length < velhos.length) return mascaraDeValor(significativos.slice(0, -1));
+  if (novos.length > velhos.length) return mascaraDeValor(significativos + novos.slice(velhos.length));
+  return mascaraDeValor(novos);
+}
+
 export function centavosComSinal(cents: number, mode: ModoTransacao) {
   const absoluto = Math.abs(cents);
   return mode === "outflows" ? -absoluto : absoluto;

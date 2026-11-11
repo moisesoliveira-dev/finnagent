@@ -42,6 +42,7 @@ import { enviar, ler, pedir } from "../api/cliente";
 import { sessaoAtual } from "../api/sessao";
 import { MESES } from "../api/formato";
 import { Campo, CampoDeSenha } from "../componentes/Campo";
+import { Data } from "../componentes/Data";
 import { Estado } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
@@ -168,7 +169,7 @@ export function Configuracoes() {
       <Folha aberta={secao === "financas"} titulo="Finanças e vencimentos" aoFechar={() => setSecao(null)}>
         {form ? (
           <>
-            <Campo icone={calendarOutline} rotulo="Início do workflow" type="date" value={form.workflowDate} onMudar={(valor) => mudar("workflowDate", valor)} />
+            <Data rotulo="Início do workflow" valor={form.workflowDate} aoMudar={(valor) => mudar("workflowDate", valor)} />
             <p className="fraco">A visão geral mostra os meses a partir desta data, ano a ano. Os valores ficam em real.</p>
             <h2 className="etiqueta">Quando o vencimento cai em dia não útil</h2>
             {PADROES_DE_VENCIMENTO.map((padrao) => (

@@ -30,7 +30,7 @@ import { useMemo, useState } from "react";
 import { diaEMes } from "../../api/arquivo";
 import { enviar } from "../../api/cliente";
 import { centavosDe, reais, rotuloDoMes } from "../../api/formato";
-import { Campo } from "../../componentes/Campo";
+import { Campo, CampoDeValor } from "../../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
 import { Folha } from "../../componentes/Folha";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA } from "../financas/rotulos";
@@ -656,13 +656,10 @@ export function Conferencia() {
                     </IonButton>
                   ) : null}
                 </div>
-                <Campo
-                  icone={cashOutline}
+                <CampoDeValor
                   rotulo="Valor"
                   value={parte.valor}
                   onMudar={(valor) => setDividindo({ ...dividindo, partes: dividindo.partes.map((atual, outro) => (outro === indice ? { ...atual, valor } : atual)) })}
-                  inputMode="decimal"
-                  placeholder="0,00"
                 />
                 <Selecao
                   rotulo="Sessão"
@@ -716,7 +713,7 @@ function TipoDaLinhaCampos({
         <>
           <Campo icone={cashOutline} rotulo="De quem" value={rascunho.counterparty} onMudar={(counterparty) => aoMudar({ counterparty })} maxLength={80} />
           <div className="grade">
-            <Campo icone={cashOutline} rotulo="Total combinado" value={rascunho.principal} onMudar={(principal) => aoMudar({ principal })} inputMode="decimal" placeholder="0,00" />
+            <CampoDeValor rotulo="Total combinado" value={rascunho.principal} onMudar={(principal) => aoMudar({ principal })} />
             <Campo icone={cashOutline} rotulo="Parcelas" value={rascunho.installments} onMudar={(valor) => aoMudar({ installments: so(valor) })} inputMode="numeric" placeholder="1" />
           </div>
         </>

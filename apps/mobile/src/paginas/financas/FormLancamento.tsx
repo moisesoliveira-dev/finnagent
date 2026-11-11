@@ -21,11 +21,12 @@ import {
   type Sessao,
   type StatusTransacao,
 } from "@finnagent/contracts";
-import { calendarOutline, cashOutline, documentTextOutline, personOutline, pricetagOutline, repeatOutline, trendingUpOutline } from "ionicons/icons";
+import { calendarOutline, documentTextOutline, personOutline, pricetagOutline, repeatOutline, trendingUpOutline } from "ionicons/icons";
 import { useEffect, useMemo, useState } from "react";
 import { enviar, ler } from "../../api/cliente";
 import { centavosDe, ehDataIso, hojeIso, paraCampo } from "../../api/formato";
-import { AreaDeTexto, Campo } from "../../componentes/Campo";
+import { AreaDeTexto, Campo, CampoDeValor } from "../../componentes/Campo";
+import { Data } from "../../componentes/Data";
 import { Folha } from "../../componentes/Folha";
 import { Fichas, Selecao } from "../../componentes/Selecao";
 import { toque } from "../../haptico";
@@ -251,7 +252,19 @@ export function FormLancamento({
   }
 
   return (
-    <Folha aberta={aberta} titulo={editando ? "Editar lançamento" : "Novo lançamento"} aoFechar={aoFechar}>
+    <Folha
+      aberta={aberta}
+      titulo={editando ? "Editar lançamento" : "Novo lançamento"}
+      aoFechar={aoFechar}
+      rodape={
+        <>
+          {erro ? <p className="erro">{erro}</p> : null}
+          <IonButton expand="block" className="principal" disabled={salvando} onClick={() => void salvar()}>
+            {salvando ? "Salvando" : editando ? "Salvar" : "Lançar"}
+          </IonButton>
+        </>
+      }
+    >
       <Selecao
         rotulo="Sessão"
         valor={draft.sessionId}
@@ -263,8 +276,8 @@ export function FormLancamento({
         }}
       />
       <Campo icone={pricetagOutline} rotulo="Nome" value={draft.name} onMudar={(valor) => mudar("name", valor)} placeholder="Aluguel, salário, mercado" maxLength={160} />
-      <Campo icone={cashOutline} rotulo="Valor" value={draft.amount} onMudar={(valor) => mudar("amount", valor)} inputMode="decimal" placeholder="0,00" />
-      <Campo icone={calendarOutline} rotulo="Data" type="date" value={draft.date} onMudar={(valor) => mudar("date", valor)} />
+      <CampoDeValor rotulo="Valor" value={draft.amount} onMudar={(valor) => mudar("amount", valor)} />
+      <Data rotulo="Data" valor={draft.date} aoMudar={(valor) => mudar("date", valor)} />
 
       <div className="campo">
         <span className="etiqueta">Categoria</span>
@@ -302,9 +315,9 @@ export function FormLancamento({
       {regra?.loan ? (
         <>
           <Campo icone={personOutline} rotulo="De quem" value={draft.counterparty} onMudar={(valor) => mudar("counterparty", valor)} placeholder="Quem emprestou ou quem recebeu" maxLength={80} />
-          <Campo icone={cashOutline} rotulo="Total combinado" value={draft.principal} onMudar={(valor) => mudar("principal", valor)} inputMode="decimal" placeholder="0,00" />
+          <CampoDeValor rotulo="Total combinado" value={draft.principal} onMudar={(valor) => mudar("principal", valor)} />
           <div className="grade">
-            <Campo icone={calendarOutline} rotulo="Vence em" type="date" value={draft.dueDate} onMudar={(valor) => mudar("dueDate", valor)} />
+            <Data rotulo="Vence em" valor={draft.dueDate} aoMudar={(valor) => mudar("dueDate", valor)} />
             <Campo icone={trendingUpOutline} rotulo="Juros (%)" value={draft.interestRate} onMudar={(valor) => mudar("interestRate", valor)} inputMode="decimal" placeholder="0" />
           </div>
         </>
@@ -315,7 +328,7 @@ export function FormLancamento({
           <Selecao rotulo="Recorrência" valor={draft.recurrence} opcoes={RECORRENCIAS.map((item) => ({ id: item, texto: ROTULO_RECORRENCIA[item] }))} aoMudar={(valor) => mudar("recurrence", valor as Recorrencia)} />
           <div className="grade">
             <Campo icone={repeatOutline} rotulo="A cada" value={draft.recurrenceInterval} onMudar={(valor) => mudar("recurrenceInterval", valor)} inputMode="numeric" maxLength={4} />
-            <Campo icone={calendarOutline} rotulo="Próxima data" type="date" value={draft.nextDueDate} onMudar={(valor) => mudar("nextDueDate", valor)} />
+            <Data rotulo="Próxima data" valor={draft.nextDueDate} aoMudar={(valor) => mudar("nextDueDate", valor)} />
           </div>
         </>
       ) : null}
@@ -363,10 +376,6 @@ export function FormLancamento({
       <AreaDeTexto rotulo="Descrição" value={draft.description} onMudar={(valor) => mudar("description", valor)} linhas={2} maxLength={160} />
       <AreaDeTexto rotulo="Por que este valor existe" value={draft.justification} onMudar={(valor) => mudar("justification", valor)} linhas={2} maxLength={160} />
 
-      {erro ? <p className="erro">{erro}</p> : null}
-      <IonButton expand="block" className="principal" disabled={salvando} onClick={() => void salvar()}>
-        {salvando ? "Salvando" : editando ? "Salvar" : "Lançar"}
-      </IonButton>
     </Folha>
   );
 }
