@@ -1,13 +1,14 @@
 import { IonAlert, IonButton, IonButtons, IonIcon, useIonToast, useIonViewWillEnter } from "@ionic/react";
 import { REPETICOES_DE_TAREFA, ROTULO_DA_REPETICAO } from "@finnagent/contracts";
 import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, RepeticaoDeTarefa, SessaoDaAgenda, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
-import { addOutline, arrowDown, arrowUp, calendarOutline, cashOutline, chevronBack, chevronForward, createOutline, pricetagOutline, sunnyOutline } from "ionicons/icons";
+import { addOutline, arrowDown, arrowUp, cashOutline, chevronBack, chevronForward, createOutline, pricetagOutline, sunnyOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { Fragment, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { enviar, pedir } from "../api/cliente";
 import { reais } from "../api/formato";
 import { Campo } from "../componentes/Campo";
+import { Data } from "../componentes/Data";
 import { Dinheiro, Estado } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
 import { Pagina } from "../componentes/Pagina";
@@ -377,7 +378,7 @@ export function Hoje() {
               />
             ) : null}
             {editando.appointmentId ? null : (
-              <Campo icone={calendarOutline} rotulo="Dia" type="date" value={editando.date} onMudar={(date) => setEditando({ ...editando, date })} />
+              <Data rotulo="Dia" valor={editando.date} aoMudar={(date) => setEditando({ ...editando, date })} />
             )}
             {editando.appointmentId ? null : (
             <Selecao

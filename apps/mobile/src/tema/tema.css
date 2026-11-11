@@ -2006,3 +2006,20 @@ ion-fab-button.acao-principal {
 .espaco-da-acao {
   height: 80px;
 }
+
+/* O botão de salvar de uma folha: fixo embaixo, acima do teclado, com o erro logo acima dele. */
+.rodape-da-folha {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.rodape-da-folha ion-button {
+  margin: 0;
+}
+
+.rodape-da-folha .erro {
+  margin: 0;
+}

@@ -1,5 +1,6 @@
 import { IonIcon, IonInput, IonTextarea } from "@ionic/react";
-import { eyeOffOutline, eyeOutline, lockClosedOutline } from "ionicons/icons";
+import { lerReais, mascaraDeValor, proximaMascara } from "@finnagent/contracts";
+import { cashOutline, eyeOffOutline, eyeOutline, lockClosedOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type Ref } from "react";
 import { toque } from "../haptico";
@@ -54,6 +55,56 @@ export function Campo({ icone, ...base }: Base & { icone: string }) {
       <span className="entrada-com-icone">
         <IonIcon icon={icone} aria-hidden />
         <Entrada {...base} />
+      </span>
+    </div>
+  );
+}
+
+/** O valor como o campo mostra: "1234,56" (de `paraCampo`) e "1.234,56" viram a mesma coisa. */
+function valorMostrado(texto: string) {
+  const centavos = lerReais(texto);
+  return centavos === null ? texto : mascaraDeValor(String(Math.abs(centavos)));
+}
+
+/**
+ * Um campo de dinheiro: o teclado é numérico e os centavos entram pela direita ("1", "12", "123" viram 0,01, 0,12 e
+ * 1,23), como na web. O texto guardado é o mostrado ("1.234,56"), que `centavosDe` lê.
+ */
+export function CampoDeValor({
+  rotulo,
+  value,
+  onMudar,
+  icone = cashOutline,
+  placeholder = "0,00",
+  disabled,
+}: {
+  rotulo: string;
+  value: string;
+  onMudar: (valor: string) => void;
+  icone?: string;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const mostrado = valorMostrado(value);
+  return (
+    <div className="campo">
+      <span className="etiqueta">{rotulo}</span>
+      <span className="entrada-com-icone">
+        <IonIcon icon={icone} aria-hidden />
+        <IonInput
+          aria-label={rotulo}
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder={placeholder}
+          disabled={disabled}
+          value={mostrado}
+          onIonInput={(evento) => {
+            const novo = proximaMascara(mostrado, String(evento.detail.value ?? ""));
+            // O que não é dígito não pode ficar na caixa, mesmo que o valor guardado não mude.
+            (evento.target as HTMLIonInputElement).value = novo;
+            onMudar(novo);
+          }}
+        />
       </span>
     </div>
   );

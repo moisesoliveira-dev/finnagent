@@ -52,18 +52,18 @@ export function Dialogo({
       }
       if (novo) abrir.call(el);
       if (reduzir) return;
-      animate(
-        el,
-        novo ? { opacity: [0, 1], y: [12, 0], scale: [0.98, 1] } : { opacity: 1, y: 0, scale: 1 },
-        curvaCheia,
-      );
+      // No celular o diálogo é uma folha: sobe de baixo, sem zoom.
+      const folha = window.matchMedia("(width < 760px)").matches;
+      if (folha) animate(el, novo ? { y: ["100%", 0] } : { y: 0 }, curvaCheia);
+      else animate(el, novo ? { opacity: [0, 1], y: [12, 0], scale: [0.98, 1] } : { opacity: 1, y: 0, scale: 1 }, curvaCheia);
     };
 
     el.close = (valor?: string) => {
       if (!el.open || saida) return;
       if (reduzir) return fechar.call(el, valor);
       el.dataset.saindo = "";
-      const atual = animate(el, { opacity: 0, y: 8, scale: 0.98 }, curvaSaida);
+      const folha = window.matchMedia("(width < 760px)").matches;
+      const atual = animate(el, folha ? { y: "100%" } : { opacity: 0, y: 8, scale: 0.98 }, curvaSaida);
       saida = atual;
       void atual.then(() => {
         if (saida !== atual) return;

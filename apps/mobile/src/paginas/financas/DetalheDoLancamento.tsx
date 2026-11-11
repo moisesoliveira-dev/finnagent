@@ -1,10 +1,11 @@
 import { IonButton } from "@ionic/react";
 import type { DiferencaDoPagamento, LancamentoVista, OcorrenciaVista, StatusTransacao } from "@finnagent/contracts";
-import { calendarOutline, cashOutline } from "ionicons/icons";
+import {  } from "ionicons/icons";
 import { useEffect, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, dataCurta, hojeIso, MESES, paraCampo, reais, type Mes } from "../../api/formato";
-import { Campo } from "../../componentes/Campo";
+import { Campo, CampoDeValor } from "../../componentes/Campo";
+import { Data } from "../../componentes/Data";
 import { Dinheiro } from "../../componentes/Estado";
 import { Folha } from "../../componentes/Folha";
 import { Fichas } from "../../componentes/Selecao";
@@ -152,7 +153,7 @@ export function DetalheDoLancamento({
           </div>
           {valorNovo !== null ? (
             <div className="secao">
-              <Campo icone={cashOutline} rotulo="Valor novo" value={valorNovo} onMudar={setValorNovo} inputMode="decimal" />
+              <CampoDeValor rotulo="Valor novo" value={valorNovo} onMudar={setValorNovo} />
               <IonButton
                 expand="block"
                 className="principal"
@@ -326,8 +327,8 @@ function Pagamento({
         Falta {reais(falta)}
         {proxima ? `; a próxima parcela é ${reais(Math.abs(proxima.plannedCents))}.` : "."}
       </span>
-      <Campo icone={calendarOutline} rotulo="Data" type="date" value={data} onMudar={setData} />
-      <Campo icone={cashOutline} rotulo="Valor pago" value={valor} onMudar={setValor} inputMode="decimal" />
+      <Data rotulo="Data" valor={data} aoMudar={setData} />
+      <CampoDeValor rotulo="Valor pago" value={valor} onMudar={setValor} />
       {pedeDiferenca ? (
         <div className="campo">
           <span className="etiqueta">O que passou da parcela é</span>
