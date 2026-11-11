@@ -417,6 +417,7 @@ export default function Financas() {
     <div className="min-w-0">
       <ViradaDoAno />
       <PageHeader
+        flutuante={{ rotulo: "Novo lançamento", onClick: abrirLancamento }}
         title="Finanças"
         subtitle={workflow ? subtitulo(workflow) : undefined}
         actions={
@@ -444,7 +445,7 @@ export default function Financas() {
                 </>
               )}
             </Button>
-            <Button variant="primary" onClick={abrirLancamento}>
+            <Button variant="primary" className="hidden tab:inline-flex" onClick={abrirLancamento}>
               Novo lançamento
             </Button>
           </>

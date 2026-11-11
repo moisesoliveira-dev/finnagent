@@ -385,12 +385,13 @@ export default function Grupos() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl">
     <PageHeader
+      flutuante={{ rotulo: "Nova sessão", onClick: () => openSession("", undefined, true) }}
       title="Sessões e grupos"
       subtitle="Defina onde seus lançamentos serão acumulados."
       actions={
         <>
           <Button onClick={() => openGroup()}>Novo grupo</Button>
-          <Button variant="primary" onClick={() => openSession("", undefined, true)}>
+          <Button variant="primary" className="hidden tab:inline-flex" onClick={() => openSession("", undefined, true)}>
             Nova sessão
           </Button>
         </>

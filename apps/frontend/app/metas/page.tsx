@@ -350,6 +350,7 @@ export default function MetasPage() {
   return (
     <>
       <PageHeader
+        flutuante={{ rotulo: "Nova meta", onClick: abrir, disabled: !dados }}
         title="Metas"
         subtitle="Defina o que você quer e veja quanto separar para chegar lá."
         actions={
@@ -360,7 +361,7 @@ export default function MetasPage() {
             <Button onClick={abrirOrganizar} disabled={!dados || dados.goals.length < 2}>
               Organizar prioridade
             </Button>
-            <Button variant="primary" onClick={abrir} disabled={!dados}>
+            <Button variant="primary" className="hidden tab:inline-flex" onClick={abrir} disabled={!dados}>
               Nova meta
             </Button>
           </>

@@ -1979,3 +1979,30 @@ ion-button.apagar {
   font: inherit;
   text-align: left;
 }
+
+/* A cor da aba vem da nossa regra (`.ativa`), não da do Ionic: telas fora das abas, como Metas, contam como o "Mais". */
+ion-tab-button {
+  --color: var(--ink-2);
+  --color-selected: var(--ink-2);
+}
+
+ion-tab-button.ativa {
+  --color: var(--brand);
+  --color-selected: var(--brand);
+  color: var(--brand);
+}
+
+/* A ação principal da tela: um quadrado amarelo no canto, sem sombra. */
+ion-fab-button.acao-principal {
+  --background: var(--cta);
+  --background-activated: var(--cta);
+  --background-hover: var(--cta);
+  --color: var(--cta-ink);
+  --border-radius: 0;
+  --box-shadow: none;
+}
+
+/* Espaço no fim da lista para o botão não cobrir a última linha. */
+.espaco-da-acao {
+  height: 80px;
+}

@@ -2,6 +2,8 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonFab,
+  IonFabButton,
   IonHeader,
   IonIcon,
   IonPage,
@@ -10,7 +12,7 @@ import {
   IonToolbar,
   type RefresherEventDetail,
 } from "@ionic/react";
-import { notificationsOutline, personCircleOutline } from "ionicons/icons";
+import { addOutline, notificationsOutline, personCircleOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { toque } from "../haptico";
@@ -59,6 +61,7 @@ export function Pagina({
   children,
   aoAtualizar,
   fim,
+  acao,
   semPerfil,
   semSino,
   rodape,
@@ -68,6 +71,8 @@ export function Pagina({
   children: ReactNode;
   aoAtualizar?: () => Promise<void> | void;
   fim?: ReactNode;
+  /** A ação principal da tela: o botão amarelo flutuante no canto, ao alcance do polegar. Um por tela. */
+  acao?: { rotulo: string; aoTocar: () => void };
   semPerfil?: boolean;
   semSino?: boolean;
   rodape?: ReactNode;
@@ -112,6 +117,21 @@ export function Pagina({
           <h1 className="titulo">{titulo}</h1>
         </motion.div>
         {children}
+        {acao ? <div className="espaco-da-acao" aria-hidden="true" /> : null}
+        {acao ? (
+          <IonFab slot="fixed" vertical="bottom" horizontal="end">
+            <IonFabButton
+              className="acao-principal"
+              aria-label={acao.rotulo}
+              onClick={() => {
+                toque();
+                acao.aoTocar();
+              }}
+            >
+              <IonIcon icon={addOutline} />
+            </IonFabButton>
+          </IonFab>
+        ) : null}
       </IonContent>
       {rodape}
     </IonPage>

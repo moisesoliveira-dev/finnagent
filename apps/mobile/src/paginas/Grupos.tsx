@@ -1,6 +1,6 @@
 import { IonButton, IonCheckbox, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import { ROTULO_DO_TIPO_DE_SESSAO, TIPOS_SESSAO, type Grupo, type GruposResposta, type Sessao, type TipoSessao, type ViradaResposta } from "@finnagent/contracts";
-import { addOutline, arrowBack, cashOutline, folderOpenOutline, pricetagOutline } from "ionicons/icons";
+import { arrowBack, cashOutline, folderOpenOutline, pricetagOutline } from "ionicons/icons";
 import { useEffect, useRef, useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
 import { centavosDe, paraCampo, reais } from "../api/formato";
@@ -182,12 +182,10 @@ export function Grupos() {
       titulo="Grupos e sessões"
       etiqueta="Onde cada lançamento entra"
       aoAtualizar={recarregar}
+      acao={{ rotulo: "Novo grupo", aoTocar: () => setGrupo({ id: null, name: "", description: "" }) }}
       semPerfil
       fim={
         <>
-          <IonButton aria-label="Novo grupo" onClick={() => setGrupo({ id: null, name: "", description: "" })}>
-            <IonIcon slot="icon-only" icon={addOutline} />
-          </IonButton>
           <IonButton routerLink="/financas" routerDirection="back" aria-label="Voltar">
             <IonIcon slot="icon-only" icon={arrowBack} />
           </IonButton>

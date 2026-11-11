@@ -1,6 +1,6 @@
 import { IonButton, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import type { AgendaResposta, Compromisso } from "@finnagent/contracts";
-import { addOutline, calendarOutline, syncOutline } from "ionicons/icons";
+import { calendarOutline, syncOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { enviar, pedir } from "../api/cliente";
@@ -66,11 +66,9 @@ export function Agenda() {
       titulo="Agenda"
       etiqueta="Compromissos e feriados"
       aoAtualizar={recarregar}
+      acao={{ rotulo: "Novo compromisso", aoTocar: () => setFormulario({ compromisso: null }) }}
       fim={
         <>
-          <IonButton aria-label="Novo compromisso" onClick={() => setFormulario({ compromisso: null })}>
-            <IonIcon slot="icon-only" icon={addOutline} />
-          </IonButton>
           {conectado ? (
             <IonButton
               aria-label="Sincronizar com o Google Agenda"

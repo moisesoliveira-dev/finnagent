@@ -9,7 +9,7 @@ import {
   type ContasResposta,
   type FinancasVista,
 } from "@finnagent/contracts";
-import { addOutline, chevronBack, chevronForward, walletOutline } from "ionicons/icons";
+import { chevronBack, chevronForward, walletOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -44,11 +44,9 @@ export function Contas() {
       etiqueta="Saldo de cada conta e fatura de cada cartão"
       semPerfil
       aoAtualizar={recarregar}
+      acao={{ rotulo: "Nova conta", aoTocar: () => setCriando(true) }}
       fim={
         <IonButtons>
-          <IonButton aria-label="Nova conta" onClick={() => setCriando(true)}>
-            <IonIcon slot="icon-only" icon={addOutline} />
-          </IonButton>
           <IonButton routerLink="/financas" routerDirection="back" aria-label="Voltar">
             <IonIcon slot="icon-only" icon={chevronBack} />
           </IonButton>

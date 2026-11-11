@@ -1,6 +1,6 @@
 import { IonButton, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonViewWillEnter } from "@ionic/react";
 import type { FinancasVista, ItemPainel, LancamentoVista, PainelResposta } from "@finnagent/contracts";
-import { addOutline, chevronForward, documentTextOutline, folderOpenOutline, walletOutline } from "ionicons/icons";
+import { chevronForward, documentTextOutline, folderOpenOutline, walletOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { ler } from "../api/cliente";
@@ -82,17 +82,15 @@ export function Financas() {
       titulo="Finanças"
       etiqueta="Mês a mês"
       aoAtualizar={recarregar}
+      acao={{
+        rotulo: "Novo lançamento",
+        aoTocar: () => {
+          void carregarVista();
+          setFormulario({ entry: null });
+        },
+      }}
       fim={
         <>
-          <IonButton
-            aria-label="Novo lançamento"
-            onClick={() => {
-              void carregarVista();
-              setFormulario({ entry: null });
-            }}
-          >
-            <IonIcon slot="icon-only" icon={addOutline} />
-          </IonButton>
           <IonButton routerLink="/extratos" aria-label="Extratos: importar e conferir">
             <IonIcon slot="icon-only" icon={documentTextOutline} />
           </IonButton>

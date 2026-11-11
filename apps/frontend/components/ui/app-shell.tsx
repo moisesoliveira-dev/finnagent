@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { MenuDaConta } from "../auth/conta-do-menu";
 import { Marca, PainelDaMarca } from "../auth/painel-da-marca";
 import { SessaoExpirada } from "../auth/sessao-expirada";
-import { BotaoDaCalculadora, CalculadoraProvider, JanelaDaCalculadora } from "../calculadora/calculadora";
+import { BotaoDaCalculadora, CalculadoraProvider, JanelaDaCalculadora, useCalculadora } from "../calculadora/calculadora";
 import { SinoDoMenu } from "../notificacoes/central";
 import { BotaoDoTema } from "./botao-do-tema";
 import { cn, focusRing } from "./cn";
@@ -86,12 +86,33 @@ function Item({
   );
 }
 
-/** A lista de abas, a mesma no menu lateral do tablet e na gaveta do celular. */
-function ListaDoMenu({ pathname, recolhido, onNavegar }: { pathname: string; recolhido: boolean; onNavegar?: () => void }) {
+/** Os quatro destinos da barra de baixo do celular. O quinto é o "Mais", que abre o resto. */
+const principais: Array<{ href: string; label: string; icone: Icone }> = [
+  { href: "/", label: "Dashboard", icone: "dashboard" },
+  { href: "/financas", label: "Finanças", icone: "wallet" },
+  { href: "/assistente", label: "Assistente", icone: "chat" },
+  { href: "/agenda", label: "Agenda", icone: "calendar" },
+];
+
+const estaEm = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+
+/** A lista de abas: o menu lateral do tablet e, no celular, o "Mais" sem o que já está na barra de baixo. */
+function ListaDoMenu({
+  pathname,
+  recolhido,
+  onNavegar,
+  semOsPrincipais = false,
+}: {
+  pathname: string;
+  recolhido: boolean;
+  onNavegar?: () => void;
+  semOsPrincipais?: boolean;
+}) {
   const emExtratos = pathname === "/extratos" || pathname.startsWith("/extratos/");
+  const itensDoMenu = semOsPrincipais ? items.filter((item) => !principais.some((principal) => principal.href === item.href)) : items;
   return (
     <ul className="flex flex-col gap-1">
-      {items.map((item) => (
+      {itensDoMenu.map((item) => (
         <Item key={item.href} {...item} current={pathname === item.href} recolhido={recolhido} onNavegar={onNavegar} />
       ))}
       <li className="flex flex-col">
@@ -137,11 +158,111 @@ function Logo({ recolhido = false }: { recolhido?: boolean }) {
   );
 }
 
+/** Celular: os destinos do dia a dia ao alcance do polegar. O "Mais" abre a folha com o resto. */
+function BarraInferior({ pathname, maisAberto, aoAbrirMais }: { pathname: string; maisAberto: boolean; aoAbrirMais: () => void }) {
+  const curva = useCurva();
+  const maisAtivo = maisAberto || !principais.some((item) => estaEm(pathname, item.href));
+  const celula = "relative flex h-full min-w-0 flex-col items-center justify-center gap-1 text-2xs font-medium text-ink-2 no-underline transition-colors hover:text-ink";
+  const marca = <motion.span layoutId="aba-de-baixo" className="absolute inset-x-3 top-0 h-0.5 bg-brand" transition={curva} />;
+  return (
+    <nav aria-label="Navegação rápida" className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg pb-[env(safe-area-inset-bottom)] tab:hidden">
+      <ul className="grid h-[var(--barra-inferior)] grid-cols-5">
+        {principais.map((item) => {
+          const atual = estaEm(pathname, item.href) && !maisAberto;
+          return (
+            <li key={item.href} className="min-w-0">
+              <Link href={item.href} aria-current={atual ? "page" : undefined} className={cn(celula, focusRing, atual && "text-brand hover:text-brand")}>
+                {atual ? marca : null}
+                <Icone name={item.icone} />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+        <li className="min-w-0">
+          <button
+            type="button"
+            aria-expanded={maisAberto}
+            aria-controls="mais-do-celular"
+            onClick={aoAbrirMais}
+            className={cn(celula, "w-full", focusRing, maisAtivo && "text-brand hover:text-brand")}
+          >
+            {maisAtivo ? marca : null}
+            <Icone name="menu" />
+            <span className="truncate">Mais</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+/** O "Mais" do celular: sobe de baixo, acima da barra, com as abas que não cabem nela e a calculadora. */
+function FolhaDoMais({ aberta, pathname, aoFechar }: { aberta: boolean; pathname: string; aoFechar: () => void }) {
+  const curva = useCurva();
+  const calculadora = useCalculadora();
+  return (
+    <AnimatePresence>
+      {aberta ? (
+        <motion.div
+          key="veu"
+          className="fixed inset-0 z-30 bg-overlay/70 tab:hidden"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: curvaSaida }}
+          transition={curva}
+          onClick={aoFechar}
+          aria-hidden
+        />
+      ) : null}
+      {aberta ? (
+        <motion.nav
+          key="folha"
+          id="mais-do-celular"
+          aria-label="Mais"
+          className="acima-da-barra pontos fixed inset-x-0 z-40 flex max-h-[75dvh] flex-col gap-3 overflow-y-auto border-t border-line bg-bg p-4 tab:hidden"
+          initial={{ y: "100%" }}
+          animate={{ y: 0 }}
+          exit={{ y: "100%", transition: curvaSaida }}
+          transition={curva}
+        >
+          <div className="flex items-center justify-between gap-1">
+            <span className="etiqueta px-3 text-ink-2">Mais</span>
+            <button
+              type="button"
+              aria-label="Fechar"
+              onClick={aoFechar}
+              className={cn("inline-flex size-10 shrink-0 items-center justify-center text-ink-2 transition-colors hover:text-ink", focusRing)}
+            >
+              <Icone name="fechar" />
+            </button>
+          </div>
+          <ListaDoMenu pathname={pathname} recolhido={false} semOsPrincipais onNavegar={aoFechar} />
+          <ul className="flex flex-col gap-1 border-t border-line pt-3">
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  calculadora.alternar();
+                  aoFechar();
+                }}
+                className={cn("etiqueta flex min-h-10 w-full items-center gap-3 px-3 py-2 whitespace-nowrap text-ink-2 transition-colors hover:text-ink", focusRing)}
+              >
+                <Icone name="calc" />
+                <span>Calculadora</span>
+              </button>
+            </li>
+          </ul>
+        </motion.nav>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const recolhido = useMenuRecolhido();
-  const curva = useCurva();
-  // A gaveta do celular: abre pelo ícone e fecha ao escolher uma aba, ao tocar fora ou no Escape.
+  // O "Mais" do celular: abre pela barra de baixo e fecha ao escolher uma aba, ao tocar fora ou no Escape.
   const [gaveta, setGaveta] = useState(false);
 
   useEffect(() => {
@@ -180,18 +301,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         recolhido ? "tab:grid-cols-[64px_minmax(0,1fr)]" : "tab:grid-cols-[200px_minmax(0,1fr)]",
       )}
     >
-      {/* Celular: a barra de cima com o ícone do menu, a logo e, à direita, tema, avisos e conta. */}
+      {/* Celular: a barra de cima com a logo e, à direita, tema, avisos e conta. A navegação fica na barra de baixo. */}
       <header className="pontos sticky top-[env(safe-area-inset-top)] z-20 flex items-center gap-1 border-b border-line bg-bg px-2 py-2 tab:hidden">
-        <button
-          type="button"
-          aria-label="Abrir o menu"
-          aria-expanded={gaveta}
-          aria-controls="menu-do-celular"
-          onClick={() => setGaveta(true)}
-          className={cn("inline-flex size-10 shrink-0 items-center justify-center text-ink", focusRing)}
-        >
-          <Icone name="menu" />
-        </button>
         <Logo />
         <span className="flex-1" />
         <BotaoDoTema />
@@ -225,46 +336,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ListaDoMenu pathname={pathname} recolhido={recolhido} />
       </nav>
 
-      {/* A gaveta do celular. */}
-      <AnimatePresence>
-        {gaveta ? (
-          <motion.div
-            key="veu"
-            className="fixed inset-0 z-30 bg-overlay/70 tab:hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: curvaSaida }}
-            transition={curva}
-            onClick={() => setGaveta(false)}
-            aria-hidden
-          />
-        ) : null}
-        {gaveta ? (
-          <motion.nav
-            key="gaveta"
-            id="menu-do-celular"
-            aria-label="Principal"
-            className="pontos fixed inset-y-0 left-0 z-40 flex w-64 flex-col gap-6 overflow-y-auto border-r border-line bg-bg p-4 pt-[env(safe-area-inset-top)] tab:hidden"
-            initial={{ x: "-100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "-100%", transition: curvaSaida }}
-            transition={curva}
-          >
-            <div className="flex items-center justify-between gap-1">
-              <Logo />
-              <button
-                type="button"
-                aria-label="Fechar o menu"
-                onClick={() => setGaveta(false)}
-                className={cn("inline-flex size-10 shrink-0 items-center justify-center text-ink-2 transition-colors hover:text-ink", focusRing)}
-              >
-                <Icone name="fechar" />
-              </button>
-            </div>
-            <ListaDoMenu pathname={pathname} recolhido={false} onNavegar={() => setGaveta(false)} />
-          </motion.nav>
-        ) : null}
-      </AnimatePresence>
+      <BarraInferior pathname={pathname} maisAberto={gaveta} aoAbrirMais={() => setGaveta((aberta) => !aberta)} />
+      <FolhaDoMais aberta={gaveta} pathname={pathname} aoFechar={() => setGaveta(false)} />
 
       <SessaoExpirada />
       {/* Tablet e desktop: o canto de cima à direita com tema, avisos e a conta. */}
@@ -273,7 +346,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SinoDoMenu />
         <MenuDaConta />
       </div>
-      <main className="min-w-0 px-4 py-6 tab:px-8 tab:pt-4 tab:pb-12">
+      <main className="min-w-0 px-4 pt-6 pb-[calc(var(--barra-inferior)+1.5rem)] tab:px-8 tab:pt-4 tab:pb-12">
         {children}
       </main>
       <BotaoDaCalculadora />

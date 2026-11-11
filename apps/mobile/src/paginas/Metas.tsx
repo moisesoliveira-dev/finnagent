@@ -1,6 +1,6 @@
 import { IonButton, IonIcon, IonToggle, useIonViewWillEnter } from "@ionic/react";
 import type { Caixinha, ContasResposta, Meta, MetasResposta } from "@finnagent/contracts";
-import { addOutline, arrowDown, arrowUp, cashOutline, flagOutline, pricetagOutline } from "ionicons/icons";
+import { arrowDown, arrowUp, cashOutline, flagOutline, pricetagOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
@@ -115,17 +115,13 @@ export function Metas() {
       titulo="Metas"
       etiqueta="Pela ordem de prioridade"
       aoAtualizar={recarregar}
-      fim={
-        <IonButton
-          aria-label="Nova meta"
-          onClick={() => {
-            setErroDaFolha("");
-            setNova({ name: "", target: "", saved: "", comPrazo: false, dueMonth: String(hoje.getMonth() + 1), dueYear: String(hoje.getFullYear() + 1) });
-          }}
-        >
-          <IonIcon slot="icon-only" icon={addOutline} />
-        </IonButton>
-      }
+      acao={{
+        rotulo: "Nova meta",
+        aoTocar: () => {
+          setErroDaFolha("");
+          setNova({ name: "", target: "", saved: "", comPrazo: false, dueMonth: String(hoje.getMonth() + 1), dueYear: String(hoje.getFullYear() + 1) });
+        },
+      }}
     >
       <Estado carregando={carregando} erro={erro} tem={Boolean(dados)} aoTentar={() => void recarregar()} />
 
