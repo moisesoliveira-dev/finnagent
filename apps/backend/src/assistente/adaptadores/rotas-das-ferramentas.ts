@@ -197,6 +197,8 @@ export const ROTAS_DAS_FERRAMENTAS: Record<string, Rota> = {
     corpo: (a) => ({ name: a.name, description: a.description, justification: a.justification, groupId: a.groupId, ...(a.limitCents === undefined ? {} : { limitCents: a.limitCents }) }),
   },
   excluir_sessao: { metodo: "DELETE", caminho: (a) => `sessoes/${id(a.id)}` },
+  organizar_grupos: { metodo: "PUT", caminho: () => "grupos/ordem", corpo: (a) => ({ ids: a.ids }) },
+  organizar_sessoes_do_grupo: { metodo: "PUT", caminho: () => "sessoes/ordem", corpo: (a) => ({ groupId: a.groupId, ids: a.ids }) },
   consultar_virada_do_ano: { metodo: "GET", caminho: () => "grupos/virada" },
   confirmar_virada_do_ano: {
     metodo: "POST",

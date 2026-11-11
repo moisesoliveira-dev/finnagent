@@ -1,15 +1,15 @@
 import { IonButton, IonCheckbox, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import { ROTULO_DO_TIPO_DE_SESSAO, TIPOS_SESSAO, type Grupo, type GruposResposta, type Sessao, type TipoSessao, type ViradaResposta } from "@finnagent/contracts";
 import { addOutline, arrowBack, cashOutline, folderOpenOutline, pricetagOutline } from "ionicons/icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
 import { centavosDe, paraCampo, reais } from "../api/formato";
 import { AreaDeTexto, Campo } from "../componentes/Campo";
 import { Estado, Vazio } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
+import { ItemOrdenavel, ListaOrdenavel } from "../componentes/Ordenavel";
 import { Pagina } from "../componentes/Pagina";
 import { Fichas, Selecao } from "../componentes/Selecao";
-import { Bloco, Cascata } from "../movimento";
 import { useAcao } from "../useAcao";
 import { useDados } from "../useDados";
 
@@ -24,13 +24,75 @@ export function Grupos() {
   const [grupo, setGrupo] = useState<RascunhoDeGrupo | null>(null);
   const [sessao, setSessao] = useState<RascunhoDeSessao | null>(null);
   const [erroDaFolha, setErroDaFolha] = useState("");
+  // A ordem que a pessoa arrasta mora aqui; o servidor devolve a gravada e ela volta a valer a cada carga.
+  const [grupos, setGrupos] = useState<Grupo[]>([]);
+  const [todasAsSessoes, setTodasAsSessoes] = useState<Sessao[]>([]);
+  const gruposRef = useRef<Grupo[]>([]);
+  const sessoesRef = useRef<Sessao[]>([]);
+  gruposRef.current = grupos;
+  sessoesRef.current = todasAsSessoes;
+
+  useEffect(() => {
+    if (!dados) return;
+    setGrupos(dados.groups);
+    setTodasAsSessoes(dados.sessions);
+  }, [dados]);
 
   useIonViewWillEnter(() => {
     if (dados) void recarregar();
   });
 
-  const sessoesDo = (id: string) =>
-    (dados?.sessions ?? []).filter((item) => item.groupId === id).sort((a, b) => Number(Boolean(a.endedAt)) - Number(Boolean(b.endedAt)) || a.name.localeCompare(b.name, "pt-BR"));
+  // As encerradas ficam no fim do grupo, fora da ordem arrastável; as ativas seguem a ordem escolhida.
+  const ativasDo = (id: string) => todasAsSessoes.filter((item) => item.groupId === id && !item.endedAt);
+  const encerradasDo = (id: string) => todasAsSessoes.filter((item) => item.groupId === id && item.endedAt);
+  const sessoesDo = (id: string) => [...ativasDo(id), ...encerradasDo(id)];
+
+  async function gravarOrdem(caminho: string, corpo: unknown) {
+    const ok = await agir("ordem", () => enviar(caminho, corpo, "PUT"), "Ordem salva.");
+    if (!ok) await recarregar();
+  }
+
+  const soltarGrupos = () => void gravarOrdem("/api/grupos/ordem", { ids: gruposRef.current.map((item) => item.id) });
+
+  function moverGrupo(id: string, passo: -1 | 1) {
+    const lista = [...gruposRef.current];
+    const de = lista.findIndex((item) => item.id === id);
+    const para = de + passo;
+    if (de < 0 || para < 0 || para >= lista.length) return;
+    [lista[de], lista[para]] = [lista[para] as Grupo, lista[de] as Grupo];
+    gruposRef.current = lista;
+    setGrupos(lista);
+    void gravarOrdem("/api/grupos/ordem", { ids: lista.map((item) => item.id) });
+  }
+
+  // A ordem vale dentro do grupo: troca só as ativas dele e deixa o resto onde está.
+  function trocarSessoes(groupId: string, ativas: Sessao[]) {
+    const lista = [
+      ...sessoesRef.current.filter((item) => item.groupId !== groupId),
+      ...ativas,
+      ...sessoesRef.current.filter((item) => item.groupId === groupId && item.endedAt),
+    ];
+    sessoesRef.current = lista;
+    setTodasAsSessoes(lista);
+  }
+
+  const idsDoGrupo = (groupId: string) => sessoesDoRef(groupId).map((item) => item.id);
+  const sessoesDoRef = (groupId: string) => [
+    ...sessoesRef.current.filter((item) => item.groupId === groupId && !item.endedAt),
+    ...sessoesRef.current.filter((item) => item.groupId === groupId && item.endedAt),
+  ];
+
+  const soltarSessoes = (groupId: string) => void gravarOrdem("/api/sessoes/ordem", { groupId, ids: idsDoGrupo(groupId) });
+
+  function moverSessao(groupId: string, id: string, passo: -1 | 1) {
+    const ativas = sessoesRef.current.filter((item) => item.groupId === groupId && !item.endedAt);
+    const de = ativas.findIndex((item) => item.id === id);
+    const para = de + passo;
+    if (de < 0 || para < 0 || para >= ativas.length) return;
+    [ativas[de], ativas[para]] = [ativas[para] as Sessao, ativas[de] as Sessao];
+    trocarSessoes(groupId, ativas);
+    void gravarOrdem("/api/sessoes/ordem", { groupId, ids: idsDoGrupo(groupId) });
+  }
 
   async function salvarGrupo() {
     if (!grupo) return;
@@ -143,40 +205,72 @@ export function Grupos() {
           </Vazio>
         ) : null}
         {dados ? (
-          <Cascata className="pagina sem-margem">
-            {dados.groups.map((item: Grupo) => (
-              <Bloco key={item.id} className="secao">
-                <div className="titulo-do-dia">
-                  <button type="button" className="botao-link" onClick={() => setGrupo({ id: item.id, name: item.name, description: item.description })}>
-                    <strong>{item.name}</strong>
-                  </button>
-                  <IonButton
-                    size="small"
-                    fill="clear"
-                    onClick={() => setSessao({ id: null, groupId: item.id, name: "", description: "", justification: "", kind: "acumulo", limit: "" })}
-                  >
-                    + Sessão
-                  </IonButton>
-                </div>
-                {item.description ? <span className="fraco">{item.description}</span> : null}
-                <div className="lista">
-                  {sessoesDo(item.id).length === 0 ? <div className="linha fraco">Sem sessões.</div> : null}
-                  {sessoesDo(item.id).map((sessaoDoGrupo) => (
-                    <button key={sessaoDoGrupo.id} type="button" className="linha linha-botao" onClick={() => abrirSessao(sessaoDoGrupo)}>
-                      <span className="texto">
-                        <span>{sessaoDoGrupo.name}</span>
-                        <span className="etiqueta">
-                          {ROTULO_DO_TIPO_DE_SESSAO[sessaoDoGrupo.kind]}
-                          {sessaoDoGrupo.limitCents ? ` · limite ${reais(sessaoDoGrupo.limitCents)}` : ""}
-                        </span>
-                      </span>
-                      {sessaoDoGrupo.endedAt ? <span className="chip">Encerrada</span> : null}
-                    </button>
-                  ))}
-                </div>
-              </Bloco>
-            ))}
-          </Cascata>
+          <>
+            {grupos.length > 1 ? <p className="fraco">Segure a alça ao lado do nome e arraste para mudar a ordem dos grupos e das sessões.</p> : null}
+            <ListaOrdenavel itens={grupos} aoMudar={setGrupos} className="pagina sem-margem">
+              {grupos.map((item: Grupo) => (
+                <ItemOrdenavel key={item.id} valor={item} nome={item.name} aoSoltar={soltarGrupos} aoMover={(passo) => moverGrupo(item.id, passo)} className="secao ordenavel">
+                  {(alca) => (
+                    <>
+                      <div className="titulo-do-dia com-alca">
+                        {alca}
+                        <button type="button" className="botao-link" onClick={() => setGrupo({ id: item.id, name: item.name, description: item.description })}>
+                          <strong>{item.name}</strong>
+                        </button>
+                        <IonButton
+                          size="small"
+                          fill="clear"
+                          onClick={() => setSessao({ id: null, groupId: item.id, name: "", description: "", justification: "", kind: "acumulo", limit: "" })}
+                        >
+                          + Sessão
+                        </IonButton>
+                      </div>
+                      {item.description ? <span className="fraco">{item.description}</span> : null}
+                      <div className="lista">
+                        {sessoesDo(item.id).length === 0 ? <div className="linha fraco">Sem sessões.</div> : null}
+                        <ListaOrdenavel itens={ativasDo(item.id)} aoMudar={(novas) => trocarSessoes(item.id, novas)}>
+                          {ativasDo(item.id).map((sessaoDoGrupo) => (
+                            <ItemOrdenavel
+                              key={sessaoDoGrupo.id}
+                              valor={sessaoDoGrupo}
+                              nome={sessaoDoGrupo.name}
+                              aoSoltar={() => soltarSessoes(item.id)}
+                              aoMover={(passo) => moverSessao(item.id, sessaoDoGrupo.id, passo)}
+                              className="linha ordenavel"
+                            >
+                              {(alcaDaSessao) => (
+                                <>
+                                  {alcaDaSessao}
+                                  <button type="button" className="linha-conteudo" onClick={() => abrirSessao(sessaoDoGrupo)}>
+                                    <span className="texto">
+                                      <span>{sessaoDoGrupo.name}</span>
+                                      <span className="etiqueta">
+                                        {ROTULO_DO_TIPO_DE_SESSAO[sessaoDoGrupo.kind]}
+                                        {sessaoDoGrupo.limitCents ? ` · limite ${reais(sessaoDoGrupo.limitCents)}` : ""}
+                                      </span>
+                                    </span>
+                                  </button>
+                                </>
+                              )}
+                            </ItemOrdenavel>
+                          ))}
+                        </ListaOrdenavel>
+                        {encerradasDo(item.id).map((sessaoDoGrupo) => (
+                          <button key={sessaoDoGrupo.id} type="button" className="linha linha-botao" onClick={() => abrirSessao(sessaoDoGrupo)}>
+                            <span className="texto">
+                              <span>{sessaoDoGrupo.name}</span>
+                              <span className="etiqueta">{ROTULO_DO_TIPO_DE_SESSAO[sessaoDoGrupo.kind]}</span>
+                            </span>
+                            <span className="chip">Encerrada</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </ItemOrdenavel>
+              ))}
+            </ListaOrdenavel>
+          </>
         ) : null}
       </div>
 

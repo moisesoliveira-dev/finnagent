@@ -2595,8 +2595,8 @@ const INFO_DA_OPERACAO = new Map<string, InfoDaOperacao>([
     "excluir-ocorrencia",
     "redatar-vencimentos",
   ]),
-  ...grupo("financeiro", "Grupo", ["criar-grupo", "atualizar-grupo", "remover-grupo", "permanecer-ano"]),
-  ...grupo("financeiro", "Sessão", ["criar-sessao", "atualizar-sessao", "encerrar-sessao", "remover-sessao"]),
+  ...grupo("financeiro", "Grupo", ["criar-grupo", "atualizar-grupo", "remover-grupo", "permanecer-ano", "reordenar-grupos"]),
+  ...grupo("financeiro", "Sessão", ["criar-sessao", "atualizar-sessao", "encerrar-sessao", "remover-sessao", "reordenar-sessoes"]),
   ...grupo("financeiro", "Meta", ["criar-meta", "excluir-meta", "reordenar-metas", "dividir-sobra-das-metas", "aprovar-sobra-da-meta", "reabrir-sobra-da-meta"]),
   ...grupo("financeiro", "Feriado", ["criar-feriado-local", "remover-feriado-local"]),
   ...grupo("agenda", "Compromisso", [
@@ -3605,6 +3605,20 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     destrutiva: true,
     esquema: peloIdApagando,
     rotulo: (args) => `Apagou ${args.resumo}`,
+  }),
+  ferramenta({
+    nome: "organizar_grupos",
+    agentes: ["organizacao"],
+    descricao: "Muda a ordem dos grupos, como arrastar na tela de Grupos e sessões. Mande os ids de todos os grupos, na nova ordem.",
+    esquema: z.object({ ids: z.array(idDoSistema).min(1).max(500) }),
+    rotulo: () => "Reorganizou os grupos",
+  }),
+  ferramenta({
+    nome: "organizar_sessoes_do_grupo",
+    agentes: ["organizacao"],
+    descricao: "Muda a ordem das sessões de um grupo. Mande o id do grupo e os ids de todas as sessões dele (ativas e encerradas), na nova ordem. Para mudar uma sessão de grupo, use editar_sessao.",
+    esquema: z.object({ groupId: idDoSistema, ids: z.array(idDoSistema).min(1).max(500) }),
+    rotulo: () => "Reorganizou as sessões do grupo",
   }),
   ferramenta({
     nome: "consultar_virada_do_ano",

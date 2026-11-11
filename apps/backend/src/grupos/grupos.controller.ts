@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { TIPOS_SESSAO } from "@finnagent/contracts";
@@ -37,6 +38,8 @@ const criarSessao = z.object({
   kind: z.enum(TIPOS_SESSAO),
   limitCents: limite,
 });
+const ordemDosGrupos = z.object({ ids: z.array(z.uuid()).max(500) });
+const ordemDasSessoes = z.object({ groupId: z.uuid(), ids: z.array(z.uuid()).max(500) });
 const permanecerAno = z.object({
   year: z.number().int(),
   groupIds: z.array(z.uuid()),
@@ -105,6 +108,20 @@ export class GruposController {
         pedido.description,
       ),
     );
+  }
+
+  @Put("grupos/ordem")
+  reordenarGrupos(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = ordemDosGrupos.safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Informe os grupos na nova ordem.");
+    return this.executar(() => this.grupos.reordenarGrupos(this.tenant(tenant), pedido.data.ids));
+  }
+
+  @Put("sessoes/ordem")
+  reordenarSessoes(@Headers("x-tenant-id") tenant: string | undefined, @Body() body: unknown) {
+    const pedido = ordemDasSessoes.safeParse(body);
+    if (!pedido.success) throw new BadRequestException("Informe as sessões na nova ordem.");
+    return this.executar(() => this.grupos.reordenarSessoes(this.tenant(tenant), pedido.data.groupId, pedido.data.ids));
   }
 
   @Post("sessoes")

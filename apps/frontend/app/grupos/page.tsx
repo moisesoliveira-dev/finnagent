@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ROTULO_DO_TIPO_DE_SESSAO, type GruposResposta, type TipoSessao } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { Carregando } from "../../components/ui/esqueleto";
@@ -15,6 +15,7 @@ import { Segmentado } from "../../components/ui/segmentado";
 import { useToast } from "../../components/ui/toast";
 import { campo, cn, focusRing } from "../../components/ui/cn";
 import { Icone } from "../../components/ui/icone";
+import { ItemOrdenavel, ListaOrdenavel } from "../../components/ui/ordenavel";
 import { Vazio } from "../../components/ui/vazio";
 import { CampoValor } from "../financas/campo-valor";
 import { centavosParaReais, reaisParaCentavos } from "../financas/reais";
@@ -92,6 +93,12 @@ export default function Grupos() {
   const toast = useToast();
   const [groups, setGroups] = useState<Group[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  // As encerradas não aparecem, mas entram na ordem que o backend recebe: ele pede todas as sessões do grupo.
+  const [encerradas, setEncerradas] = useState<Session[]>([]);
+  const gruposRef = useRef<Group[]>([]);
+  const sessoesRef = useRef<Session[]>([]);
+  gruposRef.current = groups;
+  sessoesRef.current = sessions;
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
   // Os grupos começam fechados: as sessões aparecem quando a pessoa abre o grupo, ou na busca.
@@ -103,26 +110,84 @@ export default function Grupos() {
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState("");
 
+  const carregar = useCallback(
+    (ativo: () => boolean = () => true) =>
+      api<GruposResposta>("/api/grupos")
+        .then((data) => {
+          if (!ativo()) return;
+          setGroups(data.groups);
+          setSessions(data.sessions.filter((session) => !session.endedAt));
+          setEncerradas(data.sessions.filter((session) => session.endedAt));
+        })
+        .catch((error: Error) => {
+          if (!ativo()) return;
+          setFalhou(true);
+          toast.erro(error.message);
+        })
+        .finally(() => {
+          if (ativo()) setReady(true);
+        }),
+    [toast],
+  );
+
   useEffect(() => {
     let active = true;
-    api<GruposResposta>("/api/grupos")
-      .then((data) => {
-        if (!active) return;
-        setGroups(data.groups);
-        setSessions(data.sessions.filter((session) => !session.endedAt));
-      })
-      .catch((error: Error) => {
-        if (!active) return;
-        setFalhou(true);
-        toast.erro(error.message);
-      })
-      .finally(() => {
-        if (active) setReady(true);
-      });
+    void carregar(() => active);
     return () => {
       active = false;
     };
-  }, [toast]);
+  }, [carregar]);
+
+  async function salvarOrdem(caminho: string, corpo: unknown) {
+    try {
+      await api<void>(caminho, { method: "PUT", body: JSON.stringify(corpo) });
+      toast.sucesso("Ordem salva.");
+    } catch (error) {
+      toast.erro(error instanceof Error ? error.message : "Não foi possível salvar a ordem.");
+      await carregar();
+    }
+  }
+
+  const soltarGrupos = () => void salvarOrdem("/api/grupos/ordem", { ids: gruposRef.current.map((group) => group.id) });
+
+  function moverGrupo(id: string, passo: -1 | 1) {
+    const lista = [...gruposRef.current];
+    const de = lista.findIndex((group) => group.id === id);
+    const para = de + passo;
+    if (de < 0 || para < 0 || para >= lista.length) return;
+    [lista[de], lista[para]] = [lista[para] as Group, lista[de] as Group];
+    gruposRef.current = lista;
+    setGroups(lista);
+    void salvarOrdem("/api/grupos/ordem", { ids: lista.map((group) => group.id) });
+  }
+
+  const idsDasSessoes = (groupId: string, ativas: Session[]) => [
+    ...ativas.map((session) => session.id),
+    ...encerradas.filter((session) => session.groupId === groupId).map((session) => session.id),
+  ];
+
+  // A ordem vale dentro do grupo: troca só as sessões dele e deixa as dos outros como estão.
+  function trocarSessoes(groupId: string, novas: Session[]) {
+    const lista = [...sessoesRef.current.filter((session) => session.groupId !== groupId), ...novas];
+    sessoesRef.current = lista;
+    setSessions(lista);
+  }
+
+  const soltarSessoes = (groupId: string) =>
+    void salvarOrdem("/api/sessoes/ordem", {
+      groupId,
+      ids: idsDasSessoes(groupId, sessoesRef.current.filter((session) => session.groupId === groupId)),
+    });
+
+  function moverSessao(groupId: string, id: string, passo: -1 | 1) {
+    const lista = sessoesRef.current.filter((session) => session.groupId === groupId);
+    const de = lista.findIndex((session) => session.id === id);
+    const para = de + passo;
+    if (de < 0 || para < 0 || para >= lista.length) return;
+    [lista[de], lista[para]] = [lista[para] as Session, lista[de] as Session];
+    trocarSessoes(groupId, lista);
+    void salvarOrdem("/api/sessoes/ordem", { groupId, ids: idsDasSessoes(groupId, lista) });
+  }
 
   function sessionsOf(groupId: string) {
     return sessions.filter((session) => session.groupId === groupId);
@@ -200,10 +265,12 @@ export default function Grupos() {
             method: "POST",
             body: JSON.stringify({ id: crypto.randomUUID(), name, description }),
           });
-      setGroups((current) => {
-        const next = current.filter((item) => item.id !== group.id);
-        return [...next, group].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-      });
+      // Editar mantém o lugar que a pessoa deu ao grupo; o novo entra no fim.
+      setGroups((current) =>
+        current.some((item) => item.id === group.id)
+          ? current.map((item) => (item.id === group.id ? group : item))
+          : [...current, group],
+      );
       setGroupDraft(null);
       setFalhou(false);
       toast.sucesso(groupDraft.id ? "Grupo salvo." : "Grupo criado.");
@@ -243,9 +310,13 @@ export default function Grupos() {
               ...corpo,
             }),
           });
+      // Editar mantém o lugar da sessão; a nova, ou a que mudou de grupo, entra no fim do grupo.
       setSessions((current) => {
-        const next = current.filter((item) => item.id !== session.id);
-        return [...next, session].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+        const anterior = current.find((item) => item.id === session.id);
+        if (anterior && anterior.groupId === session.groupId) {
+          return current.map((item) => (item.id === session.id ? session : item));
+        }
+        return [...current.filter((item) => item.id !== session.id), session];
       });
       setSessionDraft(null);
       // A sessão salva aparece: o grupo dela abre.
@@ -370,10 +441,17 @@ export default function Grupos() {
         {ready && !falhou && groups.length > 0 && visiveis.length === 0 ? (
           <Vazio>Nenhum grupo ou sessão encontrado.</Vazio>
         ) : null}
+        <ListaOrdenavel itens={groups} aoMudar={setGroups} desligada={Boolean(termo)} className="grid min-w-0 gap-6">
         {visiveis.map(({ group, sessions: sessoesVisiveis }) => (
           <GroupCard
             key={group.id}
             group={group}
+            ordenavel={!termo}
+            onSoltar={soltarGrupos}
+            onMover={(passo) => moverGrupo(group.id, passo)}
+            onReordenarSessoes={(novas) => trocarSessoes(group.id, novas)}
+            onSoltarSessoes={() => soltarSessoes(group.id)}
+            onMoverSessao={(id, passo) => moverSessao(group.id, id, passo)}
             sessions={sessoesVisiveis}
             closed={termo ? false : !abertos[group.id]}
             onToggle={() => toggle(group.id)}
@@ -394,6 +472,7 @@ export default function Grupos() {
             }}
           />
         ))}
+        </ListaOrdenavel>
       </div>
 
       <Dialogo
@@ -662,6 +741,12 @@ function GroupCard({
   description,
   sessions,
   closed,
+  ordenavel,
+  onSoltar,
+  onMover,
+  onReordenarSessoes,
+  onSoltarSessoes,
+  onMoverSessao,
   onToggle,
   onEdit,
   onAdd,
@@ -672,11 +757,18 @@ function GroupCard({
   bodyId,
   headingId,
 }: {
-  group?: Group;
+  group: Group;
   title?: string;
   description?: string;
   sessions: Session[];
   closed: boolean;
+  /** Com a busca ligada, a ordem não muda: a lista mostra só parte dos itens. */
+  ordenavel: boolean;
+  onSoltar: () => void;
+  onMover: (passo: -1 | 1) => void;
+  onReordenarSessoes: (sessoes: Session[]) => void;
+  onSoltarSessoes: () => void;
+  onMoverSessao: (id: string, passo: -1 | 1) => void;
   onToggle: () => void;
   onEdit?: () => void;
   onAdd?: () => void;
@@ -687,16 +779,29 @@ function GroupCard({
   bodyId?: string;
   headingId?: string;
 }) {
-  const name = group?.name ?? title ?? "";
-  const detail = group?.description ?? description ?? "";
-  const id = headingId ?? group?.id ?? "grupo";
+  const name = group.name ?? title ?? "";
+  const detail = group.description ?? description ?? "";
+  const id = headingId ?? group.id ?? "grupo";
   const panelId = bodyId ?? `${id}-body`;
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface" aria-labelledby={id}>
+    <ItemOrdenavel
+      as="section"
+      valor={group}
+      nome={name}
+      desligado={!ordenavel}
+      rotuloId={id}
+      aoSoltar={onSoltar}
+      aoMover={onMover}
+      className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface"
+    >
+      {(alca) => (
+    <>
       <div className="grid gap-3 p-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 tab:flex-nowrap">
-          <h2 id={id} className="w-full min-w-0 font-display text-lg tab:w-auto tab:flex-1">
+          <div className="flex w-full min-w-0 items-center gap-1 tab:w-auto tab:flex-1">
+          {alca}
+          <h2 id={id} className="min-w-0 flex-1 font-display text-lg">
             <button
               type="button"
               className={`flex min-h-10 w-full min-w-0 items-center gap-3 bg-transparent text-left tab:w-auto ${focusRing}`}
@@ -711,6 +816,7 @@ function GroupCard({
               </Chip>
             </button>
           </h2>
+          </div>
           {onEdit || (onAdd && sessions.length > 0) || onRemove ? (
             <div className="flex flex-wrap gap-2">
               {onEdit ? <IconButton label="Editar grupo" onClick={onEdit} icon="edit" /> : null}
@@ -745,13 +851,21 @@ function GroupCard({
             </div>
           </div>
         ) : (
-          <ul className="border-t border-line">
+          <ListaOrdenavel as="ul" itens={sessions} aoMudar={onReordenarSessoes} desligada={!ordenavel} className="border-t border-line">
             {sessions.map((session) => (
-              <li
+              <ItemOrdenavel
+                as="li"
                 key={session.id}
-                className="flex min-w-0 gap-3 border-b border-line px-4 py-3 last:border-b-0"
+                valor={session}
+                nome={session.name}
+                desligado={!ordenavel}
+                aoSoltar={onSoltarSessoes}
+                aoMover={(passo) => onMoverSessao(session.id, passo)}
+                className="flex min-w-0 gap-3 border-b border-line bg-surface px-4 py-3 last:border-b-0"
               >
-                <span className="size-2 shrink-0" aria-hidden="true" />
+                {(alcaDaSessao) => (
+                <>
+                {alcaDaSessao ?? <span className="size-2 shrink-0" aria-hidden="true" />}
                 <div className="flex min-w-0 flex-1 flex-col gap-3 tab:flex-row tab:items-start tab:justify-between">
                   <div className="grid min-w-0 gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -818,11 +932,15 @@ function GroupCard({
                     />
                   </div>
                 </div>
-              </li>
+                </>
+                )}
+              </ItemOrdenavel>
             ))}
-          </ul>
+          </ListaOrdenavel>
         )}
       </Expandir>
-    </section>
+    </>
+      )}
+    </ItemOrdenavel>
   );
 }
