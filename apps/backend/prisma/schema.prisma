@@ -13,6 +13,8 @@ model Group {
   tenantId    String    @map("tenant_id")
   name        String
   description String    @default("")
+  // A ordem que a pessoa escolheu arrastando; 1 é o primeiro.
+  position    Int       @default(0)
   sessions    Session[]
 
   @@unique([tenantId, name])
@@ -33,6 +35,8 @@ model Session {
   kind          String            @default("acumulo")
   // Acúmulo: o teto de saídas por mês. Sem valor, sem limite.
   limitCents    Int?              @map("limit_cents")
+  // A ordem dentro do grupo, escolhida arrastando; 1 é a primeira.
+  position      Int               @default(0)
   group         Group             @relation(fields: [groupId], references: [id], onDelete: Restrict)
   entries       Entry[]
   additions     SessionAddition[]
