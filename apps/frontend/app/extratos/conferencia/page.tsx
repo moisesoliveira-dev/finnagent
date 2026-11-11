@@ -26,6 +26,7 @@ import { Dialogo } from "../../../components/ui/dialogo";
 import { Carregando } from "../../../components/ui/esqueleto";
 import { Chip } from "../../../components/ui/chip";
 import { caixaDeMarcar, campo, cn } from "../../../components/ui/cn";
+import { FimDaJanela } from "../../../components/ui/janela";
 import { Segmentado } from "../../../components/ui/segmentado";
 import { formatarReais, Money } from "../../../components/ui/money";
 import { AnimatePresence, motion } from "motion/react";
@@ -42,6 +43,8 @@ import { ROTULO_CATEGORIA, tomDaCategoria } from "../../financas/rotulos";
 
 const field = campo;
 const LINHAS_POR_PEDIDO_DO_LOTE = 8;
+/** As linhas desenhadas de cada vez. */
+const LINHAS_POR_JANELA = 20;
 
 type Situacao = "todas" | "abertas" | "cruzadas" | "propostas" | "ignoradas";
 type Movimento = "todos" | "entradas" | "saidas";
@@ -148,6 +151,11 @@ export default function Conferencia() {
   const [conta, setConta] = useState("");
   const [arquivo, setArquivo] = useState("");
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>({});
+  // Quantas linhas estão desenhadas. O mês pode ter centenas: o resto aparece ao rolar. Os totais e as ações em lote
+  // usam sempre a lista inteira.
+  const [limite, setLimite] = useState(LINHAS_POR_JANELA);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  useEffect(() => setLimite(LINHAS_POR_JANELA), [busca, situacao, movimento, conta, arquivo, year, month]);
   // A mesma compra em outros meses importados: a série que vai nascer de uma linha, ou uma que já existe.
   const [serieNova, setSerieNova] = useState<{ linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; nome?: string; pedido: PedidoDaSerie } | null>(null);
   const [serieExistente, setSerieExistente] = useState<{ serie: SerieComLinhas; pedido: PedidoDaSerie } | null>(null);
@@ -688,12 +696,22 @@ export default function Conferencia() {
   const saidas = ativas.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);
   const cruzadas = ativas.filter((linha) => linha.link).length;
   const ordenadas = [...filtradas].sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
-  const dias = ordenadas.reduce<{ data: string; itens: LinhaConferencia[] }[]>((grupos, linha) => {
+  const dias = ordenadas.slice(0, limite).reduce<{ data: string; itens: LinhaConferencia[] }[]>((grupos, linha) => {
     const atual = grupos.at(-1);
     if (atual?.data === linha.date) atual.itens.push(linha);
     else grupos.push({ data: linha.date, itens: [linha] });
     return grupos;
   }, []);
+  // O cabeçalho de cada dia conta o dia inteiro, mesmo quando só parte das linhas dele está desenhada.
+  const totaisDoDia = new Map<string, { entradas: number; saidas: number; quantas: number }>();
+  for (const linha of ordenadas) {
+    const total = totaisDoDia.get(linha.date) ?? { entradas: 0, saidas: 0, quantas: 0 };
+    if (linha.cents > 0) total.entradas += linha.cents;
+    else total.saidas += linha.cents;
+    total.quantas += 1;
+    totaisDoDia.set(linha.date, total);
+  }
+  const filtrosAvancados = (movimento !== "todos" ? 1 : 0) + (conta ? 1 : 0) + (arquivo ? 1 : 0);
 
   return (
     <>
@@ -816,18 +834,31 @@ export default function Conferencia() {
                 setBusca(event.target.value);
               }}
             />
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmentado
-                opcoes={situacoes.map((item) =>
-                  item.id === "ignoradas" && ignoradas > 0 ? { ...item, label: `Ignoradas ${ignoradas}` } : item,
-                )}
-                valor={situacao}
-                aria-label="Situação"
-                onEscolher={(valor) => {
-                  setSituacao(valor);
-                  setMarcadas({});
-                }}
-              />
+            <div className="grid min-w-0 gap-2 tab:flex tab:flex-wrap tab:items-center">
+              {/* No celular as situações são chips que rolam de lado, e o resto dos filtros fica atrás do botão. */}
+              <div className="-mx-4 min-w-0 overflow-x-auto px-4 tab:mx-0 tab:overflow-visible tab:px-0">
+                <Segmentado
+                  className="flex-nowrap tab:flex-wrap"
+                  opcoes={situacoes.map((item) =>
+                    item.id === "ignoradas" && ignoradas > 0 ? { ...item, label: `Ignoradas ${ignoradas}` } : item,
+                  )}
+                  valor={situacao}
+                  aria-label="Situação"
+                  onEscolher={(valor) => {
+                    setSituacao(valor);
+                    setMarcadas({});
+                  }}
+                />
+              </div>
+              <Button
+                className="justify-self-start tab:hidden"
+                aria-expanded={filtrosAbertos}
+                aria-controls="filtros-avancados"
+                onClick={() => setFiltrosAbertos((aberto) => !aberto)}
+              >
+                {filtrosAvancados > 0 ? `Filtros (${filtrosAvancados})` : "Filtros"}
+              </Button>
+              <div id="filtros-avancados" className={cn("grid gap-2 tab:flex tab:flex-wrap tab:items-center", filtrosAbertos ? "" : "hidden tab:flex")}>
               <select
                 className={cn(field, "w-full min-w-0 tab:w-auto tab:max-w-full")}
                 aria-label="Movimento"
@@ -874,6 +905,7 @@ export default function Conferencia() {
                   ))}
                 </select>
               ) : null}
+              </div>
             </div>
           </div>
           {abertasFiltradas.length ? (
@@ -941,11 +973,13 @@ export default function Conferencia() {
             </motion.div>
           ) : null}
           {dias.length ? (
+            <>
             <div className="grid min-w-0 gap-8">
               {dias.map((grupo) => {
                 const [, mesDoDia, numeroDoDia] = grupo.data.split("-");
-                const entradasDia = grupo.itens.reduce((soma, linha) => soma + (linha.cents > 0 ? linha.cents : 0), 0);
-                const saidasDia = grupo.itens.reduce((soma, linha) => soma + (linha.cents < 0 ? linha.cents : 0), 0);
+                const totalDoDia = totaisDoDia.get(grupo.data) ?? { entradas: 0, saidas: 0, quantas: grupo.itens.length };
+                const entradasDia = totalDoDia.entradas;
+                const saidasDia = totalDoDia.saidas;
                 return (
                   <section
                     key={grupo.data}
@@ -956,7 +990,7 @@ export default function Conferencia() {
                       <span className="font-display text-xl font-bold tracking-titulo">{numeroDoDia}</span>
                       <span className="etiqueta text-ink-2">{meses[Number(mesDoDia) - 1]?.slice(0, 3)}</span>
                       <span className="etiqueta ml-auto flex gap-2 text-ink-2 tab:hidden">
-                        {grupo.itens.length === 1 ? "1 linha" : `${grupo.itens.length} linhas`}
+                        {totalDoDia.quantas === 1 ? "1 linha" : `${totalDoDia.quantas} linhas`}
                         <Money cents={entradasDia + saidasDia} />
                       </span>
                     </header>
@@ -1208,6 +1242,14 @@ export default function Conferencia() {
                 );
               })}
             </div>
+            <FimDaJanela
+              mostradas={limite}
+              total={ordenadas.length}
+              porVez={LINHAS_POR_JANELA}
+              aoMostrarMais={() => setLimite((atual) => atual + LINHAS_POR_JANELA)}
+              aoMostrarTodas={() => setLimite(ordenadas.length)}
+            />
+            </>
           ) : (
             <p className="border border-line bg-surface px-6 py-8 text-center text-ink-2">
               {linhas.length

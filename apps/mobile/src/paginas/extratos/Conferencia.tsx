@@ -26,12 +26,13 @@ import {
 } from "@finnagent/contracts";
 import { cashOutline, checkmarkCircleOutline, chevronDown, closeOutline, searchOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { diaEMes } from "../../api/arquivo";
 import { enviar } from "../../api/cliente";
 import { centavosDe, reais, rotuloDoMes } from "../../api/formato";
 import { Campo, CampoDeValor } from "../../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
+import { FimDaJanela } from "../../componentes/FimDaJanela";
 import { Folha } from "../../componentes/Folha";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA } from "../financas/rotulos";
 import { FolhaDaSerie, type PedidoDaSerie } from "./Serie";
@@ -85,6 +86,9 @@ const rotuloDoCandidato = (vinculo: VinculoCruzado) => `${tipoDaCategoria(vincul
 // Fixa, parcela e empréstimo com valor diferente do extrato: a pessoa diz qual valor vale neste mês.
 const pedeValorDoMes = (candidato: VinculoCruzado, cents: number) => categoriaDeCompromisso(candidato.category) && candidato.cents !== cents;
 
+/** As linhas desenhadas de cada vez. */
+const LINHAS_POR_JANELA = 20;
+
 export function Conferencia() {
   const [avisar] = useIonToast();
   const { mes, direcao, mudar } = useMes();
@@ -99,7 +103,11 @@ export function Conferencia() {
 
   const [situacao, setSituacao] = useState<Situacao>("todas");
   const [busca, setBusca] = useState("");
+  // Quantas linhas estão desenhadas. O mês pode ter centenas: o resto aparece ao rolar. Os totais e as ações em lote
+  // usam sempre a lista inteira.
+  const [limite, setLimite] = useState(LINHAS_POR_JANELA);
   const [aberta, setAberta] = useState("");
+  useEffect(() => setLimite(LINHAS_POR_JANELA), [busca, situacao, mes.ano, mes.mes]);
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
@@ -342,8 +350,9 @@ export function Conferencia() {
     if (situacao === "propostas" && !linha.suggestion) return false;
     return true;
   });
-  const dias = [...filtradas]
-    .sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line)
+  const ordenadas = [...filtradas].sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
+  const dias = ordenadas
+    .slice(0, limite)
     .reduce<Array<{ data: string; itens: LinhaConferencia[] }>>((grupo, linha) => {
       const ultimo = grupo[grupo.length - 1];
       if (ultimo?.data === linha.date) ultimo.itens.push(linha);
@@ -607,6 +616,14 @@ export function Conferencia() {
                 </div>
               </Bloco>
             ))}
+
+            <FimDaJanela
+              mostradas={limite}
+              total={ordenadas.length}
+              porVez={LINHAS_POR_JANELA}
+              aoMostrarMais={() => setLimite((atual) => atual + LINHAS_POR_JANELA)}
+              aoMostrarTodas={() => setLimite(ordenadas.length)}
+            />
 
             <AnimatePresence>
               {comSessao.length > 0 ? (
