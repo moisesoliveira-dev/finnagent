@@ -1,12 +1,13 @@
 import { IonAlert, IonButton, IonButtons, IonIcon, useIonToast, useIonViewWillEnter } from "@ionic/react";
 import { REPETICOES_DE_TAREFA, ROTULO_DA_REPETICAO } from "@finnagent/contracts";
-import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, RepeticaoDeTarefa, SessaoDaAgenda, Tarefa, VencimentoDoDia } from "@finnagent/contracts";
+import type { CompromissoDoDia, HojeResposta, PendenciaDoDia, PerguntaDeGasto, RepeticaoDeTarefa, SessaoDaAgenda, SobraLivre, Tarefa, UsoDoLimite, VencimentoDoDia } from "@finnagent/contracts";
 import { addOutline, arrowDown, arrowUp, cashOutline, chevronBack, chevronForward, createOutline, pricetagOutline, sunnyOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { Fragment, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { enviar, pedir } from "../api/cliente";
 import { reais } from "../api/formato";
+import { BarraDeUso } from "../componentes/BarraDeUso";
 import { Campo } from "../componentes/Campo";
 import { Deslizar, type AcaoDeslizada } from "../componentes/Deslizar";
 import { Data } from "../componentes/Data";
@@ -246,6 +247,7 @@ export function Hoje() {
 
           {dados ? (
             <Cascata className="pagina sem-margem">
+              {dados.livre ? <Livre livre={dados.livre} limites={dados.limites ?? []} /> : null}
               {total > 0 ? (
                 <Bloco className="cartao">
                   <div className="titulo-do-dia">
@@ -490,6 +492,47 @@ export function Hoje() {
         onDidDismiss={() => setItemDe(null)}
       />
     </Pagina>
+  );
+}
+
+/**
+ * O que a pessoa tem livre até o fim do mês e quanto isso dá por dia, mais as sessões com limite e o quanto cada uma já
+ * usou: o número que orienta o gasto de hoje. É o mesmo bloco da Hoje da web.
+ */
+function Livre({ livre, limites }: { livre: SobraLivre; limites: UsoDoLimite[] }) {
+  const partes = [
+    `Neste mês ${reais(livre.monthCents)}`,
+    livre.carriedCents !== 0 ? `de antes ${reais(livre.carriedCents)}` : "",
+    livre.separatedCents !== 0 ? `separado nas metas ${reais(livre.separatedCents)}` : "",
+  ].filter(Boolean);
+  return (
+    <Bloco className="cartao" >
+      <div className="titulo-do-dia">
+        <span className="etiqueta">Livre até o fim do mês</span>
+        <span className="fraco">{livre.daysLeft === 1 ? "último dia" : `${livre.daysLeft} dias`}</span>
+      </div>
+      <Dinheiro cents={livre.cents} forte animado />
+      {livre.cents > 0 ? <span className="fraco">{reais(livre.perDayCents)} por dia</span> : <span className="erro">Sem folga: as saídas do mês já passam das entradas.</span>}
+      <span className="fraco">{partes.join(" · ")}.</span>
+      {limites.length > 0 ? (
+        <div className="secao" aria-label="Limites das sessões">
+          <span className="etiqueta">Limites das sessões</span>
+          {limites.map((uso) => (
+            <div key={uso.sessionId} className="secao" style={{ gap: 4 }}>
+              <div className="titulo-do-dia">
+                <span>
+                  {uso.sessionName} <span className="fraco">· {uso.groupName}</span>
+                </span>
+                <span className={`fraco${uso.percent >= 100 ? " neg" : ""}`}>
+                  {reais(uso.usedCents)} de {reais(uso.limitCents)}
+                </span>
+              </div>
+              <BarraDeUso percent={uso.percent} rotulo={`${uso.sessionName}: ${uso.percent}% do limite`} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Bloco>
   );
 }
 

@@ -155,6 +155,8 @@ export default function Conferencia() {
   // usam sempre a lista inteira.
   const [limite, setLimite] = useState(LINHAS_POR_JANELA);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  // No celular, cada linha mostra o essencial; as outras opções abrem por linha em "Mais opções".
+  const [expandidas, setExpandidas] = useState<Record<string, boolean>>({});
   useEffect(() => setLimite(LINHAS_POR_JANELA), [busca, situacao, movimento, conta, arquivo, year, month]);
   // A mesma compra em outros meses importados: a série que vai nascer de uma linha, ou uma que já existe.
   const [serieNova, setSerieNova] = useState<{ linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; nome?: string; pedido: PedidoDaSerie } | null>(null);
@@ -998,6 +1000,8 @@ export default function Conferencia() {
                       <AnimatePresence initial={false}>
                         {grupo.itens.map((linha) => {
                           const chave = chaveDa(linha);
+                          // Com sugestão, o cruzamento já vem à mostra: é o caminho principal da linha.
+                          const detalhes = expandidas[chave] === true || Boolean(linha.suggestion);
                           const marcada = marcadas[chave] === true && !linha.link;
                           const lateral = linha.link
                             ? "border-l-pos"
@@ -1104,8 +1108,18 @@ export default function Conferencia() {
                                   {ocupado === chave ? "Lançando" : "Acumular"}
                                 </Button>
                               )}
+                              {!linha.link && !linha.ignored && !linha.suggestion ? (
+                                <Button
+                                  variant="quiet"
+                                  className="col-span-2 col-start-2 justify-self-start tab:hidden"
+                                  aria-expanded={detalhes}
+                                  onClick={() => setExpandidas((atual) => ({ ...atual, [chave]: !detalhes }))}
+                                >
+                                  {detalhes ? "Menos opções" : "Mais opções"}
+                                </Button>
+                              ) : null}
                               {!linha.link && !linha.ignored ? (
-                                <div className="col-span-2 col-start-2 grid min-w-0 gap-2">
+                                <div className={cn("col-span-2 col-start-2 min-w-0 gap-2", detalhes ? "grid" : "hidden tab:grid")}>
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                                     <input
                                       className={cn(field, "min-w-0 flex-1")}
@@ -1141,7 +1155,7 @@ export default function Conferencia() {
                                 </div>
                               ) : null}
                               {!linha.link && linha.candidates.length ? (
-                                <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2">
+                                <div className={cn("col-span-2 col-start-2 row-start-3 flex-wrap items-center gap-2", detalhes ? "flex" : "hidden tab:flex")}>
                                   <select
                                     className={cn(field, "w-full min-w-0 flex-1 desk:w-auto")}
                                     aria-label={`Lançamento para ${linha.description || "a linha"}`}
