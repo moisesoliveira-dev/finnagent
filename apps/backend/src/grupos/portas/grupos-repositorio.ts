@@ -45,6 +45,10 @@ export interface GruposRepositorio {
     kind?: TipoSessao,
   ): Promise<Sessao | FalhaDeSessao | "ausente" | "tipo">;
   removerSessao(tenantId: string, id: string, endedAt: string): Promise<boolean>;
+  /** A ordem dos grupos: todos os ids do tenant, na ordem nova. "diferente": a lista não é a dos grupos que existem. */
+  reordenarGrupos(tenantId: string, ids: string[]): Promise<"ok" | "diferente">;
+  /** A ordem das sessões de um grupo: todos os ids dele (ativas e encerradas), na ordem nova. */
+  reordenarSessoes(tenantId: string, groupId: string, ids: string[]): Promise<"ok" | "diferente" | "grupo-ausente">;
   consultarVirada(tenantId: string): Promise<ViradaResposta>;
   permanecer(
     tenantId: string,

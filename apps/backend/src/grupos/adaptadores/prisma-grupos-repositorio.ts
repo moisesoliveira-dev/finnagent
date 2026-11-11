@@ -89,12 +89,12 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
     const db = this.banco();
     const groups = await db.group.findMany({
       where: { tenantId },
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true, description: true },
     });
     const sessions = await db.session.findMany({
       where: { tenantId },
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: sessaoCompleta,
     });
     return { groups, sessions: sessions.map(sessaoDe) };
@@ -110,7 +110,11 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       }
       const ocupado = await nomeDeGrupoOcupado(tx, tenantId, name);
       if (ocupado) return "nome" as const;
-      const criado = await tx.group.create({ data: { id, tenantId, name, description } });
+      // O grupo novo entra no fim da ordem escolhida.
+      const ultimo = await tx.group.aggregate({ where: { tenantId }, _max: { position: true } });
+      const criado = await tx.group.create({
+        data: { id, tenantId, name, description, position: (ultimo._max.position ?? 0) + 1 },
+      });
       await gravarOutbox(tx, tenantId, "criar-grupo", id, { id, name, description });
       return grupoDe(criado);
     });
@@ -205,6 +209,8 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
           cents,
           startedAt: dataPrisma(startedAt),
           endedAt: null,
+          // A sessão nova entra no fim do grupo.
+          position: ((await tx.session.aggregate({ where: { tenantId, groupId: dados.groupId }, _max: { position: true } }))._max.position ?? 0) + 1,
           ...gravacao(dados),
         },
       });
@@ -246,9 +252,14 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
         });
         if (!podeTrocarDeTipo(tipoAtual, kind, comMeses)) return "tipo" as const;
       }
+      // Mudou de grupo: entra no fim do novo.
+      const noFim =
+        atual.groupId === dados.groupId
+          ? {}
+          : { position: ((await tx.session.aggregate({ where: { tenantId, groupId: dados.groupId }, _max: { position: true } }))._max.position ?? 0) + 1 };
       const gravadas = await tx.session.updateMany({
         where: { id, tenantId },
-        data: trocou ? { ...gravacao(dados), kind } : gravacao(dados),
+        data: { ...(trocou ? { ...gravacao(dados), kind } : gravacao(dados)), ...noFim },
       });
       if (gravadas.count !== 1) return "ausente" as const;
       const salva = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
@@ -256,6 +267,33 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
       const payload = trocou ? { id, ...dados, kind } : { id, ...dados };
       await gravarOutbox(tx, tenantId, "atualizar-sessao", id, payload, marcaDe(payload));
       return sessaoDe(salva);
+    });
+  }
+
+  async reordenarGrupos(tenantId: string, ids: string[]) {
+    return this.banco().$transaction(async (tx) => {
+      const atuais = await tx.group.findMany({ where: { tenantId }, select: { id: true } });
+      const mesmos = atuais.length === ids.length && new Set(ids).size === ids.length && atuais.every((grupo) => ids.includes(grupo.id));
+      if (!mesmos) return "diferente" as const;
+      for (const [indice, id] of ids.entries()) {
+        await tx.group.updateMany({ where: { id, tenantId }, data: { position: indice + 1 } });
+      }
+      await gravarOutbox(tx, tenantId, "reordenar-grupos", "ordem", { ids }, marcaDe(ids));
+      return "ok" as const;
+    });
+  }
+
+  async reordenarSessoes(tenantId: string, groupId: string, ids: string[]) {
+    return this.banco().$transaction(async (tx) => {
+      if (!(await tx.group.findFirst({ where: { id: groupId, tenantId }, select: { id: true } }))) return "grupo-ausente" as const;
+      const atuais = await tx.session.findMany({ where: { tenantId, groupId }, select: { id: true } });
+      const mesmas = atuais.length === ids.length && new Set(ids).size === ids.length && atuais.every((sessao) => ids.includes(sessao.id));
+      if (!mesmas) return "diferente" as const;
+      for (const [indice, id] of ids.entries()) {
+        await tx.session.updateMany({ where: { id, tenantId, groupId }, data: { position: indice + 1 } });
+      }
+      await gravarOutbox(tx, tenantId, "reordenar-sessoes", groupId, { groupId, ids }, marcaDe(ids));
+      return "ok" as const;
     });
   }
 

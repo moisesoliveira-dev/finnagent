@@ -63,6 +63,19 @@ export class GruposService {
     return resultado;
   }
 
+  /** A ordem dos grupos que a pessoa arrastou. Todos os grupos, na ordem nova. */
+  async reordenarGrupos(tenantId: string, ids: string[]) {
+    const resultado = await this.grupos.reordenarGrupos(tenantId, ids);
+    if (resultado === "diferente") throw new PedidoInvalido("A lista precisa ter todos os grupos, uma vez cada.");
+  }
+
+  /** A ordem das sessões de um grupo. Todas as sessões dele, na ordem nova. */
+  async reordenarSessoes(tenantId: string, groupId: string, ids: string[]) {
+    const resultado = await this.grupos.reordenarSessoes(tenantId, groupId, ids);
+    if (resultado === "grupo-ausente") throw new NaoEncontrado("Grupo não encontrado.");
+    if (resultado === "diferente") throw new PedidoInvalido("A lista precisa ter todas as sessões do grupo, uma vez cada.");
+  }
+
   async removerGrupo(tenantId: string, id: string) {
     const removido = await this.grupos.removerGrupo(tenantId, id);
     if (!removido) throw new NaoEncontrado("Grupo não encontrado.");
