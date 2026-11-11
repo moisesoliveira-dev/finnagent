@@ -3509,7 +3509,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "adiantar_parcelas",
     agentes: ["financas"],
-    descricao: "Adianta as parcelas restantes de um parcelamento.",
+    descricao:
+      "Marca como paga a próxima parcela pendente do parcelamento, no valor previsto e sem pedir data nem valor: adianta uma parcela por chamada. Para pagar com a data e o valor reais, ou várias de uma vez, use registrar_pagamento.",
     esquema: peloId,
     rotulo: () => "Adiantou as parcelas",
   }),
@@ -3524,7 +3525,8 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
   ferramenta({
     nome: "adiantar_emprestimo",
     agentes: ["financas"],
-    descricao: "Quita adiantado o restante de um empréstimo.",
+    descricao:
+      "Marca como paga a próxima parcela pendente do empréstimo, no valor previsto e sem pedir data nem valor: adianta uma parcela por chamada. Para pagar com a data e o valor reais, ou o saldo todo, use registrar_pagamento.",
     esquema: peloId,
     rotulo: () => "Adiantou o empréstimo",
   }),
