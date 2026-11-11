@@ -1,3 +1,5 @@
+import { lerReais } from "@finnagent/contracts";
+
 const formato = new Intl.NumberFormat("pt-BR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -22,20 +24,10 @@ export function proximaMascara(anterior: string, texto: string) {
   return mascaraDeValor(novos);
 }
 
+/** O valor digitado em centavos; zero, vazio e o que não é valor são null ("Informe o valor"). A leitura é a do contrato. */
 export function reaisParaCentavos(texto: string) {
-  const limpo = texto.trim().replace(/\s/g, "");
-  if (!limpo) return null;
-  const negativo = limpo.startsWith("-") || limpo.startsWith("−");
-  let corpo = limpo.replace(/^[-−]/, "");
-  if (corpo.includes(",")) corpo = corpo.replace(/\./g, "").replace(",", ".");
-  else if (!/^\d+\.\d{1,2}$/.test(corpo)) corpo = corpo.replace(/\./g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(corpo)) return null;
-  const [inteiro, frac = ""] = corpo.split(".");
-  const cents = Number(inteiro) * 100 + Number(frac.padEnd(2, "0"));
-  if (!Number.isSafeInteger(cents) || cents > 2_147_483_647) return null;
-  const valor = negativo ? -cents : cents;
-  if (valor === 0) return null;
-  return valor;
+  const valor = lerReais(texto);
+  return valor === 0 ? null : valor;
 }
 
 export function centavosParaReais(cents: number) {

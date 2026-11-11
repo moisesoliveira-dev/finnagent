@@ -1,5 +1,5 @@
 import { IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonModal, IonTitle, IonToolbar } from "@ionic/react";
-import { ROTULO_DO_TIPO_DE_CONTA, TIPOS_DE_CONTA, type Conta, type TipoDeConta } from "@finnagent/contracts";
+import { ROTULO_DO_TIPO_DE_CONTA, TIPOS_DE_CONTA, lerReais, type Conta, type TipoDeConta } from "@finnagent/contracts";
 import { calendarOutline, cardOutline, cashOutline, closeOutline, walletOutline } from "ionicons/icons";
 import { useState } from "react";
 import { enviar } from "../../api/cliente";
@@ -7,12 +7,9 @@ import { Campo } from "../../componentes/Campo";
 import { Selecao } from "../../componentes/Selecao";
 import { hojeIso } from "./movimentos";
 
-/** Reais digitados ("1.234,56" ou "1234.56") em centavos. null quando não é número. */
-function centavosDe(texto: string) {
-  const limpo = texto.trim().replace(/\./g, "").replace(",", ".");
-  if (!limpo) return 0;
-  const valor = Number(limpo);
-  return Number.isFinite(valor) ? Math.round(valor * 100) : null;
+/** O saldo digitado em centavos, com sinal (a conta pode estar no vermelho). Vazio é zero; null quando não é número. */
+function saldoDe(texto: string) {
+  return texto.trim() ? lerReais(texto) : 0;
 }
 
 /** Cria uma conta ou um cartão pelo celular: nome, tipo, saldo de hoje e, no cartão, fechamento, vencimento e limite. */
@@ -41,8 +38,8 @@ export function NovaConta({ aberta, aoFechar, aoCriada }: { aberta: boolean; aoF
 
   async function salvar() {
     if (salvando) return;
-    const openingCents = centavosDe(saldo);
-    const limitCents = cartao && limite.trim() ? centavosDe(limite) : null;
+    const openingCents = saldoDe(saldo);
+    const limitCents = cartao && limite.trim() ? lerReais(limite) : null;
     const dia = (texto: string) => (texto.trim() ? Number(texto) : null);
     if (!name.trim()) return setErro("Dê um nome à conta.");
     if (openingCents === null) return setErro("Informe o saldo de hoje em reais.");

@@ -330,6 +330,25 @@ export function modoDoValor(cents: number): ModoTransacao {
   return cents > 0 ? "inflows" : "outflows";
 }
 
+/**
+ * Reais digitados em centavos, com sinal. Vale "1.234,56", "1234.56", "-50" e "R$ 12,5": com vírgula, o ponto é de
+ * milhar; sem vírgula, "12.5" e "12.50" são decimais e "1.234" é milhar. null quando não é um valor (letras, mais de
+ * duas casas) ou passa do que o banco guarda. É a única leitura de reais do sistema: a web e o celular a usam.
+ */
+export function lerReais(texto: string): number | null {
+  const limpo = texto.trim().replace(/\s|R\$/g, "");
+  if (!limpo) return null;
+  const negativo = limpo.startsWith("-") || limpo.startsWith("−");
+  let corpo = limpo.replace(/^[-−]/, "");
+  if (corpo.includes(",")) corpo = corpo.replace(/\./g, "").replace(",", ".");
+  else if (!/^\d+\.\d{1,2}$/.test(corpo)) corpo = corpo.replace(/\./g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(corpo)) return null;
+  const [inteiro = "", fracao = ""] = corpo.split(".");
+  const centavos = Number(inteiro) * 100 + Number(fracao.padEnd(2, "0"));
+  if (!Number.isSafeInteger(centavos) || centavos > 2_147_483_647) return null;
+  return negativo && centavos ? -centavos : centavos;
+}
+
 export function centavosComSinal(cents: number, mode: ModoTransacao) {
   const absoluto = Math.abs(cents);
   return mode === "outflows" ? -absoluto : absoluto;

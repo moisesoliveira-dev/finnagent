@@ -66,7 +66,8 @@ export function DetalheDaConta() {
   // Da atual (a aberta) para as mais antigas: a atual fica em destaque, as anteriores na lista.
   const faturas = conta && cartao ? [...faturasDoCartao(conta, entries, hoje)].reverse() : [];
   const faturaAtual = faturas[0];
-  const anteriores = faturas.slice(1);
+  // Como na web: a fatura anterior sem compra, sem total e sem pagamento não aparece.
+  const anteriores = faturas.slice(1).filter((fatura) => fatura.itens > 0 || fatura.totalCents !== 0 || fatura.paidCents > 0);
   const listaDeMetas = metas.dados?.goals ?? [];
   const limite = conta && cartao ? limiteDoCartao(conta, entries, hoje) : null;
   const chaveDoMes = `${mes.ano}-${String(mes.mes).padStart(2, "0")}`;
