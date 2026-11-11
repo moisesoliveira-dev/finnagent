@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ROTULO_DO_TIPO_DE_CONTA, TIPOS_DE_CONTA, type Conta, type TipoDeConta } from "@finnagent/contracts";
+import { ROTULO_DO_TIPO_DE_CONTA, TIPOS_DE_CONTA, lerReais, type Conta, type TipoDeConta } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
-import { campo, cn } from "../../components/ui/cn";
+import { caixaDeMarcar, campo, cn } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
 import { Rotulo } from "../../components/ui/rotulo";
 import { useToast } from "../../components/ui/toast";
@@ -55,6 +55,8 @@ function Corpo({
   const [name, setName] = useState(conta?.name ?? "");
   const [kind, setKind] = useState<TipoDeConta>(conta?.kind ?? tipoInicial);
   const [opening, setOpening] = useState(conta ? centavosParaReais(conta.openingCents) : "");
+  // O campo só mostra o valor, sem sinal. Conta no vermelho guarda o sinal aqui, para editar não virar saldo positivo.
+  const [negativo, setNegativo] = useState(conta ? conta.openingCents < 0 : false);
   // Conta antiga sem data continua sem data até a pessoa escolher uma.
   const [openingOn, setOpeningOn] = useState(conta ? (conta.openingOn ?? "") : hoje);
   const [closingDay, setClosingDay] = useState(conta?.closingDay ? String(conta.closingDay) : "");
@@ -66,11 +68,13 @@ function Corpo({
   async function salvar(event: React.FormEvent) {
     event.preventDefault();
     if (salvando) return;
-    const openingCents = opening.trim() ? reaisParaCentavos(opening) : 0;
-    if (openingCents == null) {
+    const valor = opening.trim() ? lerReais(opening) : 0;
+    if (valor == null) {
       toast.erro("Informe o saldo inicial.");
       return;
     }
+    // O cartão guarda a fatura em aberto como dívida: sempre negativa. A conta, conforme a marca de saldo negativo.
+    const openingCents = cartao || negativo ? -Math.abs(valor) : Math.abs(valor);
     const limitCents = limite.trim() ? reaisParaCentavos(limite) : null;
     if (cartao && limite.trim() && (limitCents == null || limitCents < 0)) {
       toast.erro("Informe o limite do cartão.");
@@ -133,11 +137,17 @@ function Corpo({
           <div className="grid gap-1">
             <Rotulo
               htmlFor="conta-saldo"
-              dica="Quanto havia na conta no dia ao lado. No cartão, a fatura em aberto nesse dia, em negativo, ou zero."
+              dica="Quanto havia na conta no dia ao lado. No cartão, a fatura em aberto nesse dia (o sistema a guarda como dívida), ou zero."
             >
               Saldo inicial
             </Rotulo>
             <CampoValor id="conta-saldo" className={field} value={opening} onChange={setOpening} />
+            {cartao ? null : (
+              <label className="flex min-h-10 items-center gap-3 text-sm">
+                <input type="checkbox" className={caixaDeMarcar} checked={negativo} onChange={(event) => setNegativo(event.target.checked)} />
+                Saldo negativo (conta no vermelho)
+              </label>
+            )}
           </div>
         </div>
         <div className="grid gap-1">
