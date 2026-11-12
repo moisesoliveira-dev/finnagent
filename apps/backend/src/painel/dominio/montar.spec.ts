@@ -96,6 +96,14 @@ describe("painel do período", () => {
     expect(painel.months).toEqual([]);
   });
 
+  it("diz o grupo e a sessão de cada lançamento, para a tela juntar o mês por grupo", () => {
+    const painel = montarPainel("mes", 2026, 10, null, workflow, [aluguel], [compromisso(7)]);
+    const lancamento = painel.items.find((item) => item.kind === "lancamento");
+    expect(lancamento).toMatchObject({ groupName: aluguel.groupName, sessionName: aluguel.sessionName });
+    // O compromisso não tem grupo.
+    expect(painel.items.find((item) => item.kind === "compromisso")).not.toHaveProperty("groupName");
+  });
+
   it("soma o mês inteiro", () => {
     const painel = montarPainel("mes", 2026, 10, null, workflow, [aluguel, mercado], [compromisso(7)]);
     expect(painel.saidas).toBe(-13000);

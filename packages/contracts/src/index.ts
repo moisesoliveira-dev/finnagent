@@ -2288,6 +2288,9 @@ export type ItemPainel = {
   time: string | null;
   title: string;
   detail: string;
+  /** Lançamento: o grupo e a sessão dele, para a tela juntar o mês por grupo. O compromisso não tem. */
+  groupName?: string;
+  sessionName?: string;
   cents: number | null;
 };
 
@@ -2425,6 +2428,8 @@ export function montarPainel(
           // O assistente guarda o título em `name` e deixa `description` vazia; sem este fallback a linha ficava em branco.
           title: entry.description || entry.name,
           detail: `${entry.groupName} · ${entry.sessionName}`,
+          groupName: entry.groupName,
+          sessionName: entry.sessionName,
           cents,
         });
       }
