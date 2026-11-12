@@ -22,8 +22,11 @@ function diaMes(data: string) {
 
 const chaveDa = (linha: { statementId: string; line: number }) => `${linha.statementId}:${linha.line}`;
 
-/** Como o mês com mais de uma linha entra: todas somadas no mês, ou só uma delas paga a série. */
-type ModoDoMes = "somar" | "uma";
+/**
+ * Como o mês com mais de uma linha entra: todas somadas no mês, só uma delas paga a série, ou (parcela e empréstimo)
+ * cada linha paga uma parcela, como quando se paga duas parcelas no mesmo mês.
+ */
+type ModoDoMes = "somar" | "uma" | "parcelas";
 
 type EscolhaDoMes = { incluido: boolean; modo: ModoDoMes; principal: string };
 
@@ -51,17 +54,25 @@ function inicial(pedido: PedidoDaSerie): Record<string, EscolhaDoMes> {
       const maisPerto = mes.plannedCents === null
         ? mes.lines[0]
         : [...mes.lines].sort((a, b) => Math.abs(a.cents - mes.plannedCents!) - Math.abs(b.cents - mes.plannedCents!))[0];
-      return [mes.month, { incluido: true, modo: "somar", principal: chaveDa(daOrigem ?? maisPerto ?? mes.lines[0]!) }];
+      // Parcela e empréstimo com linhas de mesmo valor no mês: é mais provável serem duas parcelas do que uma em partes.
+      const parcelas = variasPagamNoMes(pedido.categoria) && mes.lines.length > 1 && mes.lines.every((linha) => linha.cents === mes.lines[0]!.cents);
+      return [mes.month, { incluido: true, modo: parcelas ? "parcelas" : "somar", principal: chaveDa(daOrigem ?? maisPerto ?? mes.lines[0]!) }];
     }),
   );
 }
 
-/** A escolha pronta para o backend: em cada mês incluído, uma linha paga a série e as outras somam como parte. */
+/** Parcela e empréstimo pagam o que falta, uma parcela por linha; a recorrente tem uma ocorrência por mês. */
+function variasPagamNoMes(categoria: CategoriaTransacao) {
+  return categoria === "installment" || categoria === "loan";
+}
+
+/** A escolha pronta para o backend: em cada mês incluído, uma linha paga a série e as outras somam como parte (ou também pagam). */
 export function escolhaDaSerie(meses: MesDaSerieNoExtrato[], escolhas: Record<string, EscolhaDoMes>): EscolhaDaLinhaNaSerie[] {
   return meses.flatMap((mes) => {
     const escolha = escolhas[mes.month];
     if (!escolha?.incluido) return [];
     return mes.lines.flatMap((linha): EscolhaDaLinhaNaSerie[] => {
+      if (escolha.modo === "parcelas") return [{ statementId: linha.statementId, line: linha.line, papel: "serie" }];
       const principal = chaveDa(linha) === escolha.principal;
       if (principal) return [{ statementId: linha.statementId, line: linha.line, papel: "serie" }];
       return escolha.modo === "somar" ? [{ statementId: linha.statementId, line: linha.line, papel: "parte" }] : [];
@@ -152,12 +163,16 @@ export function DialogoDaSerie({
                   {varias ? (
                     <div className="grid gap-2">
                       <p className="text-sm text-pending">
-                        {mes.lines.length} linhas neste mês, somando {formatarReais(somaDe(mes.lines))}. Some todas no mês ou fique com uma só.
+                        {mes.lines.length} linhas neste mês, somando {formatarReais(somaDe(mes.lines))}.{" "}
+                        {variasPagamNoMes(pedido.categoria)
+                          ? "Se são parcelas diferentes (duas no mesmo mês), cada linha paga uma. Se é uma parcela paga em partes, some no mês."
+                          : "Some todas no mês ou fique com uma só."}
                       </p>
                       <Segmentado
                         aria-label={`Como ${nomeDoMes(mes.month)} entra`}
                         radio
                         opcoes={[
+                          ...(variasPagamNoMes(pedido.categoria) ? [{ id: "parcelas" as const, label: "Cada uma paga uma parcela" }] : []),
                           { id: "somar", label: "Somar no mês" },
                           { id: "uma", label: "Só uma" },
                         ]}

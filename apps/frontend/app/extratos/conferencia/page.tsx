@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ehSerie,
   erroDoTipoDaLinha,
+  fraseDoPlanoDeParcelas,
   mesOcupado,
+  planoDoPagamentoDeParcelas,
   tipoDaCategoria,
   type AcumuloEmLote,
   type ConferenciaResposta,
@@ -104,9 +105,15 @@ function pedeValorDoMes(candidato: NonNullable<LinhaConferencia["link"]>, cents:
   return candidato.category === "fixed" && candidato.cents !== cents;
 }
 
-/** Parcela ou empréstimo com a linha maior que a próxima parcela: a sobra é multa e juros ou parte da próxima. */
+/** Quantas parcelas a linha paga: duas parcelas do mesmo mês cabem numa linha só, ou em linhas diferentes. */
+function planoDaLinha(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
+  if (candidato.category !== "installment") return null;
+  return planoDoPagamentoDeParcelas(candidato.pendentes ?? [candidato.cents], cents);
+}
+
+/** Parcela com sobra depois das parcelas inteiras (e ainda outra pendente): multa e juros, ou parte da próxima. */
 function pedeDiferenca(candidato: NonNullable<LinhaConferencia["link"]>, cents: number) {
-  return ehSerie(candidato.category) && Math.abs(cents) > Math.abs(candidato.cents);
+  return Boolean(planoDaLinha(candidato, cents)?.pedeDiferenca);
 }
 
 function chaveDa(linha: LinhaConferencia) {
@@ -1202,6 +1209,12 @@ export default function Conferencia() {
                                   })()}
                                   {(() => {
                                     const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
+                                    const plano = candidato ? planoDaLinha(candidato, linha.cents) : null;
+                                    const frase = plano ? fraseDoPlanoDeParcelas(plano, formatarReais) : "";
+                                    return frase ? <span className="text-sm text-ink-2">{frase}</span> : null;
+                                  })()}
+                                  {(() => {
+                                    const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
                                     if (!candidato || !pedeDiferenca(candidato, linha.cents)) return null;
                                     return (
                                       <motion.span
@@ -1211,7 +1224,7 @@ export default function Conferencia() {
                                         className="flex w-full flex-wrap items-center gap-2 border border-pending-line bg-pending-soft p-3"
                                       >
                                         <span className="text-sm text-pending">
-                                          A linha passa da parcela de {formatarReais(Math.abs(candidato.cents))}. Paga as seguintes; se sobrar, a sobra é:
+                                          Depois das parcelas inteiras sobram {formatarReais(planoDaLinha(candidato, linha.cents)?.sobraCents ?? 0)}. A sobra é:
                                         </span>
                                         <Segmentado<"" | DiferencaDoPagamento>
                                           aria-label="A sobra do pagamento"
