@@ -2100,3 +2100,111 @@ ion-fab-button.acao-principal {
 .deslizar-fundo.neg {
   background: var(--neg);
 }
+
+/* ---------- Anexos no chat ---------- */
+
+/* O rodapé do chat: os arquivos acima, e abaixo uma caixa só (o "+", o texto e o enviar), como no site. */
+.compositor {
+  display: grid;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.caixa-da-mensagem {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  transition: border-color 0.15s;
+}
+
+.caixa-da-mensagem:focus-within {
+  border-color: var(--brand);
+}
+
+/* O campo de texto perde a borda e o fundo próprios: quem desenha a caixa é o formulário. */
+.compositor .caixa-da-mensagem ion-textarea {
+  --background: transparent;
+  --padding-start: 4px;
+  --padding-end: 4px;
+  --padding-top: 10px;
+  --padding-bottom: 10px;
+  border: 0;
+  min-height: 44px;
+  max-height: 160px;
+}
+
+.compositor .caixa-da-mensagem ion-textarea.has-focus {
+  border: 0;
+}
+
+.mais-da-mensagem,
+.enviar-da-mensagem {
+  flex-shrink: 0;
+  margin: 0;
+  --padding-start: 0;
+  --padding-end: 0;
+  width: 44px;
+  height: 44px;
+}
+
+.mais-da-mensagem {
+  --color: var(--ink-2);
+}
+
+.anexos-pendentes,
+.anexos-da-mensagem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.anexos-da-mensagem {
+  margin-top: 8px;
+}
+
+/* A etiqueta do arquivo: azul de informação, com o clipe, o nome cortado, o tamanho em cinza e o X de 44 px. */
+.etiqueta-de-anexo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.etiqueta-de-anexo .nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etiqueta-de-anexo .tamanho {
+  flex-shrink: 0;
+  font-family: var(--fonte-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.etiqueta-de-anexo button {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 -12px 0 -4px;
+  padding: 0;
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+}

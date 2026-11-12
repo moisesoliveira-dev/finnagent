@@ -1,7 +1,10 @@
-import { IonButton, IonTextarea } from "@ionic/react";
+import { IonButton, IonIcon, IonTextarea } from "@ionic/react";
+import { tamanhoDoAnexo } from "@finnagent/chat";
+import { documentAttachOutline } from "ionicons/icons";
 import {
   APROVAR_PLANO,
   CANCELAR_PLANO,
+  TEXTO_SO_COM_ANEXO,
   type MensagemDoChat,
   type ParteDaMensagem,
   type PerguntaDoAssistente,
@@ -210,9 +213,23 @@ export function MensagemDaConversa({
 }) {
   if (mensagem.role === "user") {
     const texto = mensagem.partes.map((parte) => (parte.tipo === "texto" ? parte.texto : "")).join("");
+    const anexos = mensagem.partes.flatMap((parte) => (parte.tipo === "anexo" ? [parte.anexo] : []));
+    // Só o anexo, sem texto: o sistema escreveu a frase por quem enviou, e a tela mostra só o arquivo.
+    const mostrarTexto = texto !== "" && !(anexos.length > 0 && texto === TEXTO_SO_COM_ANEXO);
     return (
       <motion.div className="balao minha" initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={curvaCheia} style={{ transformOrigin: "100% 100%" }}>
-        {texto}
+        {mostrarTexto ? texto : null}
+        {anexos.length > 0 ? (
+          <ul className="anexos-da-mensagem" aria-label="Anexos da mensagem">
+            {anexos.map((anexo) => (
+              <li key={anexo.id} className="etiqueta-de-anexo">
+                <IonIcon icon={documentAttachOutline} aria-hidden />
+                <span className="nome">{anexo.name}</span>
+                <span className="tamanho">{tamanhoDoAnexo(anexo.size)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </motion.div>
     );
   }
