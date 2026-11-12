@@ -1,8 +1,9 @@
 import { IonButton, IonIcon, IonRadio, IonRadioGroup, useIonToast } from "@ionic/react";
 import {
   CATEGORIAS_TRANSACAO,
+  fraseDoPlanoDeParcelas,
+  planoDoPagamentoDeParcelas,
   RECORRENCIAS,
-  categoriaDeCompromisso,
   categoriaSempreEntrada,
   categoriaSempreSaida,
   erroDoTipoDaLinha,
@@ -19,6 +20,7 @@ import {
   type TipoDaLinha,
   type ConferenciaResposta,
   type ContasResposta,
+  type DiferencaDoPagamento,
   type GruposResposta,
   type LinhaConferencia,
   type ValorDoMes,
@@ -84,7 +86,14 @@ const chaveDa = (linha: LinhaConferencia) => `${linha.statementId}:${linha.line}
 const textoDoVinculo = (vinculo: VinculoCruzado) => `${vinculo.description} · ${vinculo.groupName} / ${vinculo.sessionName}`;
 const rotuloDoCandidato = (vinculo: VinculoCruzado) => `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais(vinculo.cents)}`;
 // Fixa, parcela e empréstimo com valor diferente do extrato: a pessoa diz qual valor vale neste mês.
-const pedeValorDoMes = (candidato: VinculoCruzado, cents: number) => categoriaDeCompromisso(candidato.category) && candidato.cents !== cents;
+// Só a recorrente pergunta qual valor vale no mês: a parcela paga o que falta, no valor da linha (como no site).
+const pedeValorDoMes = (candidato: VinculoCruzado, cents: number) => candidato.category === "fixed" && candidato.cents !== cents;
+
+/** Quantas parcelas a linha paga: duas parcelas do mesmo mês cabem numa linha só, ou em linhas diferentes. */
+const planoDaLinha = (candidato: VinculoCruzado, cents: number) => (candidato.category === "installment" ? planoDoPagamentoDeParcelas(candidato.pendentes ?? [candidato.cents], cents) : null);
+
+/** Parcela com sobra depois das parcelas inteiras (e ainda outra pendente): multa e juros, ou parte da próxima. */
+const pedeDiferenca = (candidato: VinculoCruzado, cents: number) => Boolean(planoDaLinha(candidato, cents)?.pedeDiferenca);
 
 /** As linhas desenhadas de cada vez. */
 const LINHAS_POR_JANELA = 20;
@@ -111,6 +120,7 @@ export function Conferencia() {
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   const [par, setPar] = useState<Record<string, string>>({});
   const [valorMes, setValorMes] = useState<Record<string, ValorDoMes | "">>({});
+  const [diferencas, setDiferencas] = useState<Record<string, DiferencaDoPagamento | "">>({});
   const [ocupado, setOcupado] = useState("");
   const [contaDoPar, setContaDoPar] = useState<Record<string, string>>({});
   const [dividindo, setDividindo] = useState<{ linha: LinhaConferencia; partes: Parte[] } | null>(null);
@@ -154,13 +164,16 @@ export function Conferencia() {
     const valor = valorMes[chave];
     if (!entryId) return dizer("Escolha o lançamento desta linha.", true);
     if (candidato && pedeValorDoMes(candidato, linha.cents) && !valor) return dizer("Escolha o valor deste mês: o do extrato ou o do lançamento.", true);
+    const diferenca = diferencas[chave];
+    if (candidato && pedeDiferenca(candidato, linha.cents) && !diferenca) return dizer("Diga se a sobra é multa e juros ou parte da próxima parcela.", true);
     void acao(
       chave,
-      () => enviar<ConferenciaResposta>("/api/extratos/cruzamentos", { statementId: linha.statementId, line: linha.line, entryId, ...(valor ? { valor } : {}) }),
+      () => enviar<ConferenciaResposta>("/api/extratos/cruzamentos", { statementId: linha.statementId, line: linha.line, entryId, ...(valor ? { valor } : {}), ...(diferenca ? { diferenca } : {}) }),
       (resposta) => {
         guardar(resposta);
         setPar({});
         setValorMes({});
+        setDiferencas({});
         dizer("Cruzamento confirmado. A ocorrência do mês ficou paga.");
       },
       "Não foi possível confirmar o cruzamento.",
@@ -216,7 +229,7 @@ export function Conferencia() {
             linha,
             sessionId,
             tipo,
-            pedido: { titulo: `${linha.description} aparece em outros meses`, tipo: ROTULO_CATEGORIA[tipo.category], meses: previa.meses, origem: chaveDa(linha) },
+            pedido: { titulo: `${linha.description} aparece em outros meses`, tipo: ROTULO_CATEGORIA[tipo.category], categoria: tipo.category, meses: previa.meses, origem: chaveDa(linha) },
           });
           return;
         }
@@ -365,6 +378,7 @@ export function Conferencia() {
     setAberta("");
     setEscolha({});
     setValorMes({});
+    setDiferencas({});
     mudar(proximo);
   }
 
@@ -434,7 +448,7 @@ export function Conferencia() {
                         size="small"
                         fill="outline"
                         onClick={() =>
-                          setSerie({ modo: "existente", existente: item, pedido: { titulo: `${item.name} aparece em outros meses`, tipo: ROTULO_CATEGORIA[item.category], meses: item.meses, origem: null } })
+                          setSerie({ modo: "existente", existente: item, pedido: { titulo: `${item.name} aparece em outros meses`, tipo: ROTULO_CATEGORIA[item.category], categoria: item.category, meses: item.meses, origem: null } })
                         }
                       >
                         Juntar
@@ -543,8 +557,30 @@ export function Conferencia() {
                                           </IonRadioGroup>
                                         </div>
                                       ) : null}
+                                      {escolhido && planoDaLinha(escolhido, linha.cents) ? (
+                                        <span className="fraco" style={{ fontSize: "0.875rem" }}>{fraseDoPlanoDeParcelas(planoDaLinha(escolhido, linha.cents)!, reais)}</span>
+                                      ) : null}
+                                      {escolhido && pedeDiferenca(escolhido, linha.cents) ? (
+                                        <div className="secao" style={{ gap: 8 }}>
+                                          <span className="etiqueta">Depois das parcelas inteiras sobram {reais(planoDaLinha(escolhido, linha.cents)?.sobraCents ?? 0)}. A sobra é</span>
+                                          <Fichas<DiferencaDoPagamento | "">
+                                            rotulo="A sobra do pagamento"
+                                            valor={diferencas[chave] ?? ""}
+                                            opcoes={[
+                                              { id: "multa", texto: "Multa e juros" },
+                                              { id: "proxima", texto: "Parte da próxima" },
+                                            ]}
+                                            aoMudar={(valor) => valor && setDiferencas((atual) => ({ ...atual, [chave]: valor }))}
+                                          />
+                                        </div>
+                                      ) : null}
                                       <motion.div whileTap={toqueDoDedo}>
-                                        <IonButton expand="block" className="principal" disabled={ocupado === chave || !entryId} onClick={() => confirmar(linha)}>
+                                        <IonButton
+                                          expand="block"
+                                          className="principal"
+                                          disabled={ocupado === chave || !entryId || Boolean(escolhido && pedeDiferenca(escolhido, linha.cents) && !diferencas[chave])}
+                                          onClick={() => confirmar(linha)}
+                                        >
                                           Confirmar cruzamento
                                         </IonButton>
                                       </motion.div>

@@ -2213,3 +2213,18 @@ ion-fab-button.acao-principal {
   background: transparent;
   border: 0;
 }
+
+/* A ocorrência e o painel de edição dela, um embaixo do outro, no mesmo quadro. */
+.ocorrencia-do-lancamento {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ocorrencia-do-lancamento > .linha {
+  border-bottom: 0;
+}
+
+.ocorrencia-do-lancamento > .cartao {
+  margin: 0 0 12px;
+}

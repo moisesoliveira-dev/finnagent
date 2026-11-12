@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type DiferencaDoPagamento, type LancamentoVista } from "@finnagent/contracts";
+import { fraseDoPlanoDeParcelas, pendentesDaSerie, planoDoPagamentoDeParcelas, type DiferencaDoPagamento, type LancamentoVista } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { campo, cn } from "../../components/ui/cn";
 import { Dialogo } from "../../components/ui/dialogo";
@@ -82,9 +82,15 @@ function Corpo({
   const [salvando, setSalvando] = useState(false);
   const cents = reaisParaCentavos(valor);
   const parcela = entry.category === "installment";
-  // A sobra só existe na parcela, quando o valor passa da próxima e não chega a cobrir mais uma inteira.
-  const pedeDiferenca =
-    parcela && cents !== null && proxima !== null && cents > Math.abs(proxima.plannedCents) && cents < falta;
+  // Quantas parcelas o valor paga, de uma vez: duas parcelas do mesmo mês cabem num pagamento só. A pergunta da
+  // sobra só vem quando sobra algo depois das parcelas inteiras e ainda há outra pendente.
+  const plano = parcela && cents !== null ? planoDoPagamentoDeParcelas(pendentesDaSerie(entry.occurrences), cents) : null;
+  const pedeDiferenca = Boolean(plano?.pedeDiferenca);
+  const frase = plano ? fraseDoPlanoDeParcelas(plano, formatarReais) : "";
+  // Atalho: o valor de 1, 2 ou 3 parcelas de uma vez, sem fazer a conta.
+  const pendentes = parcela ? pendentesDaSerie(entry.occurrences) : [];
+  const somaDe = (quantas: number) => pendentes.slice(0, quantas).reduce((total, item) => total + item, 0);
+  const quantasPagas = plano && cents !== null && plano.sobraCents === 0 && plano.inteiras > 0 ? String(plano.inteiras) : "";
 
   async function pagar(event: React.FormEvent) {
     event.preventDefault();
@@ -134,7 +140,7 @@ function Corpo({
               htmlFor="pagamento-valor"
               dica={
                 parcela
-                  ? "O valor pago. Mais que uma parcela paga as seguintes; menos paga parte dela."
+                  ? "O valor pago. Duas parcelas do mesmo mês cabem num pagamento só: o valor de duas paga as duas. Menos que uma paga parte dela."
                   : "O valor pago. Abate o saldo; o que falta é previsto de novo."
               }
             >
@@ -143,9 +149,25 @@ function Corpo({
             <CampoValor id="pagamento-valor" className={field} required value={valor} onChange={setValor} />
           </div>
         </div>
+        {parcela && pendentes.length > 1 ? (
+          <div className="grid gap-1">
+            <span className="etiqueta text-ink-2">Quantas parcelas pagar</span>
+            <Segmentado<string>
+              aria-label="Quantas parcelas pagar"
+              opcoes={[1, 2, 3].filter((quantas) => quantas <= pendentes.length).map((quantas) => ({ id: String(quantas), label: quantas === 1 ? "1 parcela" : `${quantas} parcelas` }))}
+              valor={quantasPagas}
+              onEscolher={(id) => {
+                if (id) setValor(centavosParaReais(somaDe(Number(id))));
+              }}
+            />
+          </div>
+        ) : null}
+        {frase ? <p className="text-sm text-ink-2">{frase}</p> : null}
         {pedeDiferenca ? (
           <div className="grid gap-2 border border-pending-line bg-pending-soft p-3">
-            <span className="text-sm text-pending">O valor passa da parcela. O que é a sobra?</span>
+            <span className="text-sm text-pending">
+              {plano ? `Depois das parcelas inteiras sobram ${formatarReais(plano.sobraCents)}.` : ""} O que é a sobra?
+            </span>
             <Segmentado<"" | DiferencaDoPagamento>
               aria-label="A sobra do pagamento"
               opcoes={[

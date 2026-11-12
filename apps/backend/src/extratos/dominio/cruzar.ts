@@ -1,4 +1,4 @@
-import { dataContabil, ehMulta, ehSerie } from "@finnagent/contracts";
+import { dataContabil, ehMulta, ehSerie, pendentesDaSerie } from "@finnagent/contracts";
 import {
   categoriaDeCompromisso,
   ocorrenciasDoLancamento,
@@ -44,6 +44,8 @@ export function cruzaveisDoMes(
         day: Number(alvo.dueDate.slice(8, 10)),
         cents: alvo.plannedCents,
         category: entry.category,
+        // A tela diz quantas parcelas a linha paga: duas no mesmo mês, numa linha ou em linhas diferentes.
+        ...(ehSerie(entry.category) ? { pendentes: pendentesDaSerie(entry.occurrences ?? []) } : {}),
         vagas: ehSerie(entry.category) ? pendentes.length : doMes.length - (usadas.get(entry.id) ?? 0),
       },
     ];

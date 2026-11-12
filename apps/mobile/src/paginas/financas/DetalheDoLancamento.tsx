@@ -1,6 +1,6 @@
-import { IonButton } from "@ionic/react";
-import type { DiferencaDoPagamento, LancamentoVista, OcorrenciaVista, StatusTransacao } from "@finnagent/contracts";
-import {  } from "ionicons/icons";
+import { IonButton, IonIcon } from "@ionic/react";
+import { dataContabil, fraseDoPlanoDeParcelas, pendentesDaSerie, planoDoPagamentoDeParcelas, type DiferencaDoPagamento, type LancamentoVista, type OcorrenciaVista, type StatusTransacao } from "@finnagent/contracts";
+import { createOutline } from "ionicons/icons";
 import { useEffect, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, dataCurta, hojeIso, MESES, paraCampo, reais, type Mes } from "../../api/formato";
@@ -236,14 +236,13 @@ export function DetalheDoLancamento({
                 key={`${item.number}-${item.kind ?? "parcela"}`}
                 item={item}
                 sinal={sinal}
+                neste={dataContabil(item).startsWith(`${mes.ano}-${String(mes.mes).padStart(2, "0")}`) && item.status !== "cancelled"}
                 ocupado={Boolean(ocupado)}
-                aoMudar={(status) =>
-                  void fazer(
-                    `ocorrencia-${item.number}`,
-                    () => enviar(`/api/lancamentos/${entry.id}/ocorrencias/${item.number}`, status === "completed" ? { status, paidOn: hojeIso() } : { status }, "PATCH"),
-                    ACAO_DA_OCORRENCIA[status].sucesso,
-                  )
-                }
+                aoGravar={async (corpo, sucesso) => {
+                  const ok = await agir(`ocorrencia-${item.number}`, () => enviar(`/api/lancamentos/${entry.id}/ocorrencias/${item.number}`, corpo, "PATCH"), sucesso);
+                  if (ok) await aoMudar();
+                  return ok;
+                }}
               />
             ))}
           </div>
@@ -255,32 +254,102 @@ export function DetalheDoLancamento({
   );
 }
 
-function Ocorrencia({ item, sinal, ocupado, aoMudar }: { item: OcorrenciaVista; sinal: number; ocupado: boolean; aoMudar: (status: StatusTransacao) => void }) {
-  const valor = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
+type CorpoDaOcorrencia = { status?: StatusTransacao; paidOn?: string; dueDate?: string; plannedCents?: number };
+
+/**
+ * Uma ocorrência: data, valor e situação, com as ações do status. A pendente que não veio do Google (`editable`)
+ * abre o lápis: muda o vencimento e o valor só desta ocorrência, ou paga numa data que a pessoa escolhe.
+ */
+function Ocorrencia({
+  item,
+  sinal,
+  neste,
+  ocupado,
+  aoGravar,
+}: {
+  item: OcorrenciaVista;
+  sinal: number;
+  /** É a ocorrência do mês que está aberto em Finanças. */
+  neste: boolean;
+  ocupado: boolean;
+  aoGravar: (corpo: CorpoDaOcorrencia, sucesso: string) => Promise<boolean>;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [data, setData] = useState(item.dueDate);
+  const [valor, setValor] = useState(paraCampo(item.plannedCents));
+  const [paga, setPaga] = useState(hojeIso());
+  const pago = item.status === "completed" && item.paidCents != null;
+  const cents = pago ? item.paidCents! : item.plannedCents;
+  const podePagar = item.next.includes("completed");
+
+  async function salvar() {
+    const novo = centavosDe(valor);
+    const corpo: CorpoDaOcorrencia = {};
+    if (data !== item.dueDate) corpo.dueDate = data;
+    if (novo && novo !== Math.abs(item.plannedCents)) corpo.plannedCents = novo;
+    if (Object.keys(corpo).length === 0) return setEditando(false);
+    if (await aoGravar(corpo, "Ocorrência atualizada.")) setEditando(false);
+  }
+
   return (
-    <div className="linha ocorrencia">
-      <div className="texto">
-        <span>
-          {item.parcel ? `${item.parcel}ª · ` : ""}
-          {item.kind === "multa" ? "Multa e juros · " : ""}
-          {dataCurta(item.status === "completed" && item.paidOn ? item.paidOn : item.dueDate)}
-        </span>
-        <span className={`chip ${tomDaSituacao(item.situation)}`} style={{ justifySelf: "start" }}>
-          {rotuloDaSituacao(item.situation)}
-        </span>
-      </div>
-      <div className="lado-da-ocorrencia">
-        <Dinheiro cents={sinal * Math.abs(valor)} />
-        {item.next.length > 0 ? (
+    <div className="ocorrencia-do-lancamento">
+      <div className="linha ocorrencia">
+        <div className="texto">
+          <span>
+            {item.parcel ? `${item.parcel}ª · ` : ""}
+            {item.kind === "multa" ? "Multa e juros · " : ""}
+            {dataCurta(pago && item.paidOn ? item.paidOn : item.dueDate)}
+          </span>
+          <span className="chips">
+            <span className={`chip ${tomDaSituacao(item.situation)}`}>{rotuloDaSituacao(item.situation)}</span>
+            {neste ? <span className="chip ia">Neste mês</span> : null}
+            {pago && item.paidOn && item.paidOn !== item.dueDate ? <span className="chip">Venceu {dataCurta(item.dueDate)}</span> : null}
+          </span>
+        </div>
+        <div className="lado-da-ocorrencia">
+          <Dinheiro cents={sinal * Math.abs(cents)} />
           <div className="acoes-da-ocorrencia">
+            {item.editable ? (
+              <IonButton size="small" fill="clear" aria-label={`Editar a ocorrência de ${dataCurta(item.dueDate)}`} disabled={ocupado} onClick={() => setEditando((aberto) => !aberto)}>
+                <IonIcon slot="icon-only" icon={createOutline} />
+              </IonButton>
+            ) : null}
             {item.next.map((status) => (
-              <IonButton key={status} size="small" fill={status === "completed" ? "solid" : "clear"} color={status === "cancelled" || status === "refunded" ? "danger" : undefined} disabled={ocupado} onClick={() => aoMudar(status)}>
+              <IonButton
+                key={status}
+                size="small"
+                fill={status === "completed" ? "solid" : "clear"}
+                color={status === "cancelled" || status === "refunded" ? "danger" : undefined}
+                disabled={ocupado}
+                onClick={() => void aoGravar(status === "completed" ? { status, paidOn: hojeIso() } : { status }, ACAO_DA_OCORRENCIA[status].sucesso)}
+              >
                 {ACAO_DA_OCORRENCIA[status].rotulo}
               </IonButton>
             ))}
           </div>
-        ) : null}
+        </div>
       </div>
+      {editando ? (
+        <div className="cartao secao">
+          <strong>Só esta ocorrência</strong>
+          <Data rotulo="Vence em" valor={data} aoMudar={setData} />
+          <CampoDeValor rotulo="Valor previsto" value={valor} onMudar={setValor} />
+          <IonButton expand="block" className="principal" disabled={ocupado} onClick={() => void salvar()}>
+            Salvar a ocorrência
+          </IonButton>
+          {podePagar ? (
+            <>
+              <Data rotulo="Pagar em" valor={paga} aoMudar={setPaga} />
+              <IonButton expand="block" fill="outline" disabled={ocupado} onClick={() => void aoGravar({ status: "completed", paidOn: paga }, ACAO_DA_OCORRENCIA.completed.sucesso).then((ok) => ok && setEditando(false))}>
+                Pagar nesta data
+              </IonButton>
+            </>
+          ) : null}
+          <IonButton fill="clear" onClick={() => setEditando(false)}>
+            Fechar
+          </IonButton>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -306,7 +375,15 @@ function Pagamento({
   const [diferenca, setDiferenca] = useState<DiferencaDoPagamento | "">("");
   const [erro, setErro] = useState("");
   const cents = centavosDe(valor);
-  const pedeDiferenca = entry.category === "installment" && cents !== null && proxima !== null && cents > Math.abs(proxima.plannedCents) && cents < falta;
+  // Quantas parcelas o valor paga, de uma vez: duas do mesmo mês cabem num pagamento só. A pergunta da sobra só vem
+  // quando sobra algo depois das parcelas inteiras e ainda há outra pendente.
+  const parcela = entry.category === "installment";
+  const pendentes = parcela ? pendentesDaSerie(entry.occurrences) : [];
+  const plano = parcela && cents !== null ? planoDoPagamentoDeParcelas(pendentes, cents) : null;
+  const pedeDiferenca = Boolean(plano?.pedeDiferenca);
+  const frase = plano ? fraseDoPlanoDeParcelas(plano, reais) : "";
+  const somaDe = (quantas: number) => pendentes.slice(0, quantas).reduce((total, item) => total + item, 0);
+  const quantasPagas = plano && plano.sobraCents === 0 && plano.inteiras > 0 ? String(plano.inteiras) : "";
 
   async function pagar() {
     if (!cents) return setErro("Informe o valor.");
@@ -328,10 +405,22 @@ function Pagamento({
         {proxima ? `; a próxima parcela é ${reais(Math.abs(proxima.plannedCents))}.` : "."}
       </span>
       <Data rotulo="Data" valor={data} aoMudar={setData} />
+      {parcela && pendentes.length > 1 ? (
+        <div className="campo">
+          <span className="etiqueta">Quantas parcelas pagar</span>
+          <Fichas<string>
+            rotulo="Quantas parcelas pagar"
+            valor={quantasPagas}
+            opcoes={[1, 2, 3].filter((quantas) => quantas <= pendentes.length).map((quantas) => ({ id: String(quantas), texto: quantas === 1 ? "1 parcela" : `${quantas} parcelas` }))}
+            aoMudar={(quantas) => setValor(paraCampo(somaDe(Number(quantas))))}
+          />
+        </div>
+      ) : null}
       <CampoDeValor rotulo="Valor pago" value={valor} onMudar={setValor} />
+      {frase ? <span className="fraco">{frase}</span> : null}
       {pedeDiferenca ? (
         <div className="campo">
-          <span className="etiqueta">O que passou da parcela é</span>
+          <span className="etiqueta">{plano ? `Depois das parcelas inteiras sobram ${reais(plano.sobraCents)}. A sobra é` : "O que passou da parcela é"}</span>
           <Fichas
             rotulo="O que passou da parcela"
             valor={diferenca}

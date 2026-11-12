@@ -161,6 +161,56 @@ export type DiferencaDoPagamento = (typeof DIFERENCAS_DO_PAGAMENTO)[number];
 /** Um pagamento registrado numa parcela ou num empréstimo: data e valor reais, sem sinal. */
 export type PedidoDePagamento = { date: string; cents: number; diferenca?: DiferencaDoPagamento };
 
+/**
+ * O que um valor faz nas parcelas pendentes. Paga as parcelas inteiras, em ordem, e o que sobra:
+ * - não chega a uma parcela e nenhuma foi paga inteira: paga parte da primeira (nada a perguntar);
+ * - sobra depois de pagar parcelas inteiras e ainda há outra pendente: a pessoa diz se é multa ou parte da próxima;
+ * - sobra depois da última parcela: é multa e juros, sem pergunta.
+ * É a mesma conta do motor do backend (`pagarParcelas`), para a tela dizer antes o que o pagamento vai fazer.
+ */
+export type PlanoDoPagamentoDeParcelas = {
+  /** Quantas parcelas o valor paga inteiras. */
+  inteiras: number;
+  /** O valor planejado de cada parcela paga inteira, sem sinal. */
+  cobertas: number[];
+  /** O que sobra depois das parcelas inteiras, sem sinal. */
+  sobraCents: number;
+  /** A sobra precisa da escolha entre multa e parte da próxima. */
+  pedeDiferenca: boolean;
+};
+
+export function planoDoPagamentoDeParcelas(pendentesCents: number[], pagoCents: number): PlanoDoPagamentoDeParcelas {
+  let restante = Math.abs(pagoCents);
+  const cobertas: number[] = [];
+  for (const planejado of pendentesCents.map(Math.abs)) {
+    if (planejado === 0 || restante < planejado) break;
+    restante -= planejado;
+    cobertas.push(planejado);
+  }
+  return {
+    inteiras: cobertas.length,
+    cobertas,
+    sobraCents: restante,
+    pedeDiferenca: cobertas.length > 0 && restante > 0 && cobertas.length < pendentesCents.length,
+  };
+}
+
+/** Os valores das parcelas pendentes, na ordem em que o pagamento as paga (vencimento, depois o número). Multa não conta. */
+export function pendentesDaSerie(ocorrencias: Array<Pick<Ocorrencia, "status" | "dueDate" | "number" | "plannedCents" | "kind">>) {
+  return ocorrencias
+    .filter((item) => item.status === "pending" && item.kind !== "multa")
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.number - b.number)
+    .map((item) => Math.abs(item.plannedCents));
+}
+
+/** "Paga 2 parcelas (R$ 100,00 + R$ 100,00)", ou vazio quando o valor paga menos que uma parcela. */
+export function fraseDoPlanoDeParcelas(plano: PlanoDoPagamentoDeParcelas, formatar: (cents: number) => string) {
+  if (plano.inteiras === 0) return "";
+  const soma = plano.cobertas.map(formatar).join(" + ");
+  const sobra = plano.sobraCents > 0 ? `, e sobram ${formatar(plano.sobraCents)}` : "";
+  return `Paga ${plano.inteiras === 1 ? "1 parcela" : `${plano.inteiras} parcelas`}${plano.inteiras > 1 ? ` (${soma})` : ""}${sobra}.`;
+}
+
 /** Parcela e empréstimo: o pagamento não segue o mês, segue o que ainda falta. */
 export function ehSerie(category: CategoriaTransacao) {
   return category === "installment" || category === "loan";
@@ -1837,6 +1887,8 @@ export type VinculoCruzado = {
   day: number;
   cents: number;
   category: CategoriaTransacao;
+  /** Parcela e empréstimo: o valor de cada parcela pendente, em ordem, para a tela dizer quantas a linha paga. */
+  pendentes?: number[];
 };
 
 export type LinhaConferencia = {

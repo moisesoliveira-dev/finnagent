@@ -1,6 +1,6 @@
 import type { Lancamento } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
-import { erroDaEscolha, linhasDaNovaSerie, linhasDaSerieExistente, mesesEntre, tipoNoInicio, type LinhaLivre } from "./serie.js";
+import { erroDaEscolha, linhasDaNovaSerie, linhasDaSerieExistente, mesesEntre, tipoNoInicio, variasPagamNoMes, type LinhaLivre } from "./serie.js";
 
 const EXTRATO = "00000000-0000-4000-8000-0000000000e1";
 const linha = (line: number, date: string, cents: number, description = "Compra no débito via NuPay — Academia"): LinhaLivre => ({
@@ -80,6 +80,18 @@ describe("a escolha da pessoa", () => {
 
   it("aceita uma linha da série por mês e partes só no mês que tem a da série", () => {
     expect(erroDaEscolha(meses, [{ statementId: EXTRATO, line: 1, papel: "serie" }, { statementId: EXTRATO, line: 3, papel: "serie" }, { statementId: EXTRATO, line: 4, papel: "parte" }])).toBeNull();
+  });
+
+  it("na parcela e no empréstimo, duas linhas do mesmo mês podem pagar duas parcelas; na recorrente, não", () => {
+    const duas = [{ statementId: EXTRATO, line: 3, papel: "serie" as const }, { statementId: EXTRATO, line: 4, papel: "serie" as const }];
+    expect(variasPagamNoMes("installment")).toBe(true);
+    expect(variasPagamNoMes("loan")).toBe(true);
+    expect(variasPagamNoMes("fixed")).toBe(false);
+    expect(erroDaEscolha(meses, duas, true)).toBeNull();
+    expect(erroDaEscolha(meses, duas, false)).toContain("só uma linha paga a série");
+    // As outras regras continuam valendo com várias por mês.
+    expect(erroDaEscolha(meses, [{ statementId: EXTRATO, line: 4, papel: "parte" }], true)).toContain("precisa de uma linha que pague a série");
+    expect(erroDaEscolha(meses, [{ statementId: EXTRATO, line: 99, papel: "serie" }], true)).toContain("não é desta série");
   });
 
   it("recusa duas da série no mesmo mês, parte sozinha, linha de fora e escolha vazia", () => {
