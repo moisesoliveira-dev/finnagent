@@ -1,6 +1,6 @@
 import { IonButton, IonToggle, useIonViewWillEnter } from "@ionic/react";
 import type { Caixinha, ContasResposta, Meta, MetasResposta } from "@finnagent/contracts";
-import { flagOutline, pricetagOutline } from "ionicons/icons";
+import { flagOutline, pricetagOutline, trashOutline, walletOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { enviar, ler, pedir } from "../api/cliente";
@@ -8,6 +8,7 @@ import { centavosDe, MESES, MESES_CURTOS, paraCampo, reais } from "../api/format
 import { Campo, CampoDeValor } from "../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Folha } from "../componentes/Folha";
+import { MenuDeAcoes } from "../componentes/MenuDeAcoes";
 import { ItemOrdenavel, ListaOrdenavel } from "../componentes/Ordenavel";
 import { Pagina } from "../componentes/Pagina";
 import { Selecao } from "../componentes/Selecao";
@@ -237,18 +238,21 @@ export function Metas() {
                     </motion.div>
                   ) : null}
                 </AnimatePresence>
-                <div className="acoes-da-folha">
+                <div className="acoes-da-folha acoes-com-menu">
                   {restante > 0 ? (
                     <IonButton size="small" fill="outline" disabled={Boolean(ocupado)} onClick={() => setSeparando({ meta, valor: sugerido > 0 ? paraCampo(sugerido) : "" })}>
                       Separar
                     </IonButton>
                   ) : null}
-                  <IonButton size="small" fill="clear" disabled={Boolean(ocupado)} onClick={() => void abrirCaixinha(meta)}>
-                    Caixinha
-                  </IonButton>
-                  <IonButton size="small" fill="clear" color="danger" disabled={Boolean(ocupado)} onClick={() => excluir(meta)}>
-                    Excluir
-                  </IonButton>
+                  <MenuDeAcoes
+                    titulo={meta.name}
+                    rotulo={`Mais ações de ${meta.name}`}
+                    desabilitado={Boolean(ocupado)}
+                    acoes={[
+                      { texto: meta.box ? "Trocar a caixinha" : "Ligar a uma caixinha", icone: walletOutline, aoEscolher: () => void abrirCaixinha(meta) },
+                      { texto: "Excluir a meta", icone: trashOutline, perigo: true, aoEscolher: () => excluir(meta) },
+                    ]}
+                  />
                 </div>
                 </>
                 )}

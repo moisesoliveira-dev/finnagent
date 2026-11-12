@@ -1,12 +1,13 @@
 import { IonButton, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import type { AgendaResposta, Compromisso } from "@finnagent/contracts";
-import { calendarOutline, syncOutline } from "ionicons/icons";
+import { calendarOutline, createOutline, syncOutline, trashOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { enviar, pedir } from "../api/cliente";
 import { dataCurta, diaDaSemana, ehDataIso, hojeIso, rotuloDoMes } from "../api/formato";
 import { Data } from "../componentes/Data";
 import { Folha } from "../componentes/Folha";
+import { MenuDeAcoes } from "../componentes/MenuDeAcoes";
 import { toque } from "../haptico";
 import { useAcao } from "../useAcao";
 import { FormCompromisso, ROTULO_DA_REPETICAO } from "./agenda/FormCompromisso";
@@ -152,7 +153,7 @@ export function Agenda() {
               {aberto.description ? <span className="fraco">{aberto.description}</span> : null}
               {aberto.sessionLabel ? <span className="fraco">Gastos em {aberto.sessionLabel}</span> : null}
             </div>
-            <div className="acoes-da-folha">
+            <div className="acoes-da-folha acoes-com-menu">
               <IonButton
                 className="principal"
                 disabled={Boolean(ocupado)}
@@ -167,17 +168,35 @@ export function Agenda() {
               >
                 {aberto.status === "done" ? "Desmarcar" : "Marcar como feito"}
               </IonButton>
-              <IonButton
-                fill="outline"
-                disabled={Boolean(ocupado)}
-                onClick={() => {
-                  const item = aberto;
-                  setAberto(null);
-                  setFormulario({ compromisso: item });
-                }}
-              >
-                Editar
-              </IonButton>
+              <MenuDeAcoes
+                titulo={aberto.title}
+                rotulo="Mais ações do compromisso"
+                desabilitado={Boolean(ocupado)}
+                tamanho="default"
+                acoes={[
+                  {
+                    texto: "Editar o compromisso",
+                    icone: createOutline,
+                    aoEscolher: () => {
+                      const item = aberto;
+                      setAberto(null);
+                      setFormulario({ compromisso: item });
+                    },
+                  },
+                  {
+                    texto: "Apagar o compromisso",
+                    icone: trashOutline,
+                    perigo: true,
+                    aoEscolher: () =>
+                      confirmar(
+                        "Apagar este compromisso?",
+                        aberto.category === "fixed" ? "Não pode ser desfeito." : "Ele se repete: todas as vezes saem da agenda. Não pode ser desfeito.",
+                        "Apagar",
+                        () => void fazer("apagar", () => pedir(`/api/compromissos/${aberto.id}`, { method: "DELETE" }), "Compromisso apagado.", true),
+                      ),
+                  },
+                ]}
+              />
             </div>
             <section className="secao">
               <h2 className="etiqueta">Mudar o dia</h2>
@@ -193,22 +212,6 @@ export function Agenda() {
                 Mover para este dia
               </IonButton>
             </section>
-            <IonButton
-              expand="block"
-              fill="clear"
-              color="danger"
-              disabled={Boolean(ocupado)}
-              onClick={() =>
-                confirmar(
-                  "Apagar este compromisso?",
-                  aberto.category === "fixed" ? "Não pode ser desfeito." : "Ele se repete: todas as vezes saem da agenda. Não pode ser desfeito.",
-                  "Apagar",
-                  () => void fazer("apagar", () => pedir(`/api/compromissos/${aberto.id}`, { method: "DELETE" }), "Compromisso apagado.", true),
-                )
-              }
-            >
-              Apagar o compromisso
-            </IonButton>
           </>
         ) : null}
       </Folha>

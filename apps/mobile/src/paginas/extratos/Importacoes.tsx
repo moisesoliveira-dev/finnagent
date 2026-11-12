@@ -1,11 +1,12 @@
 import { IonAlert, IonButton, IonIcon, useIonToast } from "@ionic/react";
 import type { Extrato, ExtratosResposta, StatusExtrato } from "@finnagent/contracts";
-import { addOutline, documentTextOutline } from "ionicons/icons";
+import { addOutline, alertCircleOutline, documentTextOutline, refreshOutline, trashOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { diaEMes } from "../../api/arquivo";
 import { Estado, Vazio } from "../../componentes/Estado";
+import { MenuDeAcoes } from "../../componentes/MenuDeAcoes";
 import { Fichas, Selecao } from "../../componentes/Selecao";
 import { toque } from "../../haptico";
 import { Bloco, Cascata, Contagem, curvaCheia, toqueDoDedo } from "../../movimento";
@@ -178,23 +179,20 @@ export function Importacoes() {
                 {quando(extrato.importedAt)}
               </span>
               {extrato.message ? <span className="fraco">{extrato.message}</span> : null}
-              <div className="acoes">
+              <div className="acoes acoes-com-menu">
                 <IonButton fill="clear" size="small" onClick={() => setAberto({ extrato, soErros: false })}>
                   Ver linhas
                 </IonButton>
-                {extrato.errorCount > 0 ? (
-                  <IonButton fill="clear" size="small" onClick={() => setAberto({ extrato, soErros: true })}>
-                    Só erros
-                  </IonButton>
-                ) : null}
-                {extrato.status === "com_erros" || extrato.status === "falhou" ? (
-                  <IonButton fill="clear" size="small" disabled={ocupado === extrato.id} onClick={() => void reprocessar(extrato)}>
-                    Reprocessar
-                  </IonButton>
-                ) : null}
-                <IonButton fill="clear" size="small" color="danger" disabled={ocupado === extrato.id} onClick={() => setExcluir(extrato)}>
-                  Excluir
-                </IonButton>
+                <MenuDeAcoes
+                  titulo={extrato.filename}
+                  rotulo={`Mais ações de ${extrato.filename}`}
+                  desabilitado={ocupado === extrato.id}
+                  acoes={[
+                    { texto: "Ver só os erros", icone: alertCircleOutline, visivel: extrato.errorCount > 0, aoEscolher: () => setAberto({ extrato, soErros: true }) },
+                    { texto: "Reprocessar", icone: refreshOutline, visivel: extrato.status === "com_erros" || extrato.status === "falhou", aoEscolher: () => void reprocessar(extrato) },
+                    { texto: "Excluir o extrato", icone: trashOutline, perigo: true, aoEscolher: () => setExcluir(extrato) },
+                  ]}
+                />
               </div>
             </Bloco>
           ))}

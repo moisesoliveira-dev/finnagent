@@ -1,16 +1,16 @@
 import { IonButton, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonViewWillEnter } from "@ionic/react";
 import type { FinancasVista, ItemPainel, LancamentoVista, PainelResposta } from "@finnagent/contracts";
-import { walletOutline } from "ionicons/icons";
-import { motion } from "motion/react";
+import { chevronDown, walletOutline } from "ionicons/icons";
+import { AnimatePresence, motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { ler } from "../api/cliente";
 import { useNavigate } from "react-router-dom";
-import { diaDaSemana, hojeIso, reais, rotuloDoMes } from "../api/formato";
+import { hojeIso, reais, rotuloDoMes } from "../api/formato";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
 import { SeletorDeMes } from "../componentes/SeletorDeMes";
 import { toque } from "../haptico";
-import { Bloco, Cascata, Contagem, Troca } from "../movimento";
+import { Bloco, Cascata, Contagem, Troca, curvaCheia } from "../movimento";
 import { useDados } from "../useDados";
 import { useMes } from "../useMes";
 import { useAcao } from "../useAcao";
@@ -19,10 +19,34 @@ import { FormLancamento } from "./financas/FormLancamento";
 
 type Filtro = "todos" | "entradas" | "saidas";
 
-function porDia(items: ItemPainel[]) {
-  const dias = new Map<number, ItemPainel[]>();
-  for (const item of items) dias.set(item.day, [...(dias.get(item.day) ?? []), item]);
-  return [...dias.entries()].sort((a, b) => a[0] - b[0]);
+const GRUPO_DOS_COMPROMISSOS = "Compromissos";
+
+/**
+ * O grupo e a sessão do lançamento. O backend novo manda os dois; o antigo só manda o texto "Grupo · Sessão",
+ * que dá para separar, para a tela funcionar nos dois.
+ */
+function grupoEsessao(item: ItemPainel) {
+  if (item.groupName) return { grupo: item.groupName, sessao: item.sessionName ?? "" };
+  const [grupo, ...resto] = item.detail.split(" · ");
+  return { grupo: grupo?.trim() || "Sem grupo", sessao: resto.join(" · ") };
+}
+
+type GrupoDoMes = { nome: string; items: ItemPainel[]; total: number };
+
+/** O mês por grupo: cada grupo com as transações dele, em ordem de dia. O maior movimento primeiro; os compromissos, por último. */
+function porGrupo(items: ItemPainel[]): GrupoDoMes[] {
+  const grupos = new Map<string, ItemPainel[]>();
+  for (const item of items) {
+    const nome = item.kind === "lancamento" ? grupoEsessao(item).grupo : GRUPO_DOS_COMPROMISSOS;
+    grupos.set(nome, [...(grupos.get(nome) ?? []), item]);
+  }
+  return [...grupos.entries()]
+    .map(([nome, lista]) => ({
+      nome,
+      items: [...lista].sort((a, b) => a.day - b.day || a.title.localeCompare(b.title, "pt-BR")),
+      total: lista.reduce((soma, item) => soma + (item.cents ?? 0), 0),
+    }))
+    .sort((a, b) => Number(a.nome === GRUPO_DOS_COMPROMISSOS) - Number(b.nome === GRUPO_DOS_COMPROMISSOS) || Math.abs(b.total) - Math.abs(a.total) || a.nome.localeCompare(b.nome, "pt-BR"));
 }
 
 const passa = (item: ItemPainel, filtro: Filtro) =>
@@ -67,7 +91,9 @@ export function Financas() {
   }
 
   const dataNova = ehEsteMesHoje(mes) ?? `${mes.ano}-${String(mes.mes).padStart(2, "0")}-01`;
-  const dias = useMemo(() => porDia((dados?.items ?? []).filter((item) => passa(item, filtro))), [dados, filtro]);
+  const grupos = useMemo(() => porGrupo((dados?.items ?? []).filter((item) => passa(item, filtro))), [dados, filtro]);
+  // Os grupos abrem por padrão: a pessoa recolhe o que não quer ver.
+  const [recolhidos, setRecolhidos] = useState<Record<string, boolean>>({});
   const hoje = new Date();
   const ehEsteMes = hoje.getFullYear() === mes.ano && hoje.getMonth() + 1 === mes.mes;
 
@@ -133,7 +159,7 @@ export function Financas() {
                 </IonSegment>
               </Bloco>
 
-              {dias.length === 0 ? (
+              {grupos.length === 0 ? (
                 <Bloco>
                   <Vazio
                     icone={walletOutline}
@@ -143,41 +169,56 @@ export function Financas() {
                 </Bloco>
               ) : null}
 
-              {dias.map(([dia, items]) => {
-                const total = items.reduce((soma, item) => soma + (item.cents ?? 0), 0);
-                const ehHoje = ehEsteMes && dia === hoje.getDate();
+              {grupos.map((grupo) => {
+                const aberto = !recolhidos[grupo.nome];
                 return (
-                  <Bloco key={`${filtro}-${dia}`} className="secao">
-                    <div className="titulo-do-dia">
-                      <span className="etiqueta" style={ehHoje ? { color: "var(--brand)" } : undefined}>
-                        {ehHoje ? "Hoje · " : ""}
-                        {diaDaSemana(mes.ano, mes.mes, dia)} {String(dia).padStart(2, "0")}
+                  <Bloco key={`${filtro}-${grupo.nome}`} className="grupo-de-lancamentos">
+                    <button
+                      type="button"
+                      className="cabeca-do-grupo-de-lancamentos"
+                      aria-expanded={aberto}
+                      onClick={() => {
+                        toque();
+                        setRecolhidos((atual) => ({ ...atual, [grupo.nome]: aberto }));
+                      }}
+                    >
+                      <motion.span style={{ display: "inline-flex" }} animate={{ rotate: aberto ? 0 : -90 }} transition={curvaCheia}>
+                        <IonIcon icon={chevronDown} aria-hidden />
+                      </motion.span>
+                      <span className="texto" style={{ flex: 1, minWidth: 0 }}>
+                        <strong style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{grupo.nome}</strong>
+                        <span className="etiqueta">{grupo.items.length === 1 ? "1 item" : `${grupo.items.length} itens`}</span>
                       </span>
-                      <span className="etiqueta">
-                        <Dinheiro cents={total} />
-                      </span>
-                    </div>
-                    <div className="lista">
-                      {items.map((item) => (
-                        <motion.button
-                          type="button"
-                          key={`${item.kind}-${item.id}`}
-                          className={`linha linha-botao${item.kind === "compromisso" ? " evento" : ""}`}
-                          whileTap={{ backgroundColor: "var(--surface-2)" }}
-                          onClick={() => {
-                            toque();
-                            if (item.kind === "lancamento") void abrir(item.id);
-                            else navegar("/agenda");
-                          }}
-                        >
-                          <div className="texto">
-                            <span>{item.title}</span>
-                            <span className="etiqueta">{item.detail}</span>
-                          </div>
-                          {item.cents === null ? <span className="etiqueta">Compromisso</span> : <Dinheiro cents={item.cents} />}
-                        </motion.button>
-                      ))}
-                    </div>
+                      {grupo.nome === GRUPO_DOS_COMPROMISSOS ? null : <Dinheiro cents={grupo.total} forte />}
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {aberto ? (
+                        <motion.div key="itens" className="lista" style={{ overflow: "hidden" }} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={curvaCheia}>
+                          {grupo.items.map((item) => (
+                            <motion.button
+                              type="button"
+                              key={`${item.kind}-${item.id}`}
+                              className={`linha linha-botao${item.kind === "compromisso" ? " evento" : ""}`}
+                              whileTap={{ backgroundColor: "var(--surface-2)" }}
+                              onClick={() => {
+                                toque();
+                                if (item.kind === "lancamento") void abrir(item.id);
+                                else navegar("/agenda");
+                              }}
+                            >
+                              <div className="texto">
+                                <span>{item.title}</span>
+                                <span className="etiqueta">
+                                  {ehEsteMes && item.day === hoje.getDate() ? "Hoje · " : ""}dia {String(item.day).padStart(2, "0")}
+                                  {item.kind === "lancamento" ? (grupoEsessao(item).sessao ? ` · ${grupoEsessao(item).sessao}` : "") : ` · ${item.detail}`}
+                                </span>
+                              </div>
+                              {item.cents === null ? <span className="etiqueta">Compromisso</span> : <Dinheiro cents={item.cents} />}
+                            </motion.button>
+                          ))}
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
                   </Bloco>
                 );
               })}
