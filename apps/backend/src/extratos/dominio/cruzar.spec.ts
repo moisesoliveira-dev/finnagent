@@ -63,6 +63,14 @@ describe("candidatos do cruzamento", () => {
     expect(lista[0]).toMatchObject({ entryId: "mercado", vagas: 1, day: 5, cents: -5000, category: "unique" });
   });
 
+  it("na parcela, entrega o valor de cada parcela pendente e quantas vagas tem: duas linhas do mesmo mês cabem", () => {
+    const parcelas = { ...lancamento("geladeira", [ocorrencia(1, "2026-08-05", "completed"), ocorrencia(2, "2026-09-05"), ocorrencia(3, "2026-10-05"), ocorrencia(4, "2026-11-05")]), category: "installment" } as Lancamento;
+    const [candidato] = cruzaveisDoMes([parcelas], [], 2026, 9);
+    expect(candidato).toMatchObject({ entryId: "geladeira", vagas: 3, category: "installment", pendentes: [5000, 5000, 5000] });
+    // Quem não é parcela nem empréstimo não manda a lista.
+    expect(cruzaveisDoMes([lancamento("mercado", [ocorrencia(1, "2026-09-05")])], [], 2026, 9)[0]).not.toHaveProperty("pendentes");
+  });
+
   it("mantém fixo, parcela e empréstimo mesmo quando o valor diverge", () => {
     const parcela = { ...aluguel, entryId: "parcela", category: "installment" as const, cents: -9000 };
     const emprestimo = { ...aluguel, entryId: "emprestimo", category: "loan" as const, cents: -4000, day: 15 };

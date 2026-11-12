@@ -128,10 +128,19 @@ export function linhasDaSerieExistente(entry: Lancamento, chaves: ReadonlySet<st
 }
 
 /**
- * Confere a escolha da pessoa: cada linha escolhida está entre as encontradas, cada mês tem no máximo uma linha que
- * paga a série, e a parte só entra num mês que tem a linha da série. Devolve o motivo, se recusar.
+ * Parcela e empréstimo pagam o que falta, uma parcela por linha: duas linhas do mesmo mês podem pagar duas parcelas.
+ * A recorrente tem uma ocorrência por mês, então só uma linha paga e as outras somam.
  */
-export function erroDaEscolha(meses: MesDaSerie[], escolha: { statementId: string; line: number; papel: PapelDaLinha }[]) {
+export function variasPagamNoMes(category: CategoriaTransacao) {
+  return category === "installment" || category === "loan";
+}
+
+/**
+ * Confere a escolha da pessoa: cada linha escolhida está entre as encontradas, cada mês tem no máximo uma linha que
+ * paga a série (na parcela e no empréstimo, `variasPorMes` deixa mais de uma), e a parte só entra num mês que tem a
+ * linha da série. Devolve o motivo, se recusar.
+ */
+export function erroDaEscolha(meses: MesDaSerie[], escolha: { statementId: string; line: number; papel: PapelDaLinha }[], variasPorMes = false) {
   if (escolha.length === 0) return "Escolha ao menos uma linha.";
   const mesDaLinha = new Map<string, string>(meses.flatMap((mes) => mes.lines.map((linha) => [`${linha.statementId}:${linha.line}`, mes.month] as [string, string])));
   const vistas = new Set<string>();
@@ -146,7 +155,9 @@ export function erroDaEscolha(meses: MesDaSerie[], escolha: { statementId: strin
     if (item.papel === "serie") daSerie.set(mes, (daSerie.get(mes) ?? 0) + 1);
     else comParte.add(mes);
   }
-  for (const [mes, quantas] of daSerie) if (quantas > 1) return `Em ${mes}, só uma linha paga a série. As outras somam como parte ou ficam de fora.`;
+  if (!variasPorMes) {
+    for (const [mes, quantas] of daSerie) if (quantas > 1) return `Em ${mes}, só uma linha paga a série. As outras somam como parte ou ficam de fora.`;
+  }
   for (const mes of comParte) if (!daSerie.has(mes)) return `Em ${mes}, a parte precisa de uma linha que pague a série.`;
   if (daSerie.size === 0) return "Escolha ao menos uma linha que pague a série.";
   return null;

@@ -49,6 +49,7 @@ import {
   linhasDaNovaSerie,
   linhasDaSerieExistente,
   tipoNoInicio,
+  variasPagamNoMes,
   type MesDaSerie,
 } from "../dominio/serie.js";
 import {
@@ -857,7 +858,7 @@ export class ExtratosService {
   ): Promise<SerieLancada> {
     if (!ehCategoriaDeSerie(tipo.category)) throw new PedidoInvalido("Só parcela, empréstimo e recorrente juntam linhas de outros meses.");
     const { meses } = await this.previaDaSerie(tenantId, origem.statementId, origem.line, tipo);
-    const erro = erroDaEscolha(meses, escolha);
+    const erro = erroDaEscolha(meses, escolha, variasPagamNoMes(tipo.category));
     if (erro) throw new PedidoInvalido(erro);
     const daSerie = linhasEmOrdem(meses, escolha, "serie");
     const inicio = daSerie[0]!;
@@ -902,7 +903,7 @@ export class ExtratosService {
     const serie = series.find((item) => item.entryId === entryId);
     if (!serie) throw new NaoEncontrado("Esta série não tem linhas livres em outros meses.");
     const meses: MesDaSerie[] = serie.meses;
-    const erro = erroDaEscolha(meses, escolha);
+    const erro = erroDaEscolha(meses, escolha, variasPagamNoMes(serie.category));
     if (erro) throw new PedidoInvalido(erro);
     // Na recorrente, o mês antes do início não tem ocorrência: a linha dele entra como única na mesma sessão.
     const antes = new Set(serie.category === "fixed" ? meses.filter((mes) => mes.antes).map((mes) => mes.month) : []);
