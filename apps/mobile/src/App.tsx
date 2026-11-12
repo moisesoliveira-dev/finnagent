@@ -1,7 +1,7 @@
 import { IonApp, IonIcon, IonLabel, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from "@ionic/react";
 import { IonReactRouter } from "@ionic/react-router";
 import { App as AppNativo } from "@capacitor/app";
-import { calendarOutline, chatbubbleEllipsesOutline, ellipsisHorizontal, homeOutline, walletOutline } from "ionicons/icons";
+import { calendarOutline, chatbubbleEllipsesOutline, documentTextOutline, ellipsisHorizontal, homeOutline, walletOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Navigate, Route, useLocation, useNavigate } from "react-router-dom";
@@ -36,13 +36,14 @@ type Estado = "carregando" | "entrou" | "saiu";
 const ABAS = [
   { tab: "inicio", rotulo: "Início", icone: homeOutline },
   { tab: "financas", rotulo: "Finanças", icone: walletOutline },
+  { tab: "extratos", rotulo: "Extratos", icone: documentTextOutline },
   { tab: "assistente", rotulo: "Assistente", icone: chatbubbleEllipsesOutline },
   { tab: "agenda", rotulo: "Agenda", icone: calendarOutline },
   { tab: "mais", rotulo: "Mais", icone: ellipsisHorizontal },
 ];
 
-/** As abas que têm tela própria. O resto (Metas, Extratos, Configurações...) se abre pelo "Mais" e conta como ele. */
-const ABAS_PROPRIAS = ["inicio", "financas", "assistente", "agenda"];
+/** As abas que têm tela própria. O resto (Metas, Configurações...) se abre pelo "Mais" e conta como ele. */
+const ABAS_PROPRIAS = ["inicio", "financas", "extratos", "assistente", "agenda"];
 
 /** A barra de abas: a linha da aba atual desliza de uma para a outra, como a barra do menu no web. */
 function BarraDeAbas() {

@@ -1,5 +1,4 @@
-import { IonButton, IonButtons, IonIcon, IonLabel, IonSegment, IonSegmentButton } from "@ionic/react";
-import { chevronBack } from "ionicons/icons";
+import { IonLabel, IonSegment, IonSegmentButton } from "@ionic/react";
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Pagina } from "../componentes/Pagina";
@@ -24,18 +23,7 @@ export function Extratos() {
   }
 
   return (
-    <Pagina
-      titulo="Extratos"
-      etiqueta="Conferir o banco com o sistema"
-      semPerfil
-      fim={
-        <IonButtons>
-          <IonButton routerLink="/financas" routerDirection="back" aria-label="Voltar">
-            <IonIcon slot="icon-only" icon={chevronBack} />
-          </IonButton>
-        </IonButtons>
-      }
-    >
+    <Pagina titulo="Extratos" etiqueta="Conferir o banco com o sistema">
       <Cascata className="pagina">
         <Bloco>
           <IonSegment value={aba} onIonChange={(evento) => trocar((evento.detail.value as Aba) ?? "importacoes")}>

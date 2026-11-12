@@ -479,6 +479,11 @@ ion-tab-bar {
 ion-tab-button {
   position: relative;
   --padding-top: 4px;
+  /* Seis abas cabem em 360 px: rótulo menor e mais junto, e sem sobra nas laterais. */
+  --padding-start: 0;
+  --padding-end: 0;
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
 }
 
 /* A linha da aba atual: o motion a desliza de uma aba para a outra (layoutId). */

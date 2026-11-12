@@ -1,5 +1,5 @@
 import { IonIcon } from "@ionic/react";
-import { barChartOutline, cardOutline, chevronForward, documentTextOutline, flagOutline, folderOpenOutline, settingsOutline, timeOutline, todayOutline } from "ionicons/icons";
+import { barChartOutline, cardOutline, chevronForward, flagOutline, folderOpenOutline, settingsOutline, timeOutline, todayOutline } from "ionicons/icons";
 import { Link } from "react-router-dom";
 import { Pagina } from "../componentes/Pagina";
 
@@ -9,7 +9,6 @@ const ATALHOS = [
   { para: "/financas/contas", icone: cardOutline, titulo: "Contas", texto: "Contas, cartões e caixinhas" },
   { para: "/financas/grupos", icone: folderOpenOutline, titulo: "Grupos e sessões", texto: "Onde cada lançamento entra" },
   { para: "/financas/relatorios", icone: barChartOutline, titulo: "Relatórios", texto: "O ano por mês e por categoria" },
-  { para: "/extratos", icone: documentTextOutline, titulo: "Extratos", texto: "Importar e conferir" },
   { para: "/configuracoes/eventos", icone: timeOutline, titulo: "Eventos", texto: "O que o sistema processou" },
   { para: "/configuracoes", icone: settingsOutline, titulo: "Configurações", texto: "Preferências do aplicativo" },
 ];
