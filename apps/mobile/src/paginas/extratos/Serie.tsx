@@ -1,8 +1,9 @@
 import { IonButton, IonToggle } from "@ionic/react";
-import type { EscolhaDaLinhaNaSerie, MesDaSerieNoExtrato } from "@finnagent/contracts";
+import type { CategoriaTransacao, EscolhaDaLinhaNaSerie, MesDaSerieNoExtrato } from "@finnagent/contracts";
 import { useEffect, useState } from "react";
 import { MESES, reais } from "../../api/formato";
 import { Folha } from "../../componentes/Folha";
+import { Fichas } from "../../componentes/Selecao";
 
 const chaveDa = (linha: { statementId: string; line: number }) => `${linha.statementId}:${linha.line}`;
 
@@ -11,10 +12,17 @@ function nomeDoMes(chave: string) {
   return `${MESES[mes - 1] ?? chave} de ${ano}`;
 }
 
-/** Em cada mês incluído, uma linha paga a série e as outras somam como parte. A mesma regra do web (serie.tsx). */
-type EscolhaDoMes = { incluido: boolean; principal: string };
+/**
+ * Como o mês com mais de uma linha entra: cada linha paga uma parcela (duas parcelas no mesmo mês), todas somam
+ * numa parte só, ou só uma delas paga. A mesma regra do web (serie.tsx).
+ */
+type ModoDoMes = "parcelas" | "somar" | "uma";
+type EscolhaDoMes = { incluido: boolean; modo: ModoDoMes; principal: string };
 
-export type PedidoDaSerie = { titulo: string; tipo: string; meses: MesDaSerieNoExtrato[]; origem: string | null };
+export type PedidoDaSerie = { titulo: string; tipo: string; categoria: CategoriaTransacao; meses: MesDaSerieNoExtrato[]; origem: string | null };
+
+/** Parcela e empréstimo pagam o que falta, uma parcela por linha; a recorrente tem uma ocorrência por mês. */
+const variasPagamNoMes = (categoria: CategoriaTransacao) => categoria === "installment" || categoria === "loan";
 
 function inicial(pedido: PedidoDaSerie): Record<string, EscolhaDoMes> {
   return Object.fromEntries(
@@ -22,7 +30,9 @@ function inicial(pedido: PedidoDaSerie): Record<string, EscolhaDoMes> {
       const daOrigem = mes.lines.find((linha) => chaveDa(linha) === pedido.origem);
       const previsto = mes.plannedCents;
       const maisPerto = previsto === null ? mes.lines[0] : [...mes.lines].sort((a, b) => Math.abs(a.cents - previsto) - Math.abs(b.cents - previsto))[0];
-      return [mes.month, { incluido: true, principal: chaveDa(daOrigem ?? maisPerto ?? mes.lines[0]!) }];
+      // Parcela e empréstimo com linhas de mesmo valor no mês: é mais provável serem duas parcelas do que uma em partes.
+      const parcelas = variasPagamNoMes(pedido.categoria) && mes.lines.length > 1 && mes.lines.every((linha) => linha.cents === mes.lines[0]!.cents);
+      return [mes.month, { incluido: true, modo: parcelas ? "parcelas" : "somar", principal: chaveDa(daOrigem ?? maisPerto ?? mes.lines[0]!) } satisfies EscolhaDoMes];
     }),
   );
 }
@@ -31,13 +41,17 @@ function escolhaDaSerie(meses: MesDaSerieNoExtrato[], escolhas: Record<string, E
   return meses.flatMap((mes) => {
     const escolha = escolhas[mes.month];
     if (!escolha?.incluido) return [];
-    return mes.lines.map((linha): EscolhaDaLinhaNaSerie => ({ statementId: linha.statementId, line: linha.line, papel: chaveDa(linha) === escolha.principal ? "serie" : "parte" }));
+    return mes.lines.flatMap((linha): EscolhaDaLinhaNaSerie[] => {
+      if (escolha.modo === "parcelas") return [{ statementId: linha.statementId, line: linha.line, papel: "serie" }];
+      if (chaveDa(linha) === escolha.principal) return [{ statementId: linha.statementId, line: linha.line, papel: "serie" }];
+      return escolha.modo === "somar" ? [{ statementId: linha.statementId, line: linha.line, papel: "parte" }] : [];
+    });
   });
 }
 
 /**
  * A mesma compra em vários meses importados, para lançar de uma vez. Cada mês entra ou não; no mês com mais de uma
- * linha, todas somam e a primeira paga a parcela do mês.
+ * linha, a pessoa diz se cada uma paga uma parcela, se somam como uma só ou se fica uma só.
  */
 export function FolhaDaSerie({
   pedido,
@@ -83,23 +97,55 @@ export function FolhaDaSerie({
                 >
                   <strong>
                     {nomeDoMes(mes.month)}
-                    {mes.numero ? ` · parcela ${mes.numero}` : ""}
+                    {mes.numero ? (atual?.modo === "parcelas" && mes.lines.length > 1 ? ` · parcelas ${mes.numero} a ${mes.numero + mes.lines.length - 1}` : ` · parcela ${mes.numero}`) : ""}
                     {mes.antes ? " · antes da série" : ""}
                   </strong>
                 </IonToggle>
+                {mes.lines.length > 1 && atual ? (
+                  <div className="campo">
+                    <span className="fraco">
+                      {mes.lines.length} linhas neste mês, somando {reais(mes.lines.reduce((soma, linha) => soma + linha.cents, 0))}.{" "}
+                      {variasPagamNoMes(pedido.categoria)
+                        ? "Se são parcelas diferentes (duas no mesmo mês), cada linha paga uma. Se é uma parcela paga em partes, some no mês."
+                        : "Some todas no mês ou fique com uma só."}
+                    </span>
+                    <Fichas<ModoDoMes>
+                      rotulo={`Como ${nomeDoMes(mes.month)} entra`}
+                      valor={atual.modo}
+                      opcoes={[
+                        ...(variasPagamNoMes(pedido.categoria) ? [{ id: "parcelas" as const, texto: "Cada uma paga uma parcela" }] : []),
+                        { id: "somar" as const, texto: "Somar no mês" },
+                        { id: "uma" as const, texto: "Só uma" },
+                      ]}
+                      aoMudar={(modo) => setEscolhas((anterior) => ({ ...anterior, [mes.month]: { ...anterior[mes.month]!, modo } }))}
+                    />
+                  </div>
+                ) : null}
                 <div className="lista">
-                  {mes.lines.map((linha) => (
-                    <div key={chaveDa(linha)} className="linha">
-                      <span className="texto">
-                        <span>{linha.description}</span>
-                        <span className="etiqueta">
-                          {linha.date.slice(8, 10)}/{linha.date.slice(5, 7)}
-                          {mes.lines.length > 1 && atual?.principal === chaveDa(linha) ? " · paga a parcela" : ""}
+                  {mes.lines.map((linha) => {
+                    const fora = mes.lines.length > 1 && atual?.modo === "uma" && atual.principal !== chaveDa(linha);
+                    return (
+                      <button
+                        key={chaveDa(linha)}
+                        type="button"
+                        className="linha linha-botao"
+                        disabled={!(mes.lines.length > 1 && atual?.modo === "uma")}
+                        onClick={() => setEscolhas((anterior) => ({ ...anterior, [mes.month]: { ...anterior[mes.month]!, principal: chaveDa(linha) } }))}
+                        style={fora ? { opacity: 0.5 } : undefined}
+                      >
+                        <span className="texto">
+                          <span>{linha.description}</span>
+                          <span className="etiqueta">
+                            {linha.date.slice(8, 10)}/{linha.date.slice(5, 7)}
+                            {mes.lines.length > 1 && atual?.modo === "uma" && !fora ? " · a que entra" : ""}
+                            {mes.lines.length > 1 && atual?.modo === "somar" && atual.principal === chaveDa(linha) ? " · paga a parcela" : ""}
+                            {mes.lines.length > 1 && atual?.modo === "parcelas" ? " · paga uma parcela" : ""}
+                          </span>
                         </span>
-                      </span>
-                      <span className={linha.cents < 0 ? "neg" : "pos"}>{reais(linha.cents)}</span>
-                    </div>
-                  ))}
+                        <span className={linha.cents < 0 ? "neg" : "pos"} style={fora ? { textDecoration: "line-through" } : undefined}>{reais(linha.cents)}</span>
+                      </button>
+                    );
+                  })}
                 </div>
                 {mes.plannedCents !== null ? <span className="etiqueta">Previsto: {reais(mes.plannedCents)}</span> : null}
               </div>
