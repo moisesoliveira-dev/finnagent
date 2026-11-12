@@ -1,5 +1,6 @@
 import {
   IonButton,
+  IonActionSheet,
   IonButtons,
   IonContent,
   IonFooter,
@@ -13,9 +14,10 @@ import {
   useIonViewWillEnter,
 } from "@ionic/react";
 import type { ConversaCompleta, ConversaResumo, MensagemDoChat } from "@finnagent/contracts";
+import { TIPOS_ACEITOS, juntarArquivos, paraOPedido, tamanhoDoAnexo, type AnexoPendente } from "@finnagent/chat";
 import { AnimatePresence, motion } from "motion/react";
 import { useLocation } from "react-router-dom";
-import { addOutline, closeOutline, listOutline, sendOutline, stopOutline } from "ionicons/icons";
+import { addOutline, attachOutline, closeOutline, documentAttachOutline, listOutline, sendOutline, stopOutline } from "ionicons/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { abrirFluxo, enviar, ler } from "../api/cliente";
 import { ID_PROVISORIO, aplicarEvento, lerEventos, marcarResposta, mensagemProvisoria } from "@finnagent/chat";
@@ -31,6 +33,9 @@ export function Assistente() {
   const [atual, setAtual] = useState<ConversaResumo | null>(null);
   const [mensagens, setMensagens] = useState<MensagemDoChat[]>([]);
   const [texto, setTexto] = useState("");
+  const [anexos, setAnexos] = useState<AnexoPendente[]>([]);
+  const seletor = useRef<HTMLInputElement>(null);
+  const [menuAberto, setMenuAberto] = useState(false);
   const [trabalhando, setTrabalhando] = useState(false);
   const [erro, setErro] = useState("");
   const [listaAberta, setListaAberta] = useState(false);
@@ -135,15 +140,24 @@ export function Assistente() {
     setListaAberta(false);
   }
 
-  async function conversar(corpo: { texto: string } | { resposta: { perguntaId: string; escolha: string } }) {
+  /** Lê os arquivos escolhidos, confere os limites e junta aos que já estavam. */
+  async function escolherArquivos(escolhidos: File[]) {
+    if (escolhidos.length === 0) return;
+    const { anexos: juntos, erro: aviso } = await juntarArquivos(escolhidos, anexos);
+    setAnexos(juntos);
+    setErro(aviso ?? "");
+  }
+
+  async function conversar(corpo: { texto: string; anexos?: AnexoPendente[] } | { resposta: { perguntaId: string; escolha: string } }) {
     if (trabalhando) return;
     acompanhando.current++;
     setTrabalhando(true);
     setErro("");
     const digitado = "texto" in corpo ? corpo.texto : "";
     if ("texto" in corpo) {
-      setMensagens((itens) => [...itens, mensagemProvisoria(digitado)]);
+      setMensagens((itens) => [...itens, mensagemProvisoria(digitado, corpo.anexos)]);
       setTexto("");
+      setAnexos([]);
     } else {
       setMensagens((itens) => marcarResposta(itens, corpo.resposta.perguntaId, corpo.resposta.escolha));
     }
@@ -155,7 +169,8 @@ export function Assistente() {
     let assistenteId: string | null = null;
     let terminou = false;
     try {
-      const resposta = await abrirFluxo("/api/assistente/mensagens", { conversationId: conversaId, ...corpo }, parar.signal);
+      const pedido = "texto" in corpo ? { texto: corpo.texto, ...(corpo.anexos?.length ? { anexos: paraOPedido(corpo.anexos) } : {}) } : corpo;
+      const resposta = await abrirFluxo("/api/assistente/mensagens", { conversationId: conversaId, ...pedido }, parar.signal);
       try {
         for await (const evento of lerEventos(resposta)) {
           if (evento.tipo === "conversa") {
@@ -189,6 +204,7 @@ export function Assistente() {
         if ("texto" in corpo) {
           setMensagens((itens) => itens.filter((item) => item.id !== ID_PROVISORIO));
           setTexto(digitado);
+          setAnexos(corpo.anexos ?? []);
         }
       }
     } finally {
@@ -301,43 +317,86 @@ export function Assistente() {
       </IonContent>
 
       <IonFooter>
-        <form
-          className="compositor"
-          onSubmit={(evento) => {
-            evento.preventDefault();
-            if (texto.trim()) void conversar({ texto: texto.trim() });
-          }}
-        >
-          <IonTextarea
-            rows={1}
-            autoGrow
-            value={texto}
-            placeholder="Escreva para o assistente"
-            aria-label="Mensagem para o assistente"
-            onIonInput={(evento) => setTexto(String(evento.detail.value ?? ""))}
-          />
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={trabalhando ? "parar" : "enviar"}
-              initial={{ opacity: 0, scale: 0.7, rotate: -30 }}
-              animate={{ opacity: 1, scale: 1, rotate: 0 }}
-              exit={{ opacity: 0, scale: 0.7, rotate: 30 }}
-              transition={{ duration: 0.16 }}
-              whileTap={toqueDoDedo}
-            >
-              {trabalhando ? (
-                <IonButton fill="outline" aria-label="Parar" onClick={() => void parar()}>
-                  <IonIcon slot="icon-only" icon={stopOutline} />
-                </IonButton>
-              ) : (
-                <IonButton type="submit" className="principal" aria-label="Enviar" disabled={!texto.trim()} onClick={() => toque()}>
-                  <IonIcon slot="icon-only" icon={sendOutline} />
-                </IonButton>
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </form>
+        <div className="compositor">
+          {/* Os arquivos ficam acima da caixa, como etiquetas: cada um com o clipe, o nome, o tamanho e o X. */}
+          {anexos.length > 0 ? (
+            <ul className="anexos-pendentes" aria-label="Arquivos que vão com a mensagem">
+              {anexos.map((anexo, indice) => (
+                <motion.li key={`${anexo.name}-${anexo.size}`} className="etiqueta-de-anexo" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.16 }}>
+                  <IonIcon icon={documentAttachOutline} aria-hidden />
+                  <span className="nome">{anexo.name}</span>
+                  <span className="tamanho">{tamanhoDoAnexo(anexo.size)}</span>
+                  <button type="button" aria-label={`Remover o anexo ${anexo.name}`} disabled={trabalhando} onClick={() => setAnexos((itens) => itens.filter((_, posicao) => posicao !== indice))}>
+                    <IonIcon icon={closeOutline} aria-hidden />
+                  </button>
+                </motion.li>
+              ))}
+            </ul>
+          ) : null}
+          {/* Uma caixa só, como no site: o "+" guarda o que vai junto, o texto no meio e o enviar à direita. */}
+          <form
+            className="caixa-da-mensagem"
+            onSubmit={(evento) => {
+              evento.preventDefault();
+              if (texto.trim() || anexos.length > 0) void conversar({ texto: texto.trim(), anexos });
+            }}
+          >
+            <input
+              ref={seletor}
+              type="file"
+              multiple
+              hidden
+              accept={TIPOS_ACEITOS}
+              onChange={(evento) => {
+                const escolhidos = [...(evento.target.files ?? [])];
+                evento.target.value = "";
+                void escolherArquivos(escolhidos);
+              }}
+            />
+            <IonButton fill="clear" className="mais-da-mensagem" aria-label="Mais opções da mensagem" disabled={trabalhando} onClick={() => setMenuAberto(true)}>
+              <IonIcon slot="icon-only" icon={addOutline} />
+            </IonButton>
+            <IonTextarea
+              rows={1}
+              autoGrow
+              value={texto}
+              placeholder="Pergunte ou peça algo"
+              aria-label="Mensagem para o assistente"
+              onIonInput={(evento) => setTexto(String(evento.detail.value ?? ""))}
+            />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={trabalhando ? "parar" : "enviar"}
+                initial={{ opacity: 0, scale: 0.7, rotate: -30 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.7, rotate: 30 }}
+                transition={{ duration: 0.16 }}
+                whileTap={toqueDoDedo}
+              >
+                {trabalhando ? (
+                  <IonButton fill="outline" className="enviar-da-mensagem" aria-label="Parar" onClick={() => void parar()}>
+                    <IonIcon slot="icon-only" icon={stopOutline} />
+                  </IonButton>
+                ) : (
+                  <IonButton type="submit" className="principal enviar-da-mensagem" aria-label="Enviar" disabled={!texto.trim() && anexos.length === 0} onClick={() => toque()}>
+                    <IonIcon slot="icon-only" icon={sendOutline} />
+                  </IonButton>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </form>
+        </div>
       </IonFooter>
+
+      <IonActionSheet
+        isOpen={menuAberto}
+        header="Com a mensagem"
+        buttons={[
+          { text: "Anexar arquivo", icon: attachOutline, handler: () => seletor.current?.click() },
+          { text: "Cancelar", role: "cancel" },
+        ]}
+        onDidDismiss={() => setMenuAberto(false)}
+      />
 
       <IonModal isOpen={listaAberta} onDidDismiss={() => setListaAberta(false)}>
         <IonHeader>

@@ -1,10 +1,10 @@
 import { IonButton, IonIcon, IonLabel, IonSegment, IonSegmentButton, useIonViewWillEnter } from "@ionic/react";
 import type { FinancasVista, ItemPainel, LancamentoVista, PainelResposta } from "@finnagent/contracts";
-import { chevronForward, documentTextOutline, folderOpenOutline, walletOutline } from "ionicons/icons";
+import { walletOutline } from "ionicons/icons";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { ler } from "../api/cliente";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { diaDaSemana, hojeIso, reais, rotuloDoMes } from "../api/formato";
 import { Dinheiro, Estado, Vazio } from "../componentes/Estado";
 import { Pagina } from "../componentes/Pagina";
@@ -27,8 +27,6 @@ function porDia(items: ItemPainel[]) {
 
 const passa = (item: ItemPainel, filtro: Filtro) =>
   filtro === "todos" || (item.cents !== null && (filtro === "entradas" ? item.cents > 0 : item.cents < 0));
-
-const LinhaComMovimento = motion.create(Link);
 
 /** Hoje, se o mês aberto é o atual: o lançamento novo já nasce com a data certa. */
 function ehEsteMesHoje(mes: { ano: number; mes: number }) {
@@ -89,42 +87,8 @@ export function Financas() {
           setFormulario({ entry: null });
         },
       }}
-      fim={
-        <>
-          <IonButton routerLink="/extratos" aria-label="Extratos: importar e conferir">
-            <IonIcon slot="icon-only" icon={documentTextOutline} />
-          </IonButton>
-        </>
-      }
     >
       <div className="pagina">
-        <div className="lista">
-          <LinhaComMovimento to="/financas/contas" className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
-            <IonIcon icon={walletOutline} aria-hidden />
-            <span className="texto" style={{ flex: 1 }}>
-              <strong>Contas</strong>
-              <span className="etiqueta">Saldo de cada conta e fatura do cartão</span>
-            </span>
-            <IonIcon icon={chevronForward} aria-hidden />
-          </LinhaComMovimento>
-          <LinhaComMovimento to="/financas/grupos" className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
-            <IonIcon icon={folderOpenOutline} aria-hidden />
-            <span className="texto" style={{ flex: 1 }}>
-              <strong>Grupos e sessões</strong>
-              <span className="etiqueta">Onde cada lançamento entra</span>
-            </span>
-            <IonIcon icon={chevronForward} aria-hidden />
-          </LinhaComMovimento>
-          <LinhaComMovimento to="/financas/relatorios" className="linha atalho-de-linha" whileTap={{ backgroundColor: "var(--surface-2)" }}>
-            <IonIcon icon={documentTextOutline} aria-hidden />
-            <span className="texto" style={{ flex: 1 }}>
-              <strong>Relatórios</strong>
-              <span className="etiqueta">O ano por grupo, sessão e categoria</span>
-            </span>
-            <IonIcon icon={chevronForward} aria-hidden />
-          </LinhaComMovimento>
-        </div>
-
         <SeletorDeMes mes={mes} direcao={direcao} aoMudar={mudar} />
 
         <Troca chave={rotuloDoMes(mes)} direcao={direcao}>

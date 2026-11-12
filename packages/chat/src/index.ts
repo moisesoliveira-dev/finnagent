@@ -114,3 +114,5 @@ export async function* lerEventos(resposta: Response): AsyncGenerator<EventoDoCh
   }
   if (resto.trim()) yield JSON.parse(resto) as EventoDoChat;
 }
+
+export * from "./anexos";
