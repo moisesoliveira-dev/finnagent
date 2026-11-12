@@ -26,7 +26,7 @@ import {
   type ValorDoMes,
   type VinculoCruzado,
 } from "@finnagent/contracts";
-import { cashOutline, checkmarkCircleOutline, chevronDown, closeOutline, searchOutline } from "ionicons/icons";
+import { cashOutline, checkmarkCircleOutline, chevronDown, closeOutline, eyeOffOutline, gitBranchOutline, pricetagOutline, searchOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { diaEMes } from "../../api/arquivo";
@@ -36,6 +36,7 @@ import { Campo, CampoDeValor } from "../../componentes/Campo";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
 import { FimDaJanela } from "../../componentes/FimDaJanela";
 import { Folha } from "../../componentes/Folha";
+import { MenuDeAcoes } from "../../componentes/MenuDeAcoes";
 import { ROTULO_CATEGORIA, ROTULO_RECORRENCIA } from "../financas/rotulos";
 import { FolhaDaSerie, type PedidoDaSerie } from "./Serie";
 import { Fichas, Selecao } from "../../componentes/Selecao";
@@ -55,7 +56,7 @@ const SITUACOES: Array<{ id: Situacao; texto: string }> = [
   { id: "ignoradas", texto: "Ignoradas" },
 ];
 
-type Parte = { valor: string; sessionId: string };
+type Parte = { valor: string; sessionId: string; nome: string };
 
 /** O tipo do lançamento que a linha vira, como a pessoa digita. Única é o padrão e não manda nada. */
 type RascunhoDoTipo = { category: CategoriaTransacao; installments: string; installmentNumber: string; counterparty: string; principal: string; recurrence: Recorrencia; recurrenceInterval: string };
@@ -84,7 +85,26 @@ function categoriasDaLinha(cents: number, aceitas?: readonly CategoriaTransacao[
 
 const chaveDa = (linha: LinhaConferencia) => `${linha.statementId}:${linha.line}`;
 const textoDoVinculo = (vinculo: VinculoCruzado) => `${vinculo.description} · ${vinculo.groupName} / ${vinculo.sessionName}`;
-const rotuloDoCandidato = (vinculo: VinculoCruzado) => `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${reais(vinculo.cents)}`;
+const rotuloDoCandidato = (vinculo: VinculoCruzado) => {
+  const parcela = vinculo.parcela ? ` · parcela ${vinculo.parcela.numero}${vinculo.parcela.total ? `/${vinculo.parcela.total}` : ""}` : "";
+  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)}${parcela} · dia ${vinculo.day} · ${reais(vinculo.cents)}`;
+};
+
+/** Se o banco escreveu a parcela na descrição ("Parcela 3/10") e a linha é saída, o tipo já nasce como parcela. */
+function tipoPadraoDaLinha(linha: LinhaConferencia): RascunhoDoTipo {
+  const parcela = linha.parcelaDoExtrato;
+  if (!parcela || linha.cents >= 0 || (parcela.numero === null && parcela.total === null)) return RASCUNHO_UNICO;
+  return { ...RASCUNHO_UNICO, category: "installment", installmentNumber: parcela.numero ? String(parcela.numero) : "1", installments: parcela.total ? String(parcela.total) : "" };
+}
+
+/** O que o banco escreveu, em palavras: "Pelo extrato: parcela 3 de 10." */
+function fraseDaParcelaDoExtrato(linha: LinhaConferencia) {
+  const parcela = linha.parcelaDoExtrato;
+  if (!parcela) return "";
+  if (parcela.numero && parcela.total) return `Pelo extrato: parcela ${parcela.numero} de ${parcela.total}.`;
+  if (parcela.numero) return `Pelo extrato: parcela ${parcela.numero}.`;
+  return parcela.total ? `Pelo extrato: em ${parcela.total} parcelas.` : "";
+}
 // Fixa, parcela e empréstimo com valor diferente do extrato: a pessoa diz qual valor vale neste mês.
 // Só a recorrente pergunta qual valor vale no mês: a parcela paga o que falta, no valor da linha (como no site).
 const pedeValorDoMes = (candidato: VinculoCruzado, cents: number) => candidato.category === "fixed" && candidato.cents !== cents;
@@ -123,10 +143,12 @@ export function Conferencia() {
   const [diferencas, setDiferencas] = useState<Record<string, DiferencaDoPagamento | "">>({});
   const [ocupado, setOcupado] = useState("");
   const [contaDoPar, setContaDoPar] = useState<Record<string, string>>({});
+  // O nome que a pessoa dá ao lançamento que nasce da linha. Sem mexer, vale o último nome lembrado para a descrição.
+  const [nomes, setNomes] = useState<Record<string, string>>({});
   const [dividindo, setDividindo] = useState<{ linha: LinhaConferencia; partes: Parte[] } | null>(null);
   const [tipos, setTipos] = useState<Record<string, RascunhoDoTipo>>({});
   const [serie, setSerie] = useState<
-    { modo: "nova"; linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; pedido: PedidoDaSerie } | { modo: "existente"; existente: SerieComLinhas; pedido: PedidoDaSerie } | null
+    { modo: "nova"; linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; nome?: string; pedido: PedidoDaSerie } | { modo: "existente"; existente: SerieComLinhas; pedido: PedidoDaSerie } | null
   >(null);
 
   const sessoes = useMemo(() => {
@@ -142,6 +164,12 @@ export function Conferencia() {
 
   const lancamentoDa = (linha: LinhaConferencia) => par[chaveDa(linha)] ?? linha.suggestion?.entryId ?? "";
   const sessaoDa = (linha: LinhaConferencia) => escolha[chaveDa(linha)] ?? linha.sessionId ?? "";
+  const nomeDa = (linha: LinhaConferencia) => nomes[chaveDa(linha)] ?? linha.names[0] ?? "";
+  /** O nome que vai para o lançamento: o escolhido, se for diferente da descrição do extrato. */
+  const nomeParaEnviar = (linha: LinhaConferencia) => {
+    const nome = nomeDa(linha).trim();
+    return nome && nome !== linha.description.trim() ? { nome } : {};
+  };
 
   async function acao<T>(chave: string, fazer: () => Promise<T>, aoTerminar: (resposta: T) => void, falha: string) {
     setOcupado(chave);
@@ -195,10 +223,21 @@ export function Conferencia() {
   const categoriasDaSessao = (linha: LinhaConferencia) => grupos.dados?.sessions.find((item) => item.id === sessaoDa(linha))?.categories;
   // A categoria que a sessão escolhida não aceita mais volta para única.
   const rascunhoDa = (linha: LinhaConferencia) => {
-    const rascunho = tipos[chaveDa(linha)] ?? RASCUNHO_UNICO;
+    const rascunho = tipos[chaveDa(linha)] ?? tipoPadraoDaLinha(linha);
     return categoriasDaLinha(linha.cents, categoriasDaSessao(linha)).includes(rascunho.category) ? rascunho : RASCUNHO_UNICO;
   };
-  const mudarTipo = (linha: LinhaConferencia, parte: Partial<RascunhoDoTipo>) => setTipos((atual) => ({ ...atual, [chaveDa(linha)]: { ...rascunhoDa(linha), ...parte } }));
+  const mudarTipo = (linha: LinhaConferencia, parte: Partial<RascunhoDoTipo>) =>
+    setTipos((atual) => {
+      const antes = rascunhoDa(linha);
+      const novo = { ...antes, ...parte };
+      // Trocou para parcela: os números que o banco escreveu já entram.
+      const parcela = linha.parcelaDoExtrato;
+      if (novo.category === "installment" && antes.category !== "installment" && parcela) {
+        if (parcela.numero) novo.installmentNumber = String(parcela.numero);
+        if (parcela.total) novo.installments = String(parcela.total);
+      }
+      return { ...atual, [chaveDa(linha)]: novo };
+    });
 
   function lancouNaSessao(resposta: ConferenciaResposta, linha: LinhaConferencia) {
     guardar(resposta);
@@ -229,7 +268,8 @@ export function Conferencia() {
             linha,
             sessionId,
             tipo,
-            pedido: { titulo: `${linha.description} aparece em outros meses`, tipo: ROTULO_CATEGORIA[tipo.category], categoria: tipo.category, meses: previa.meses, origem: chaveDa(linha) },
+            ...nomeParaEnviar(linha),
+            pedido: { titulo: `${nomeDa(linha) || linha.description} aparece em outros meses`, tipo: ROTULO_CATEGORIA[tipo.category], categoria: tipo.category, meses: previa.meses, origem: chaveDa(linha) },
           });
           return;
         }
@@ -241,7 +281,7 @@ export function Conferencia() {
     }
     void acao(
       chaveDa(linha),
-      () => enviar<ConferenciaResposta>("/api/extratos/acumular", { statementId: linha.statementId, line: linha.line, sessionId, ...comTipo }),
+      () => enviar<ConferenciaResposta>("/api/extratos/acumular", { statementId: linha.statementId, line: linha.line, sessionId, ...nomeParaEnviar(linha), ...comTipo }),
       (resposta) => lancouNaSessao(resposta, linha),
       "Não foi possível acumular a linha.",
     );
@@ -258,7 +298,7 @@ export function Conferencia() {
       "serie",
       () =>
         serie.modo === "nova"
-          ? enviar<SerieLancada>("/api/extratos/series", { statementId: serie.linha.statementId, line: serie.linha.line, sessionId: serie.sessionId, tipo: serie.tipo, linhas: escolha })
+          ? enviar<SerieLancada>("/api/extratos/series", { statementId: serie.linha.statementId, line: serie.linha.line, sessionId: serie.sessionId, tipo: serie.tipo, ...(serie.nome ? { nome: serie.nome } : {}), linhas: escolha })
           : enviar<SerieLancada>(`/api/extratos/series/${serie.existente.entryId}/linhas`, { linhas: escolha }),
       (resultado) => {
         avisarSerie(resultado);
@@ -318,7 +358,7 @@ export function Conferencia() {
         enviar<ConferenciaResposta>("/api/extratos/dividir", {
           statementId: linha.statementId,
           line: linha.line,
-          parts: partes.map((parte, indice) => ({ cents: sinal * (valores[indice] ?? 0), sessionId: parte.sessionId })),
+          parts: partes.map((parte, indice) => ({ cents: sinal * (valores[indice] ?? 0), sessionId: parte.sessionId, ...(parte.nome.trim() && parte.nome.trim() !== linha.description.trim() ? { nome: parte.nome.trim() } : {}) })),
         }),
       (resposta) => {
         guardar(resposta);
@@ -338,7 +378,7 @@ export function Conferencia() {
   const comSessao = linhas.filter((linha) => !linha.link && Boolean(sessaoDa(linha)));
 
   function lancarTodas() {
-    const itens = comSessao.map((linha) => ({ statementId: linha.statementId, line: linha.line, sessionId: sessaoDa(linha) }));
+    const itens = comSessao.map((linha) => ({ statementId: linha.statementId, line: linha.line, sessionId: sessaoDa(linha), ...nomeParaEnviar(linha) }));
     void acao(
       "lote",
       () => enviar<AcumuloEmLote>("/api/extratos/acumular-lote", { items: itens }),
@@ -558,7 +598,13 @@ export function Conferencia() {
                                         </div>
                                       ) : null}
                                       {escolhido && planoDaLinha(escolhido, linha.cents) ? (
-                                        <span className="fraco" style={{ fontSize: "0.875rem" }}>{fraseDoPlanoDeParcelas(planoDaLinha(escolhido, linha.cents)!, reais)}</span>
+                                        <span className="fraco" style={{ fontSize: "0.875rem" }}>{fraseDoPlanoDeParcelas(planoDaLinha(escolhido, linha.cents)!, reais, escolhido.parcela)}</span>
+                                      ) : null}
+                                      {/* O banco diz uma parcela e o contrato está em outra: avisa antes de pagar a errada. */}
+                                      {escolhido?.parcela && linha.parcelaDoExtrato?.numero && linha.parcelaDoExtrato.numero !== escolhido.parcela.numero ? (
+                                        <span className="erro" style={{ fontSize: "0.875rem" }}>
+                                          O extrato diz parcela {linha.parcelaDoExtrato.numero}, mas a próxima do lançamento é a {escolhido.parcela.numero}. A linha paga a {escolhido.parcela.numero}.
+                                        </span>
                                       ) : null}
                                       {escolhido && pedeDiferenca(escolhido, linha.cents) ? (
                                         <div className="secao" style={{ gap: 8 }}>
@@ -589,6 +635,23 @@ export function Conferencia() {
                                     <p className="fraco">Nenhum lançamento deste mês combina com a linha.</p>
                                   )}
                                   <div className="secao" style={{ gap: 12 }}>
+                                    <Campo
+                                      icone={pricetagOutline}
+                                      rotulo="Nome do lançamento"
+                                      value={nomeDa(linha)}
+                                      onMudar={(nome) => setNomes((atual) => ({ ...atual, [chave]: nome }))}
+                                      placeholder={linha.description || "Como no extrato"}
+                                      maxLength={160}
+                                    />
+                                    {/* Os nomes que a pessoa já deu a linhas com esta descrição: um toque escolhe. */}
+                                    {[linha.description.trim(), ...linha.names].filter((nome, indice, lista) => nome && lista.indexOf(nome) === indice).length > 1 ? (
+                                      <Fichas<string>
+                                        rotulo="Nomes usados antes"
+                                        valor={nomeDa(linha).trim()}
+                                        opcoes={[linha.description.trim(), ...linha.names].filter((nome, indice, lista) => nome && lista.indexOf(nome) === indice).map((nome) => ({ id: nome, texto: nome }))}
+                                        aoMudar={(nome) => setNomes((atual) => ({ ...atual, [chave]: nome }))}
+                                      />
+                                    ) : null}
                                     <Selecao
                                       rotulo={linha.sessionSource === "compromisso" && linha.appointmentTitle ? `Sessão · pelo compromisso "${linha.appointmentTitle}"` : linha.sessionSource === "nome" ? "Sessão · lembrada pelo nome" : "Lançar numa sessão"}
                                       valor={sessaoDa(linha)}
@@ -596,6 +659,7 @@ export function Conferencia() {
                                       opcoes={sessoes}
                                       aoMudar={(valor) => setEscolha((atual) => ({ ...atual, [chave]: valor }))}
                                     />
+                                    {sessaoDa(linha) && fraseDaParcelaDoExtrato(linha) ? <span className="fraco">{fraseDaParcelaDoExtrato(linha)}</span> : null}
                                     {sessaoDa(linha) ? (
                                       <TipoDaLinhaCampos
                                         rascunho={rascunhoDa(linha)}
@@ -621,25 +685,28 @@ export function Conferencia() {
                                       </IonButton>
                                     </div>
                                   ) : null}
-                                  <div className="acoes-da-folha">
-                                    <IonButton
-                                      fill="clear"
-                                      disabled={ocupado === chave}
-                                      onClick={() =>
-                                        setDividindo({
-                                          linha,
-                                          partes: [
-                                            { valor: "", sessionId: sessaoDa(linha) },
-                                            { valor: "", sessionId: "" },
-                                          ],
-                                        })
-                                      }
-                                    >
-                                      Dividir em partes
-                                    </IonButton>
-                                    <IonButton fill="clear" color="medium" disabled={ocupado === chave} onClick={() => ignorar(linha, true)}>
-                                      Ignorar a linha
-                                    </IonButton>
+                                  <div className="acoes-da-folha acoes-com-menu">
+                                    <span className="fraco">Outras opções para esta linha</span>
+                                    <MenuDeAcoes
+                                      titulo={linha.description}
+                                      rotulo={`Mais ações da linha ${linha.description}`}
+                                      desabilitado={ocupado === chave}
+                                      acoes={[
+                                        {
+                                          texto: "Dividir em partes",
+                                          icone: gitBranchOutline,
+                                          aoEscolher: () =>
+                                            setDividindo({
+                                              linha,
+                                              partes: [
+                                                { valor: "", sessionId: sessaoDa(linha), nome: nomeDa(linha) },
+                                                { valor: "", sessionId: "", nome: "" },
+                                              ],
+                                            }),
+                                        },
+                                        { texto: "Ignorar a linha", icone: eyeOffOutline, aoEscolher: () => ignorar(linha, true) },
+                                      ]}
+                                    />
                                   </div>
                                 </>
                               )}
@@ -721,10 +788,18 @@ export function Conferencia() {
                   opcoes={sessoes}
                   aoMudar={(sessionId) => setDividindo({ ...dividindo, partes: dividindo.partes.map((atual, outro) => (outro === indice ? { ...atual, sessionId } : atual)) })}
                 />
+                <Campo
+                  icone={pricetagOutline}
+                  rotulo="Nome desta parte (opcional)"
+                  value={parte.nome}
+                  onMudar={(nome) => setDividindo({ ...dividindo, partes: dividindo.partes.map((atual, outro) => (outro === indice ? { ...atual, nome } : atual)) })}
+                  placeholder={dividindo.linha.description}
+                  maxLength={160}
+                />
               </div>
             ))}
             {dividindo.partes.length < 10 ? (
-              <IonButton fill="clear" onClick={() => setDividindo({ ...dividindo, partes: [...dividindo.partes, { valor: "", sessionId: "" }] })}>
+              <IonButton fill="clear" onClick={() => setDividindo({ ...dividindo, partes: [...dividindo.partes, { valor: "", sessionId: "", nome: "" }] })}>
                 + Outra parte
               </IonButton>
             ) : null}

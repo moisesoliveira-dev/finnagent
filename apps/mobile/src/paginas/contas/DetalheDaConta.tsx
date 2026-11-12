@@ -13,13 +13,14 @@ import {
   type MetasResposta,
   type StatusExtrato,
 } from "@finnagent/contracts";
-import { chevronBack, walletOutline } from "ionicons/icons";
+import { chevronBack, createOutline, swapHorizontalOutline, walletOutline } from "ionicons/icons";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MESES, MESES_CURTOS, dataCurta, reais, rotuloDoMes } from "../../api/formato";
 import { diaEMes } from "../../api/arquivo";
 import { BarraDeUso } from "../../componentes/BarraDeUso";
 import { Dinheiro, Estado, Vazio } from "../../componentes/Estado";
+import { MenuDeAcoes } from "../../componentes/MenuDeAcoes";
 import { Pagina } from "../../componentes/Pagina";
 import { SeletorDeMes } from "../../componentes/SeletorDeMes";
 import { Bloco, Cascata, Troca } from "../../movimento";
@@ -126,16 +127,18 @@ export function DetalheDaConta() {
                 </span>
               </div>
             ) : null}
-            <div className="acoes-da-folha">
+            <div className="acoes-da-folha acoes-com-menu">
               <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "conferir" })}>
                 {cartao ? "Conferir fatura" : "Conferir saldo"}
               </IonButton>
-              <IonButton size="small" fill="outline" onClick={() => setAcao({ tipo: "transferir" })}>
-                Transferir
-              </IonButton>
-              <IonButton size="small" fill="clear" onClick={() => setAcao({ tipo: "editar" })}>
-                Editar
-              </IonButton>
+              <MenuDeAcoes
+                titulo={conta.name}
+                rotulo={`Mais ações de ${conta.name}`}
+                acoes={[
+                  { texto: "Transferir", icone: swapHorizontalOutline, aoEscolher: () => setAcao({ tipo: "transferir" }) },
+                  { texto: cartao ? "Editar o cartão" : "Editar a conta", icone: createOutline, aoEscolher: () => setAcao({ tipo: "editar" }) },
+                ]}
+              />
             </div>
           </Bloco>
 

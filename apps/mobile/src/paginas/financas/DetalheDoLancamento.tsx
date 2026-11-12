@@ -1,6 +1,6 @@
-import { IonButton, IonIcon } from "@ionic/react";
+import { IonButton } from "@ionic/react";
 import { dataContabil, fraseDoPlanoDeParcelas, pendentesDaSerie, planoDoPagamentoDeParcelas, type DiferencaDoPagamento, type LancamentoVista, type OcorrenciaVista, type StatusTransacao } from "@finnagent/contracts";
-import { createOutline } from "ionicons/icons";
+import { arrowUndoOutline, closeCircleOutline, createOutline, trashOutline } from "ionicons/icons";
 import { useEffect, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, dataCurta, hojeIso, MESES, paraCampo, reais, type Mes } from "../../api/formato";
@@ -8,6 +8,7 @@ import { CampoDeValor } from "../../componentes/Campo";
 import { Data } from "../../componentes/Data";
 import { Dinheiro } from "../../componentes/Estado";
 import { Folha } from "../../componentes/Folha";
+import { MenuDeAcoes, type AcaoDoMenu } from "../../componentes/MenuDeAcoes";
 import { Fichas } from "../../componentes/Selecao";
 import { useAcao } from "../../useAcao";
 import { ROTULO_CATEGORIA, ROTULO_STATUS, rotuloDaSituacao, tomDaSituacao } from "./rotulos";
@@ -96,38 +97,42 @@ export function DetalheDoLancamento({
         {entry.justification ? <span className="fraco">{entry.justification}</span> : null}
       </div>
 
-      <div className="acoes-da-folha">
+      <div className="acoes-da-folha acoes-com-menu">
         <IonButton fill="outline" disabled={Boolean(ocupado)} onClick={() => aoEditar(entry)}>
           Editar
         </IonButton>
-        {entry.actions.remove ? (
-          <IonButton
-            fill="outline"
-            color="danger"
-            disabled={Boolean(ocupado)}
-            onClick={() =>
-              confirmar(
-                "Apagar este lançamento?",
-                entry.synced ? "A linha do extrato volta para a Conferência." : "Não pode ser desfeito.",
-                "Apagar",
-                () =>
-                  void agir("apagar", () => pedir(`/api/lancamentos/${entry.id}`, { method: "DELETE" }), "Lançamento apagado.").then(async (ok) => {
-                    if (!ok) return;
-                    aoFechar();
-                    await aoMudar();
-                  }),
-              )
-            }
-          >
-            Apagar
-          </IonButton>
-        ) : null}
+        <MenuDeAcoes
+          titulo={titulo}
+          rotulo="Mais ações do lançamento"
+          desabilitado={Boolean(ocupado)}
+          tamanho="default"
+          acoes={[
+            {
+              texto: "Apagar o lançamento",
+              icone: trashOutline,
+              perigo: true,
+              visivel: entry.actions.remove,
+              aoEscolher: () =>
+                confirmar(
+                  "Apagar este lançamento?",
+                  entry.synced ? "A linha do extrato volta para a Conferência." : "Não pode ser desfeito.",
+                  "Apagar",
+                  () =>
+                    void agir("apagar", () => pedir(`/api/lancamentos/${entry.id}`, { method: "DELETE" }), "Lançamento apagado.").then(async (ok) => {
+                      if (!ok) return;
+                      aoFechar();
+                      await aoMudar();
+                    }),
+                ),
+            },
+          ]}
+        />
       </div>
 
       {entry.actions.fixedMonth ? (
         <section className="secao">
           <h2 className="etiqueta">Em {MESES[mes.mes - 1]} de {mes.ano}</h2>
-          <div className="acoes-da-folha">
+          <div className="acoes-da-folha acoes-com-menu">
             <IonButton
               fill="outline"
               disabled={Boolean(ocupado)}
@@ -135,21 +140,24 @@ export function DetalheDoLancamento({
             >
               Suspender o mês
             </IonButton>
-            <IonButton
-              fill="outline"
-              color="danger"
-              disabled={Boolean(ocupado)}
-              onClick={() =>
-                confirmar("Cancelar este mês?", "O valor sai deste mês. Os outros meses continuam.", "Cancelar o mês", () =>
-                  void fazer("cancelar-mes", () => enviar(`/api/lancamentos/${entry.id}/fixo/cancelar`, { year: mes.ano, month: mes.mes }), "Mês cancelado."),
-                )
-              }
-            >
-              Cancelar o mês
-            </IonButton>
-            <IonButton fill="clear" disabled={Boolean(ocupado)} onClick={() => setValorNovo(paraCampo(entry.cents))}>
-              Mudar o valor
-            </IonButton>
+            <MenuDeAcoes
+              titulo={`Em ${MESES[mes.mes - 1]} de ${mes.ano}`}
+              rotulo="Mais ações do mês"
+              desabilitado={Boolean(ocupado)}
+              tamanho="default"
+              acoes={[
+                { texto: "Mudar o valor", icone: createOutline, aoEscolher: () => setValorNovo(paraCampo(entry.cents)) },
+                {
+                  texto: "Cancelar o mês",
+                  icone: closeCircleOutline,
+                  perigo: true,
+                  aoEscolher: () =>
+                    confirmar("Cancelar este mês?", "O valor sai deste mês. Os outros meses continuam.", "Cancelar o mês", () =>
+                      void fazer("cancelar-mes", () => enviar(`/api/lancamentos/${entry.id}/fixo/cancelar`, { year: mes.ano, month: mes.mes }), "Mês cancelado."),
+                    ),
+                },
+              ]}
+            />
           </div>
           {valorNovo !== null ? (
             <div className="secao">
@@ -174,7 +182,7 @@ export function DetalheDoLancamento({
       {serie ? (
         <section className="secao">
           <h2 className="etiqueta">{serie === "loan" ? "Empréstimo" : "Parcelas"}</h2>
-          <div className="acoes-da-folha">
+          <div className="acoes-da-folha acoes-com-menu">
             {falta > 0 ? (
               <>
                 <IonButton className="principal" disabled={Boolean(ocupado)} onClick={() => setPagando("pagar")}>
@@ -185,31 +193,33 @@ export function DetalheDoLancamento({
                 </IonButton>
               </>
             ) : null}
-            {ultimo ? (
-              <IonButton
-                fill="clear"
-                disabled={Boolean(ocupado)}
-                onClick={() => void fazer("desfazer", () => pedir(`/api/lancamentos/${entry.id}/pagamentos/${ultimo}`, { method: "DELETE" }), "Último pagamento desfeito.")}
-              >
-                Desfazer o último
-              </IonButton>
-            ) : null}
-            <IonButton
-              fill="clear"
-              color="danger"
-              disabled={Boolean(ocupado)}
-              onClick={() =>
-                confirmar("Cancelar o restante?", "As parcelas que faltam são canceladas. O que já foi pago continua.", "Cancelar o restante", () =>
-                  void fazer(
-                    "cancelar-serie",
-                    () => enviar(`/api/lancamentos/${entry.id}/${serie === "loan" ? "emprestimo" : "parcelas"}/cancelar`, {}),
-                    serie === "loan" ? "Empréstimo cancelado." : "Parcelas canceladas.",
-                  ),
-                )
-              }
-            >
-              Cancelar o restante
-            </IonButton>
+            <MenuDeAcoes
+              titulo={serie === "loan" ? "Empréstimo" : "Parcelas"}
+              rotulo={serie === "loan" ? "Mais ações do empréstimo" : "Mais ações das parcelas"}
+              desabilitado={Boolean(ocupado)}
+              tamanho="default"
+              acoes={[
+                {
+                  texto: "Desfazer o último pagamento",
+                  icone: arrowUndoOutline,
+                  visivel: Boolean(ultimo),
+                  aoEscolher: () => void fazer("desfazer", () => pedir(`/api/lancamentos/${entry.id}/pagamentos/${ultimo}`, { method: "DELETE" }), "Último pagamento desfeito."),
+                },
+                {
+                  texto: "Cancelar o restante",
+                  icone: closeCircleOutline,
+                  perigo: true,
+                  aoEscolher: () =>
+                    confirmar("Cancelar o restante?", "As parcelas que faltam são canceladas. O que já foi pago continua.", "Cancelar o restante", () =>
+                      void fazer(
+                        "cancelar-serie",
+                        () => enviar(`/api/lancamentos/${entry.id}/${serie === "loan" ? "emprestimo" : "parcelas"}/cancelar`, {}),
+                        serie === "loan" ? "Empréstimo cancelado." : "Parcelas canceladas.",
+                      ),
+                    ),
+                },
+              ]}
+            />
           </div>
           {pagando ? (
             <Pagamento
@@ -309,23 +319,26 @@ function Ocorrencia({
         <div className="lado-da-ocorrencia">
           <Dinheiro cents={sinal * Math.abs(cents)} />
           <div className="acoes-da-ocorrencia">
-            {item.editable ? (
-              <IonButton size="small" fill="clear" aria-label={`Editar a ocorrência de ${dataCurta(item.dueDate)}`} disabled={ocupado} onClick={() => setEditando((aberto) => !aberto)}>
-                <IonIcon slot="icon-only" icon={createOutline} />
+            {podePagar ? (
+              <IonButton size="small" disabled={ocupado} onClick={() => void aoGravar({ status: "completed", paidOn: hojeIso() }, ACAO_DA_OCORRENCIA.completed.sucesso)}>
+                {ACAO_DA_OCORRENCIA.completed.rotulo}
               </IonButton>
             ) : null}
-            {item.next.map((status) => (
-              <IonButton
-                key={status}
-                size="small"
-                fill={status === "completed" ? "solid" : "clear"}
-                color={status === "cancelled" || status === "refunded" ? "danger" : undefined}
-                disabled={ocupado}
-                onClick={() => void aoGravar(status === "completed" ? { status, paidOn: hojeIso() } : { status }, ACAO_DA_OCORRENCIA[status].sucesso)}
-              >
-                {ACAO_DA_OCORRENCIA[status].rotulo}
-              </IonButton>
-            ))}
+            <MenuDeAcoes
+              titulo={`Ocorrência de ${dataCurta(item.dueDate)}`}
+              rotulo={`Mais ações da ocorrência de ${dataCurta(item.dueDate)}`}
+              desabilitado={ocupado}
+              acoes={[
+                { texto: "Editar data e valor", icone: createOutline, visivel: item.editable, aoEscolher: () => setEditando((aberto) => !aberto) },
+                ...item.next
+                  .filter((status) => status !== "completed")
+                  .map((status): AcaoDoMenu => ({
+                    texto: ACAO_DA_OCORRENCIA[status].rotulo,
+                    perigo: status === "cancelled" || status === "refunded",
+                    aoEscolher: () => void aoGravar({ status }, ACAO_DA_OCORRENCIA[status].sucesso),
+                  })),
+              ]}
+            />
           </div>
         </div>
       </div>

@@ -2228,3 +2228,51 @@ ion-fab-button.acao-principal {
 .ocorrencia-do-lancamento > .cartao {
   margin: 0 0 12px;
 }
+
+/* ---------- Finanças por grupo ---------- */
+
+.grupo-de-lancamentos {
+  display: grid;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.cabeca-do-grupo-de-lancamentos {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 16px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.grupo-de-lancamentos > .lista {
+  border-top: 1px solid var(--line);
+}
+
+.grupo-de-lancamentos .linha:last-child {
+  border-bottom: 0;
+}
+
+/* Uma ação principal à esquerda e os três pontos à direita, na mesma linha. */
+.acoes-com-menu {
+  align-items: center;
+}
+
+.acoes-com-menu > .botao-de-menu {
+  margin-left: auto;
+}
+
+ion-button.botao-de-menu {
+  min-width: 44px;
+  min-height: 44px;
+  --padding-start: 0;
+  --padding-end: 0;
+  --color: var(--ink-2);
+}
