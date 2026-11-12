@@ -1,4 +1,4 @@
-import type { Ocorrencia } from "@finnagent/contracts";
+import { dataContabil, fraseDoPlanoDeParcelas, pendentesDaSerie, planoDoPagamentoDeParcelas, type Ocorrencia } from "@finnagent/contracts";
 import { describe, expect, it } from "vitest";
 import { aplicarPagamento, desfazerPagamento, replanejarEmprestimo, saldoDaLista, type ContratoDoPagamento } from "./pagamento.js";
 
@@ -50,6 +50,19 @@ describe("pagamento de parcelas", () => {
     expect(segundo[1]?.paymentId).toBe("p2");
   });
 
+  it("duas parcelas no mesmo mês, em pagamentos diferentes: cada um desfaz sozinho, e as duas contam no mês do pagamento", () => {
+    const primeiro = lista(aplicarPagamento(PARCELA, parcelas(4, 10_000), pagamento(10_000, "2026-10-05")));
+    const segundo = lista(aplicarPagamento(PARCELA, primeiro, { ...pagamento(10_000, "2026-10-25"), paymentId: "p2" }));
+    const noMes = (lancadas: Ocorrencia[], mes: string) => lancadas.filter((item) => dataContabil(item).startsWith(mes) && item.status === "completed");
+    expect(noMes(segundo, "2026-10").map((item) => item.paymentId)).toEqual(["p1", "p2"]);
+    expect(noMes(segundo, "2026-10").reduce((soma, item) => soma + (item.paidCents ?? 0), 0)).toBe(-20_000);
+    // Desfazer o segundo devolve só a parcela dele; o primeiro continua pago.
+    expect(desfazerPagamento(PARCELA, segundo, "p2", datar)).toEqual({ lista: primeiro });
+    // Um pagamento só de duas parcelas é um paymentId só: desfazer volta as duas.
+    const juntas = lista(aplicarPagamento(PARCELA, parcelas(4, 10_000), pagamento(20_000)));
+    expect(desfazerPagamento(PARCELA, juntas, "p1", datar)).toEqual({ lista: parcelas(4, 10_000) });
+  });
+
   it("menos que a parcela paga parte dela: o restante continua pendente, com o mesmo vencimento e número", () => {
     const depois = lista(aplicarPagamento(PARCELA, parcelas(2, 10_000), pagamento(4_000)));
     expect(depois).toHaveLength(3);
@@ -97,6 +110,37 @@ describe("pagamento de parcelas", () => {
     const depois = lista(aplicarPagamento(unica, parcelas(1, 5_000), pagamento(4_900, "2026-10-30")));
     expect(depois[0]).toMatchObject({ status: "completed", paidCents: -4_900, paidOn: "2026-10-30" });
     expect(aplicarPagamento(unica, parcelas(1, 5_000), pagamento(4_900, "2026-11-02"))).toBe("bloqueada");
+  });
+});
+
+describe("plano do pagamento de parcelas (a conta que a tela faz antes de pagar)", () => {
+  it("diz quantas parcelas o valor paga e quando a sobra pede escolha", () => {
+    const pendentes = [10_000, 10_000, 10_000, 10_000];
+    expect(planoDoPagamentoDeParcelas(pendentes, 20_000)).toEqual({ inteiras: 2, cobertas: [10_000, 10_000], sobraCents: 0, pedeDiferenca: false });
+    expect(planoDoPagamentoDeParcelas(pendentes, 12_500)).toMatchObject({ inteiras: 1, sobraCents: 2_500, pedeDiferenca: true });
+    expect(planoDoPagamentoDeParcelas(pendentes, 4_000)).toMatchObject({ inteiras: 0, pedeDiferenca: false });
+    // Sobrou depois da última parcela: é multa, sem pergunta.
+    expect(planoDoPagamentoDeParcelas([10_000, 10_000], 21_000)).toMatchObject({ inteiras: 2, sobraCents: 1_000, pedeDiferenca: false });
+    expect(planoDoPagamentoDeParcelas(pendentes, 20_000).pedeDiferenca).toBe(false);
+  });
+
+  it("escreve a frase com as parcelas que o pagamento cobre", () => {
+    const formatar = (cents: number) => `R$ ${(cents / 100).toFixed(2)}`;
+    expect(fraseDoPlanoDeParcelas(planoDoPagamentoDeParcelas([10_000, 10_000], 20_000), formatar)).toBe("Paga 2 parcelas (R$ 100.00 + R$ 100.00).");
+    expect(fraseDoPlanoDeParcelas(planoDoPagamentoDeParcelas([10_000, 10_000, 10_000], 12_500), formatar)).toBe("Paga 1 parcela, e sobram R$ 25.00.");
+    expect(fraseDoPlanoDeParcelas(planoDoPagamentoDeParcelas([10_000], 4_000), formatar)).toBe("");
+  });
+
+  it("concorda com o motor: a escolha só é pedida quando o motor pede", () => {
+    for (const total of [1, 2, 3, 4]) {
+      for (const pago of [3_000, 10_000, 12_500, 20_000, 25_000, 30_000, 31_000, 40_000, 45_000, 50_000]) {
+        const pendentes = pendentesDaSerie(parcelas(total, 10_000));
+        const plano = planoDoPagamentoDeParcelas(pendentes, pago);
+        const motor = aplicarPagamento(PARCELA, parcelas(total, 10_000), pagamento(pago));
+        expect(motor === "escolha-diferenca", `${total} parcelas, pagando ${pago}`).toBe(plano.pedeDiferenca);
+        if (typeof motor !== "string") expect(motor.lista.filter((item) => item.status === "completed" && item.kind !== "multa")).toHaveLength(plano.inteiras + (plano.inteiras === 0 ? 1 : 0));
+      }
+    }
   });
 });
 
