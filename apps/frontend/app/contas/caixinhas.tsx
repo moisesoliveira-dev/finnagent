@@ -338,7 +338,7 @@ function CorpoDaCaixinha({
 const EXPLICACAO: Record<Acao, (conta: string, meta: string | undefined, saldo: string) => string> = {
   rendimento: () => "O quanto a caixinha rendeu. Entra como entrada do mês, na sessão da caixinha, e soma no saldo dela.",
   saldo: (_conta, _meta, saldo) =>
-    `O saldo que a caixinha mostra hoje. O sistema calcula ${saldo}; a diferença vira rendimento, ou perda, na data escolhida. Bom para cripto, fundo e poupança.`,
+    `O saldo que a caixinha mostra hoje. O sistema calcula ${saldo}; a diferença vira rendimento, ou perda, na data escolhida. Bom para cripto, fundo e poupança. Na primeira vez que você informa o saldo, a diferença é o que já estava lá: vira o saldo inicial da caixinha e não conta no mês.`,
   aplicacao: (conta, meta) =>
     meta
       ? `Sai de ${conta} e entra na caixinha. Como ela guarda a meta ${meta}, o valor sai da sobra do mês, como separar para a meta.`
@@ -382,8 +382,9 @@ function CorpoDoMovimento({
     setSalvando(true);
     try {
       if (tipo === "saldo") {
-        const resultado = await api<{ diferencaCents: number }>(`/api/caixinhas/${caixinha.id}/saldo`, { method: "POST", body: JSON.stringify({ saldoCents: cents, date }) });
+        const resultado = await api<{ diferencaCents: number; comoSaldoInicial?: boolean }>(`/api/caixinhas/${caixinha.id}/saldo`, { method: "POST", body: JSON.stringify({ saldoCents: cents, date }) });
         if (resultado.diferencaCents === 0) toast.sucesso("O saldo já batia. Nada foi lançado.");
+        else if (resultado.comoSaldoInicial) toast.sucesso("O valor ficou como saldo inicial da caixinha: já estava lá, então não é rendimento nem entra nas entradas do mês.");
         else toast.sucesso(`${resultado.diferencaCents > 0 ? "Rendimento" : "Perda"} de ${formatarReais(Math.abs(resultado.diferencaCents))} lançado na caixinha ${caixinha.name}.`);
       } else {
         await api(`/api/caixinhas/${caixinha.id}/movimentos`, {

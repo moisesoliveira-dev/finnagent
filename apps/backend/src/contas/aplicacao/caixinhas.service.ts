@@ -3,6 +3,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   GRUPO_DAS_CAIXINHAS,
   resumoDaCaixinha,
+  primeiroSaldoInformado,
+  type AjusteDeSaldo,
   type Caixinha,
   type CaixinhaDaMeta,
   type Lancamento,
@@ -134,13 +136,27 @@ export class CaixinhasService {
   /**
    * "A caixinha mostra R$ X no dia D": a diferença para o saldo calculado vira rendimento (ou perda) nesse dia. É o
    * jeito de acompanhar cripto, fundo e poupança, em que a pessoa sabe o saldo e não o rendimento.
+   *
+   * Na primeira vez (saldo inicial ainda zero e nenhum rendimento antes), a diferença é o que já estava lá antes dos
+   * movimentos lançados: vira o saldo inicial, e não rendimento, para não entrar como dinheiro novo nas entradas e na
+   * sobra do mês.
    */
-  async informarSaldo(tenantId: string, id: string, pedido: PedidoDeSaldoDaCaixinha) {
+  async informarSaldo(tenantId: string, id: string, pedido: PedidoDeSaldoDaCaixinha): Promise<AjusteDeSaldo> {
     const caixinha = await this.caixinhas.obter(tenantId, id);
     if (!caixinha) throw new NaoEncontrado("Caixinha não encontrada.");
     const { entries } = await this.financas.listar(tenantId);
     const diferencaCents = pedido.saldoCents - resumoDaCaixinha(caixinha, entries, pedido.date).saldoCents;
     if (diferencaCents === 0) return { diferencaCents, entry: null };
+    if (primeiroSaldoInformado(caixinha.openingCents, entries, (entry) => entry.sessionId === caixinha.sessionId && !entry.accountId)) {
+      // O saldo inicial passa a ser o que falta para o saldo calculado bater com o informado.
+      await this.atualizar(tenantId, id, {
+        name: caixinha.name,
+        openingCents: caixinha.openingCents + diferencaCents,
+        openingOn: caixinha.openingOn,
+        goalId: caixinha.goalId,
+      });
+      return { diferencaCents, entry: null, comoSaldoInicial: true };
+    }
     const entry = await this.movimentar(tenantId, id, { tipo: "rendimento", cents: diferencaCents, date: pedido.date });
     return { diferencaCents, entry };
   }

@@ -2,6 +2,7 @@ import { IonButton, IonToggle } from "@ionic/react";
 import {
   MOVIMENTOS_DA_CAIXINHA,
   ROTULO_DO_MOVIMENTO_DA_CAIXINHA,
+  type AjusteDeSaldo,
   type Caixinha,
   type Conta,
   type Fatura,
@@ -88,7 +89,7 @@ export function AcoesDaConta({
  * aberto, sem sinal: é o que o cartão deve, então o saldo vai sempre negativo, como no web.
  */
 function Conferir({ conta, saldoHoje, aoPronto }: { conta: Conta; saldoHoje: number; aoPronto: () => Promise<void> }) {
-  const { ocupado, agir } = useAcao();
+  const { ocupado, agir, avisar } = useAcao();
   const cartao = conta.kind === "cartao";
   const [saldo, setSaldo] = useState(paraCampo(cartao ? Math.abs(saldoHoje) : saldoHoje));
   const [negativo, setNegativo] = useState(saldoHoje < 0);
@@ -102,15 +103,21 @@ function Conferir({ conta, saldoHoje, aoPronto }: { conta: Conta; saldoHoje: num
     if (!ehDataIso(date)) return setErro("Informe a data.");
     setErro("");
     const saldoCents = cartao ? -Math.abs(cents) : negativo ? -cents : cents;
-    if (await agir("conferir", () => enviar(`/api/contas/${conta.id}/ajuste`, { saldoCents, date, foraDaSobra }), cartao ? "Fatura conferida." : "Saldo conferido.")) await aoPronto();
+    let comoSaldoInicial = false;
+    const ok = await agir("conferir", async () => {
+      comoSaldoInicial = Boolean((await enviar<AjusteDeSaldo>(`/api/contas/${conta.id}/ajuste`, { saldoCents, date, foraDaSobra })).comoSaldoInicial);
+    });
+    if (!ok) return;
+    avisar(comoSaldoInicial ? "O valor ficou como saldo inicial da conta: já estava lá, então não entra nas entradas do mês." : cartao ? "Fatura conferida." : "Saldo conferido.");
+    await aoPronto();
   }
 
   return (
     <>
       <p className="fraco">
         {cartao
-          ? "Diga a fatura em aberto que o app do cartão mostra, sem sinal. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."
-          : "Diga quanto a conta mostra no banco. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia."}
+          ? "Diga a fatura em aberto que o app do cartão mostra, sem sinal. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia. Na primeira vez que você confere, a diferença é o que já estava lá: vira o saldo inicial do cartão e não conta no mês."
+          : "Diga quanto a conta mostra no banco. Se for diferente do Prumo, a diferença entra como um ajuste nesse dia. Na primeira vez que você confere, a diferença é o que já estava lá: vira o saldo inicial da conta e não conta no mês."}
       </p>
       <CampoDeValor rotulo={cartao ? "Fatura em aberto" : "Saldo no banco"} value={saldo} onMudar={setSaldo} />
       {cartao ? null : (
@@ -356,7 +363,7 @@ function FolhaDaCaixinha({
   metas: Meta[];
   aoPronto: () => Promise<void>;
 }) {
-  const { ocupado, agir, confirmar } = useAcao();
+  const { ocupado, agir, confirmar, avisar } = useAcao();
   const [editando, setEditando] = useState(false);
   const [tipo, setTipo] = useState<MovimentoDaCaixinha>("aplicacao");
   const [valor, setValor] = useState("");
@@ -382,7 +389,13 @@ function FolhaDaCaixinha({
     const saldoCents = centavosDe(saldo);
     if (saldoCents === null) return setErro("Informe o saldo em reais.");
     setErro("");
-    if (await agir("saldo", () => enviar(`/api/caixinhas/${atual.id}/saldo`, { saldoCents, date: hojeIso() }), "Saldo da caixinha conferido.")) await aoPronto();
+    let comoSaldoInicial = false;
+    const ok = await agir("saldo", async () => {
+      comoSaldoInicial = Boolean((await enviar<AjusteDeSaldo>(`/api/caixinhas/${atual.id}/saldo`, { saldoCents, date: hojeIso() })).comoSaldoInicial);
+    });
+    if (!ok) return;
+    avisar(comoSaldoInicial ? "O valor ficou como saldo inicial da caixinha: já estava lá, então não é rendimento nem entra nas entradas do mês." : "Saldo da caixinha conferido.");
+    await aoPronto();
   }
 
   return (
@@ -403,7 +416,7 @@ function FolhaDaCaixinha({
       </section>
       <section className="secao">
         <h2 className="etiqueta">Conferir o saldo</h2>
-        <p className="fraco">Quanto a caixinha mostra hoje no banco: a diferença vira rendimento ou perda.</p>
+        <p className="fraco">Quanto a caixinha mostra hoje no banco: a diferença vira rendimento ou perda. Na primeira vez que você confere, a diferença é o que já estava lá: vira o saldo inicial da caixinha e não conta no mês.</p>
         <CampoDeValor rotulo="Saldo hoje" value={saldo} onMudar={setSaldo} />
         <IonButton expand="block" fill="outline" disabled={Boolean(ocupado)} onClick={() => void conferirSaldo()}>
           Conferir

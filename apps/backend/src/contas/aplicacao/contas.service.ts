@@ -4,6 +4,7 @@ import {
   evolucaoDoPatrimonio,
   patrimonio,
   resumoDaCaixinha,
+  primeiroSaldoInformado,
   type SaldosResposta,
   GRUPO_DAS_TRANSFERENCIAS,
   GRUPO_DOS_AJUSTES,
@@ -66,6 +67,10 @@ export class ContasService {
    * "O banco mostra R$ X no dia D": a diferença entre isso e o saldo que o sistema calcula vira um lançamento de
    * ajuste na sessão "Ajustes de saldo", ligado à conta. Por padrão ele conta na sobra, porque é dinheiro que entrou
    * ou saiu sem registro; `foraDaSobra` o trata como transferência.
+   *
+   * Na primeira vez (saldo inicial ainda zero e nenhum ajuste antes), a diferença é o que já estava lá antes dos
+   * movimentos lançados: vira o saldo inicial, e nada é lançado, para não entrar como dinheiro novo nas entradas e na
+   * sobra do mês.
    */
   async ajustarSaldo(tenantId: string, id: string, pedido: PedidoDeAjusteDeSaldo): Promise<AjusteDeSaldo> {
     const conta = (await this.contas.listar(tenantId)).find((item) => item.id === id);
@@ -73,6 +78,19 @@ export class ContasService {
     const { entries } = await this.financas.listar(tenantId);
     const diferencaCents = pedido.saldoCents - resumoDaConta(conta, entries, pedido.date).saldoCents;
     if (diferencaCents === 0) return { diferencaCents, entry: null };
+    if (primeiroSaldoInformado(conta.openingCents, entries, (entry) => entry.accountId === conta.id && entry.sessionName === SESSAO_DOS_AJUSTES)) {
+      await this.atualizar(tenantId, id, {
+        name: conta.name,
+        kind: conta.kind,
+        // O saldo inicial passa a ser o que falta para o saldo calculado bater com o informado.
+        openingCents: conta.openingCents + diferencaCents,
+        openingOn: conta.openingOn,
+        closingDay: conta.closingDay,
+        dueDay: conta.dueDay,
+        limitCents: conta.limitCents,
+      });
+      return { diferencaCents, entry: null, comoSaldoInicial: true };
+    }
     const entry = await this.financas.registrar(tenantId, {
       id: randomUUID(),
       sessionId: await this.sessaoDosAjustes(tenantId),
