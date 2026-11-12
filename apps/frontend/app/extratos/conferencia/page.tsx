@@ -97,7 +97,24 @@ function textoDoVinculo(vinculo: NonNullable<LinhaConferencia["link"]>) {
 }
 
 function rotuloDoCandidato(vinculo: NonNullable<LinhaConferencia["link"]>) {
-  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)} · dia ${vinculo.day} · ${formatarReais(vinculo.cents)}`;
+  const parcela = vinculo.parcela ? ` · parcela ${vinculo.parcela.numero}${vinculo.parcela.total ? `/${vinculo.parcela.total}` : ""}` : "";
+  return `${tipoDaCategoria(vinculo.category)} · ${textoDoVinculo(vinculo)}${parcela} · dia ${vinculo.day} · ${formatarReais(vinculo.cents)}`;
+}
+
+/** Se o banco escreveu a parcela na descrição ("Parcela 3/10") e a linha é saída, o tipo já nasce como parcela. */
+function tipoPadraoDaLinha(linha: LinhaConferencia): RascunhoDoTipo {
+  const parcela = linha.parcelaDoExtrato;
+  if (!parcela || linha.cents >= 0 || (parcela.numero === null && parcela.total === null)) return RASCUNHO_UNICO;
+  return { ...RASCUNHO_UNICO, category: "installment", installmentNumber: parcela.numero ? String(parcela.numero) : "1", installments: parcela.total ? String(parcela.total) : "" };
+}
+
+/** O que o banco escreveu, em palavras: "Pelo extrato: parcela 3 de 10." */
+function fraseDaParcelaDoExtrato(linha: LinhaConferencia) {
+  const parcela = linha.parcelaDoExtrato;
+  if (!parcela) return "";
+  if (parcela.numero && parcela.total) return `Pelo extrato: parcela ${parcela.numero} de ${parcela.total}.`;
+  if (parcela.numero) return `Pelo extrato: parcela ${parcela.numero}.`;
+  return parcela.total ? `Pelo extrato: em ${parcela.total} parcelas.` : "";
 }
 
 /** Só a fixa pergunta qual valor vale no mês. Parcela e empréstimo pagam o que falta, no valor da linha. */
@@ -372,7 +389,7 @@ export default function Conferencia() {
   }
 
   function tipoDa(linha: LinhaConferencia) {
-    return rascunhoAceito(tipos[chaveDa(linha)] ?? RASCUNHO_UNICO, linha.cents, categoriasDa(linha));
+    return rascunhoAceito(tipos[chaveDa(linha)] ?? tipoPadraoDaLinha(linha), linha.cents, categoriasDa(linha));
   }
 
   /** O tipo que vai para o lançamento, ou o motivo de ele não poder ir. Única não manda nada. */
@@ -1149,8 +1166,17 @@ export default function Conferencia() {
                                     aceitas={categoriasDa(linha)}
                                     valor={tipoDa(linha)}
                                     disabled={ocupado !== ""}
-                                    onChange={(valor) => setTipos((atual) => ({ ...atual, [chave]: valor }))}
+                                    onChange={(valor) => {
+                                      // Trocou para parcela: os números que o banco escreveu já entram.
+                                      const parcela = linha.parcelaDoExtrato;
+                                      const virouParcela = valor.category === "installment" && tipoDa(linha).category !== "installment" && parcela;
+                                      setTipos((atual) => ({
+                                        ...atual,
+                                        [chave]: virouParcela && parcela ? { ...valor, installmentNumber: parcela.numero ? String(parcela.numero) : valor.installmentNumber, installments: parcela.total ? String(parcela.total) : valor.installments } : valor,
+                                      }));
+                                    }}
                                   />
+                                  {fraseDaParcelaDoExtrato(linha) ? <p className="text-sm text-ink-2">{fraseDaParcelaDoExtrato(linha)}</p> : null}
                                   {linha.names.length ? (
                                     <NomesLembrados
                                       descricao={linha.description}
@@ -1210,8 +1236,19 @@ export default function Conferencia() {
                                   {(() => {
                                     const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
                                     const plano = candidato ? planoDaLinha(candidato, linha.cents) : null;
-                                    const frase = plano ? fraseDoPlanoDeParcelas(plano, formatarReais) : "";
-                                    return frase ? <span className="text-sm text-ink-2">{frase}</span> : null;
+                                    const frase = plano ? fraseDoPlanoDeParcelas(plano, formatarReais, candidato?.parcela) : "";
+                                    // O banco diz uma parcela e o contrato está em outra: avisa antes de pagar a errada.
+                                    const diverge = candidato?.parcela && linha.parcelaDoExtrato?.numero && linha.parcelaDoExtrato.numero !== candidato.parcela.numero;
+                                    return (
+                                      <>
+                                        {frase ? <span className="text-sm text-ink-2">{frase}</span> : null}
+                                        {diverge && candidato?.parcela ? (
+                                          <span className="text-sm text-neg">
+                                            O extrato diz parcela {linha.parcelaDoExtrato?.numero}, mas a próxima do lançamento é a {candidato.parcela.numero}. A linha paga a {candidato.parcela.numero}.
+                                          </span>
+                                        ) : null}
+                                      </>
+                                    );
                                   })()}
                                   {(() => {
                                     const candidato = linha.candidates.find((item) => item.entryId === lancamentoDa(linha));
