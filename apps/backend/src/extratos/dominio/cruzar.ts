@@ -11,7 +11,8 @@ import {
 
 export type LancamentoCruzavel = VinculoCruzado & { sessionId: string; vagas: number };
 
-export type LinhaParaCruzar = { date: string; cents: number };
+/** `parcela`: o número que o banco escreveu na descrição da linha ("Parcela 3/10"), quando escreveu. */
+export type LinhaParaCruzar = { date: string; cents: number; parcela?: number | null };
 
 export type NomeLembrado = { entryId: string | null; sessionId: string };
 
@@ -46,6 +47,10 @@ export function cruzaveisDoMes(
         category: entry.category,
         // A tela diz quantas parcelas a linha paga: duas no mesmo mês, numa linha ou em linhas diferentes.
         ...(ehSerie(entry.category) ? { pendentes: pendentesDaSerie(entry.occurrences ?? []) } : {}),
+        // Qual parcela do contrato a linha paga: a primeira pendente, e quantas ele tem.
+        ...(entry.category === "installment" && pendentes[0]
+          ? { parcela: { numero: pendentes[0].parcel ?? pendentes[0].number, total: entry.installments ?? null } }
+          : {}),
         vagas: ehSerie(entry.category) ? pendentes.length : doMes.length - (usadas.get(entry.id) ?? 0),
       },
     ];
@@ -145,6 +150,8 @@ export function candidatosDaLinha(linha: LinhaParaCruzar, lancamentos: Lancament
     .filter((item) => cabeNaLinha(linha, item))
     .sort(
       (a, b) =>
+        // A parcela que o banco escreveu vale mais que o valor: "Parcela 3/10" é a 3ª do contrato.
+        Number(b.parcela?.numero === linha.parcela && linha.parcela != null) - Number(a.parcela?.numero === linha.parcela && linha.parcela != null) ||
         Number(b.cents === linha.cents) - Number(a.cents === linha.cents) ||
         Math.abs(a.day - dia) - Math.abs(b.day - dia) ||
         Math.abs(a.cents - linha.cents) - Math.abs(b.cents - linha.cents) ||
@@ -159,6 +166,9 @@ export function propostaDaLinha(
 ): { suggestion: LancamentoCruzavel; source: OrigemDaProposta } | null {
   const doNome = lembrado?.entryId ? candidatos.find((item) => item.entryId === lembrado.entryId) : undefined;
   if (doNome) return { suggestion: doNome, source: "nome" };
+  // Com a parcela escrita na linha, o contrato que está nessa parcela e no mesmo valor é a proposta, em qualquer dia.
+  const daParcela = linha.parcela == null ? [] : candidatos.filter((item) => item.parcela?.numero === linha.parcela && item.cents === linha.cents);
+  if (daParcela.length === 1) return { suggestion: daParcela[0], source: "valor" };
   const dia = Number(linha.date.slice(8, 10));
   const exatos = candidatos.filter((item) => item.cents === linha.cents && Math.abs(item.day - dia) <= 3);
   if (exatos.length !== 1) return null;

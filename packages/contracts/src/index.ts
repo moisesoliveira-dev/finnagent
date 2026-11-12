@@ -195,6 +195,36 @@ export function planoDoPagamentoDeParcelas(pendentesCents: number[], pagoCents: 
   };
 }
 
+/** A parcela que o banco escreveu na descrição da linha: o número dela e, quando dá, o total. */
+export type ParcelaDoExtrato = { numero: number | null; total: number | null };
+
+const sinaisDoTexto = /[\u0300-\u036f]/g;
+const parcelaValida = (numero: number, total: number) => Number.isInteger(numero) && Number.isInteger(total) && total >= 2 && total <= 360 && numero >= 1 && numero <= total;
+
+/**
+ * Lê a parcela de uma descrição de extrato ou fatura: "Parcela 3/10", "PARC 03/10", "parcela 3 de 10", "03/24" (só
+ * quando o total passa de 12, para não confundir com dia/mês), "Parc 3" e "em 10x" (só o total). Devolve null quando
+ * a descrição não fala de parcela.
+ */
+export function parcelaDaDescricao(descricao: string): ParcelaDoExtrato | null {
+  const texto = descricao.normalize("NFD").replace(sinaisDoTexto, "").toLowerCase();
+  const comPalavra = texto.match(/\bparc(?:ela)?s?\.?\s*(?:n[o°º.]?\s*)?(\d{1,3})\s*(?:\/|de)\s*(\d{1,3})\b/);
+  if (comPalavra) {
+    const [numero, total] = [Number(comPalavra[1]), Number(comPalavra[2])];
+    if (parcelaValida(numero, total)) return { numero, total };
+  }
+  for (const solto of texto.matchAll(/(?<![\d/.])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d/])/g)) {
+    const [numero, total] = [Number(solto[1]), Number(solto[2])];
+    // Com total até 12 poderia ser uma data (03/11): só vale com a palavra "parcela", acima.
+    if (total > 12 && parcelaValida(numero, total)) return { numero, total };
+  }
+  const soNumero = texto.match(/\bparc(?:ela)?s?\.?\s*(?:n[o°º.]?\s*)?(\d{1,3})\b(?!\s*(?:\/|de|x))/);
+  if (soNumero && Number(soNumero[1]) >= 1 && Number(soNumero[1]) <= 360) return { numero: Number(soNumero[1]), total: null };
+  const emVezes = texto.match(/\b(\d{1,2})\s*x\b/);
+  if (emVezes && Number(emVezes[1]) >= 2) return { numero: null, total: Number(emVezes[1]) };
+  return null;
+}
+
 /** Os valores das parcelas pendentes, na ordem em que o pagamento as paga (vencimento, depois o número). Multa não conta. */
 export function pendentesDaSerie(ocorrencias: Array<Pick<Ocorrencia, "status" | "dueDate" | "number" | "plannedCents" | "kind">>) {
   return ocorrencias
@@ -203,11 +233,24 @@ export function pendentesDaSerie(ocorrencias: Array<Pick<Ocorrencia, "status" | 
     .map((item) => Math.abs(item.plannedCents));
 }
 
-/** "Paga 2 parcelas (R$ 100,00 + R$ 100,00)", ou vazio quando o valor paga menos que uma parcela. */
-export function fraseDoPlanoDeParcelas(plano: PlanoDoPagamentoDeParcelas, formatar: (cents: number) => string) {
+/**
+ * "Paga 2 parcelas (R$ 100,00 + R$ 100,00)", ou vazio quando o valor paga menos que uma parcela. Com `primeira` (a
+ * próxima parcela do contrato), diz quais: "Paga a parcela 3 de 10", "Paga as parcelas 3 e 4 de 10".
+ */
+export function fraseDoPlanoDeParcelas(
+  plano: PlanoDoPagamentoDeParcelas,
+  formatar: (cents: number) => string,
+  primeira?: { numero: number; total: number | null } | null,
+) {
   if (plano.inteiras === 0) return "";
   const soma = plano.cobertas.map(formatar).join(" + ");
   const sobra = plano.sobraCents > 0 ? `, e sobram ${formatar(plano.sobraCents)}` : "";
+  const de = primeira?.total ? ` de ${primeira.total}` : "";
+  if (primeira) {
+    const ultima = primeira.numero + plano.inteiras - 1;
+    const quais = plano.inteiras === 1 ? `a parcela ${primeira.numero}${de}` : plano.inteiras === 2 ? `as parcelas ${primeira.numero} e ${ultima}${de}` : `as parcelas ${primeira.numero} a ${ultima}${de}`;
+    return `Paga ${quais}${plano.inteiras > 1 ? ` (${soma})` : ""}${sobra}.`;
+  }
   return `Paga ${plano.inteiras === 1 ? "1 parcela" : `${plano.inteiras} parcelas`}${plano.inteiras > 1 ? ` (${soma})` : ""}${sobra}.`;
 }
 
@@ -1889,6 +1932,8 @@ export type VinculoCruzado = {
   category: CategoriaTransacao;
   /** Parcela e empréstimo: o valor de cada parcela pendente, em ordem, para a tela dizer quantas a linha paga. */
   pendentes?: number[];
+  /** Parcela: qual é a próxima parcela do contrato (a que a linha paga) e quantas ele tem. */
+  parcela?: { numero: number; total: number | null } | null;
 };
 
 export type LinhaConferencia = {
@@ -1902,6 +1947,8 @@ export type LinhaConferencia = {
   entryId: string | null;
   /** A pessoa marcou a linha como sem importância: não conta como pendente e não é lançada. */
   ignored: boolean;
+  /** A parcela que o banco escreveu na descrição ("Parcela 3/10"), quando escreveu. */
+  parcelaDoExtrato?: ParcelaDoExtrato | null;
   link: VinculoCruzado | null;
   /** A linha dividida: um vínculo por parte, com o valor da parte. Vazio quando a linha não foi dividida. */
   parts: VinculoCruzado[];

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { REGRA_SEM_AJUSTE, ehSerie, erroDoTipoDaLinha } from "@finnagent/contracts";
+import { REGRA_SEM_AJUSTE, ehSerie, erroDoTipoDaLinha, parcelaDaDescricao } from "@finnagent/contracts";
 import {
   LINHAS_DA_CONFERENCIA_DE_UMA_VEZ,
   LINHAS_DA_CONFERENCIA_POR_PAGINA,
@@ -304,6 +304,7 @@ export class ExtratosService {
     const lines = linhas.map(({ importedAt: _importedAt, parts: partes, ...linha }): LinhaConferencia => {
       const link = vinculoDe(linha.entryId, base.entries);
       const names = nomesDa(linha.description, nomesPorChave);
+      const parcelaDoExtrato = parcelaDaDescricao(linha.description);
       if (linha.entryId || linha.ignored) {
         const parts = partes.length > 1
           ? partes.flatMap((parte) => {
@@ -316,6 +317,7 @@ export class ExtratosService {
           link,
           parts,
           names,
+          parcelaDoExtrato,
           suggestion: null,
           suggestionSource: null,
           candidates: [],
@@ -324,10 +326,11 @@ export class ExtratosService {
           appointmentTitle: null,
         };
       }
-      const candidatos = candidatosDaLinha(linha, cruzaveis);
+      const paraCruzar = { date: linha.date, cents: linha.cents, parcela: parcelaDoExtrato?.numero ?? null };
+      const candidatos = candidatosDaLinha(paraCruzar, cruzaveis);
       // A lembrança vale também para transferência: o destino (a pessoa ou a empresa) costuma ser o mesmo todo mês.
       const lembrado = lembradoDa(linha.description, lembrados);
-      const proposta = propostaDaLinha(linha, candidatos, lembrado);
+      const proposta = propostaDaLinha(paraCruzar, candidatos, lembrado);
       // O nome já lançado antes vale mais; sem ele, vale a sessão do compromisso que cai no dia da linha.
       const doCompromisso = lembrado?.sessionId ? null : sessaoDoCompromisso(linha.date, compromissos);
       return {
@@ -335,6 +338,7 @@ export class ExtratosService {
         link: null,
         parts: [],
         names,
+        parcelaDoExtrato,
         suggestion: proposta ? vinculoDoCruzavel(proposta.suggestion) : null,
         suggestionSource: proposta?.source ?? null,
         candidates: candidatos.map(vinculoDoCruzavel),

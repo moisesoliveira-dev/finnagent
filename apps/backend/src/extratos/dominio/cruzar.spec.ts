@@ -71,6 +71,23 @@ describe("candidatos do cruzamento", () => {
     expect(cruzaveisDoMes([lancamento("mercado", [ocorrencia(1, "2026-09-05")])], [], 2026, 9)[0]).not.toHaveProperty("pendentes");
   });
 
+  it("a parcela que o banco escreveu vale mais que o valor: a 3ª do contrato vai para o contrato que está na 3ª", () => {
+    const naDois = { ...aluguel, entryId: "contrato-a", category: "installment" as const, cents: -9000, parcela: { numero: 2, total: 10 } };
+    const naTres = { ...aluguel, entryId: "contrato-b", category: "installment" as const, cents: -9000, day: 20, parcela: { numero: 3, total: 10 } };
+    const linha = { date: "2026-08-02", cents: -9000, parcela: 3 };
+    expect(candidatosDaLinha(linha, [naDois, naTres]).map((item) => item.entryId)).toEqual(["contrato-b", "contrato-a"]);
+    // Com a parcela e o valor batendo em um só contrato, ele é a proposta, mesmo longe do dia.
+    expect(propostaDaLinha(linha, candidatosDaLinha(linha, [naDois, naTres]), undefined)).toMatchObject({ suggestion: { entryId: "contrato-b" }, source: "valor" });
+    // Sem a parcela na linha, nada muda: o dia e o valor decidem como antes.
+    expect(candidatosDaLinha({ date: "2026-08-02", cents: -9000 }, [naDois, naTres]).map((item) => item.entryId)).toEqual(["contrato-a", "contrato-b"]);
+  });
+
+  it("diz qual parcela do contrato a linha paga", () => {
+    const geladeira = { ...lancamento("geladeira", [{ ...ocorrencia(1, "2026-08-05", "completed"), parcel: 1 }, { ...ocorrencia(2, "2026-09-05"), parcel: 2 }, { ...ocorrencia(3, "2026-10-05"), parcel: 3 }]), category: "installment", installments: 6 } as unknown as Lancamento;
+    const [candidato] = cruzaveisDoMes([geladeira], [], 2026, 9);
+    expect(candidato?.parcela).toEqual({ numero: 2, total: 6 });
+  });
+
   it("mantém fixo, parcela e empréstimo mesmo quando o valor diverge", () => {
     const parcela = { ...aluguel, entryId: "parcela", category: "installment" as const, cents: -9000 };
     const emprestimo = { ...aluguel, entryId: "emprestimo", category: "loan" as const, cents: -4000, day: 15 };

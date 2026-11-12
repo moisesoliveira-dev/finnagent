@@ -1,4 +1,4 @@
-import { ehMulta, type CategoriaTransacao, type Lancamento, type TipoDaLinha } from "@finnagent/contracts";
+import { ehMulta, parcelaDaDescricao, type CategoriaTransacao, type Lancamento, type TipoDaLinha } from "@finnagent/contracts";
 import { chaveDoNome, descricoesParecidas } from "./nome-extrato.js";
 
 /** Uma linha de extrato ainda sem lançamento, em qualquer mês importado. */
@@ -79,7 +79,9 @@ export function linhasDaNovaSerie(origem: LinhaLivre, tipo: TipoDaLinha, livres:
   const atual = numeroDaOrigem(tipo);
   const total = tipo.category === "fixed" ? null : (tipo.installments ?? null);
   return agruparPorMes([origem, ...outras], origem.cents, origem).flatMap(([month, lines]) => {
-    const numero = atual === null ? null : atual + mesesEntre(mesOrigem, month);
+    // O banco costuma escrever a parcela ("Parcela 3/10"): vale mais que a conta dos meses a partir da origem.
+    const doExtrato = lines.map((item) => parcelaDaDescricao(item.description)?.numero ?? null).find((valor) => valor !== null) ?? null;
+    const numero = atual === null ? null : (doExtrato ?? atual + mesesEntre(mesOrigem, month));
     if (numero !== null && (numero < 1 || (total !== null && numero > total))) return [];
     return [{ month, numero, dueDate: null, plannedCents: null, antes: false, lines }];
   });

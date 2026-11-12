@@ -64,6 +64,22 @@ describe("a série nova a partir de uma linha", () => {
     ]);
   });
 
+  it("usa a parcela que o banco escreveu em cada linha, e não só a conta dos meses", () => {
+    const origem3 = linha(10, "2026-10-05", -9_900, "Magalu - Parcela 3/10");
+    const meses = linhasDaNovaSerie(origem3, { category: "installment", installments: 10, installmentNumber: 3 }, [
+      origem3,
+      linha(11, "2026-09-05", -9_900, "Magalu - Parcela 2/10"),
+      linha(12, "2026-11-05", -9_900, "Magalu - Parcela 4/10"),
+    ]);
+    expect(meses.map((mes) => [mes.month, mes.numero])).toEqual([["2026-09", 2], ["2026-10", 3], ["2026-11", 4]]);
+    // A parcela do banco corrige a conta quando um mês foi pulado.
+    const pulou = linhasDaNovaSerie(origem3, { category: "installment", installments: 10, installmentNumber: 3 }, [
+      origem3,
+      linha(13, "2026-11-05", -9_900, "Magalu - Parcela 5/10"),
+    ]);
+    expect(pulou.map((mes) => [mes.month, mes.numero])).toEqual([["2026-10", 3], ["2026-11", 5]]);
+  });
+
   it("a série nasce no mês mais antigo escolhido, com a parcela daquele mês", () => {
     const tipo = { category: "installment" as const, installments: 3, installmentNumber: 2 };
     const meses = linhasDaNovaSerie(origem, tipo, livres);
