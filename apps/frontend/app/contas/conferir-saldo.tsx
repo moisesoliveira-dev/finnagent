@@ -72,6 +72,7 @@ function Corpo({
       const saldoCents = cartao ? -Math.abs(cents) : cents;
       const ajuste = await api<AjusteDeSaldo>(`/api/contas/${conta.id}/ajuste`, { method: "POST", body: JSON.stringify({ saldoCents, date, foraDaSobra }) });
       if (ajuste.diferencaCents === 0) toast.sucesso("O saldo já batia. Nada foi lançado.");
+      else if (ajuste.comoSaldoInicial) toast.sucesso("O valor ficou como saldo inicial da conta: já estava lá, então não entra nas entradas do mês.");
       else toast.sucesso(`Ajuste de ${formatarReais(ajuste.diferencaCents)} lançado na sessão Ajustes de saldo.`);
       onFechar();
       await onAjustado();
@@ -89,7 +90,7 @@ function Corpo({
           {cartao ? `Conferir a fatura · ${conta.name}` : `Conferir o saldo · ${conta.name}`}
         </h2>
         <p className="text-sm text-ink-2">
-          {cartao ? "A fatura em aberto que o app do cartão mostra" : "O saldo que o app do banco mostra"} hoje é comparado com o que o sistema calcula ({formatarReais(saldoCalculado)}). A diferença vira um lançamento de ajuste nesta conta, na sessão Ajustes de saldo.
+          {cartao ? "A fatura em aberto que o app do cartão mostra" : "O saldo que o app do banco mostra"} hoje é comparado com o que o sistema calcula ({formatarReais(saldoCalculado)}). A diferença vira um lançamento de ajuste nesta conta, na sessão Ajustes de saldo. Na primeira vez que você confere, a diferença é o que já estava lá: vira o saldo inicial e não conta no mês.
         </p>
         <div className="dialog-par">
           <div className="grid gap-1">

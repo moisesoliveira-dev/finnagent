@@ -1631,13 +1631,27 @@ export function limiteDoCartao(conta: Conta, entries: Lancamento[], hoje: string
 export const GRUPO_DOS_AJUSTES = "Ajustes";
 export const SESSAO_DOS_AJUSTES = "Ajustes de saldo";
 
-/** "O banco mostra R$ X no dia D": o sistema lança a diferença. `foraDaSobra` faz o ajuste não contar na sobra. */
+/** "O banco mostra R$ X no dia D": o sistema lança a diferença. `foraDaSobra` faz o ajuste não contar na sobra. Na primeira vez (conta sem saldo inicial e sem ajuste antes), a diferença vira o saldo inicial e nada é lançado. */
 export type PedidoDeAjusteDeSaldo = { saldoCents: number; date: string; foraDaSobra: boolean };
-export type AjusteDeSaldo = { diferencaCents: number; entry: Lancamento | null };
+/**
+ * O que a conferência de saldo (conta) e o "informar saldo" (caixinha) devolvem. `comoSaldoInicial`: era a primeira
+ * vez, então a diferença virou saldo inicial (o que já estava lá) e não gerou lançamento, nem entrada no mês.
+ */
+export type AjusteDeSaldo = { diferencaCents: number; entry: Lancamento | null; comoSaldoInicial?: boolean };
 
 /** Uma ocorrência conta no saldo a partir do dia do saldo inicial. Sem data, tudo conta. */
 export function contaNoSaldo(item: Ocorrencia, openingOn: string | null) {
   return openingOn === null || dataContabil(item) >= openingOn;
+}
+
+/**
+ * É a primeira vez que a pessoa informa o saldo: o saldo inicial ainda é zero e nunca houve um ajuste (na conta) nem
+ * um rendimento (na caixinha) lançado a partir de um saldo informado. A diferença que aparece agora, entre o saldo
+ * informado e o que os movimentos já lançados dão, é o que já estava lá antes: vira saldo inicial, e não dinheiro
+ * que entrou neste mês. `foiInformado` diz se um lançamento veio de um saldo informado antes.
+ */
+export function primeiroSaldoInformado(openingCents: number, entries: Lancamento[], foiInformado: (entry: Lancamento) => boolean) {
+  return openingCents === 0 && !entries.some(foiInformado);
 }
 
 export type MovimentoDaConta = {
@@ -1790,7 +1804,7 @@ export type Caixinha = {
 
 export type PedidoDeCaixinha = { name: string; openingCents: number; openingOn?: string | null; goalId: string | null };
 
-/** "A caixinha mostra R$ X no dia D": a diferença vira rendimento ou perda. */
+/** "A caixinha mostra R$ X no dia D": a diferença vira rendimento ou perda. Na primeira vez, a diferença é o saldo inicial. */
 export type PedidoDeSaldoDaCaixinha = { saldoCents: number; date: string };
 
 export const MOVIMENTOS_DA_CAIXINHA = ["rendimento", "aplicacao", "resgate"] as const;
@@ -4403,7 +4417,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "ajustar_saldo_da_conta",
     agentes: ["financas"],
     descricao:
-      "A pessoa diz quanto o banco mostra na conta (ou quanto está na fatura do cartão, em negativo) num dia: a diferença para o saldo calculado vira um lançamento de ajuste ligado à conta, na sessão Ajustes de saldo. Por padrão o ajuste conta na sobra; foraDaSobra true o trata como transferência. Mexe com dinheiro: a pessoa confirma antes.",
+      "A pessoa diz quanto o banco mostra na conta (ou quanto está na fatura do cartão, em negativo) num dia: a diferença para o saldo calculado vira um lançamento de ajuste ligado à conta, na sessão Ajustes de saldo. Por padrão o ajuste conta na sobra; foraDaSobra true o trata como transferência. Na primeira vez (conta sem saldo inicial e sem ajuste antes), a diferença para o saldo calculado é o que já estava lá: vira o saldo inicial, sem lançamento e sem entrar na sobra. Mexe com dinheiro: a pessoa confirma antes.",
     exigeConfirmacao: true,
     esquema: z.object({
       id: idDoSistema.describe("Id da conta."),
@@ -4418,7 +4432,7 @@ export const FERRAMENTAS_DO_ASSISTENTE: FerramentaDoAssistente[] = [
     nome: "informar_saldo_da_caixinha",
     agentes: ["financas", "metas"],
     descricao:
-      "A pessoa diz quanto a caixinha mostra hoje (cripto, fundo, poupança): a diferença para o saldo calculado vira rendimento, ou perda, nesse dia. Use em vez de movimentar_caixinha quando ela sabe o saldo e não o rendimento.",
+      "A pessoa diz quanto a caixinha mostra hoje (cripto, fundo, poupança): a diferença para o saldo calculado vira rendimento, ou perda, nesse dia. Na primeira vez (caixinha sem saldo inicial e sem rendimento antes), a diferença para o saldo calculado é o que já estava lá: vira o saldo inicial e não é rendimento nem entra na sobra. Use em vez de movimentar_caixinha quando ela sabe o saldo e não o rendimento.",
     esquema: z.object({
       id: idDoSistema.describe("Id da caixinha."),
       saldoCents: z.number().int().min(0).describe("O saldo que a caixinha mostra, em centavos."),
