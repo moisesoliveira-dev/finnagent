@@ -49,11 +49,19 @@ describe("regras da categoria", () => {
 describe("vista do lançamento", () => {
   it("entrega a situação, as transições e a edição de cada ocorrência", () => {
     const [primeira] = gradeDoLancamento(notebook);
-    const vista = ocorrenciaVista(primeira!, false, "2026-04-20");
+    const vista = ocorrenciaVista(primeira!, "2026-04-20");
     expect(vista.situation).toBe("late");
     expect(vista.editable).toBe(true);
     expect(vista.next).toEqual(["completed", "cancelled"]);
-    expect(ocorrenciaVista(primeira!, true, "2026-04-20").editable).toBe(false);
+  });
+
+  it("a pendente é editável mesmo no lançamento que já tem linha do extrato; a paga não", () => {
+    const [primeira] = gradeDoLancamento(notebook);
+    const conciliado = { ...comPrimeiraPaga(notebook), synced: true };
+    const vista = lancamentoVista(conciliado, "2026-04-20");
+    expect(vista.occurrences[0]).toMatchObject({ status: "completed", editable: false });
+    expect(vista.occurrences[1]).toMatchObject({ status: "pending", editable: true });
+    expect(ocorrenciaVista(primeira!, "2026-04-20").editable).toBe(true);
   });
 
   it("trava os termos e aponta o próximo vencimento depois de um pagamento", () => {

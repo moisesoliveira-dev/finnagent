@@ -389,9 +389,9 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
       const alvo = lista[indice];
       if (!alvo) return "ausente" as const;
       const mexeValor = pedido.dueDate != null || pedido.plannedCents != null;
-      if (mexeValor && ((atual.statementLines?.length ?? 0) > 0 || alvo.status !== "pending")) {
-        return "bloqueada" as const;
-      }
+      // Só a pendente muda de data e de valor. A paga, cancelada ou estornada fica como está, e as que o extrato
+      // pagou são ocorrências pagas: a pendente de um lançamento conciliado pode ser editada.
+      if (mexeValor && alvo.status !== "pending") return "bloqueada" as const;
       let proxima = alvo;
       if (pedido.plannedCents != null) {
         if (pedido.plannedCents === 0) return "bloqueada" as const;

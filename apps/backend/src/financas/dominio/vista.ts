@@ -81,7 +81,11 @@ export function centavosDoContrato(entry: Lancamento) {
   return doMes?.cents ?? entry.cents;
 }
 
-export function ocorrenciaVista(item: Ocorrencia, synced: boolean, hoje: string): OcorrenciaVista {
+/**
+ * `editable`: a ocorrência pendente muda de data e de valor sozinha, mesmo no lançamento que já tem linha do
+ * extrato. O que o extrato pagou fica em ocorrências pagas, que não mudam; a pendente não tem linha ligada.
+ */
+export function ocorrenciaVista(item: Ocorrencia, hoje: string): OcorrenciaVista {
   return {
     ...item,
     situation: situacaoDaOcorrencia(item, hoje),
@@ -89,7 +93,7 @@ export function ocorrenciaVista(item: Ocorrencia, synced: boolean, hoje: string)
     next: STATUS_TRANSACAO.filter(
       (status) => status !== item.status && transicaoDaOcorrencia(item, status) !== "bloqueada",
     ),
-    editable: item.status === "pending" && !synced,
+    editable: item.status === "pending",
   };
 }
 
@@ -98,7 +102,7 @@ export function lancamentoVista(entry: Lancamento, hoje: string): LancamentoVist
   const suspensos = entry.adjustments.filter((ajuste) => ajuste.effect === "suspended").length;
   return {
     ...entry,
-    occurrences: lista.map((item) => ocorrenciaVista(item, entry.synced, hoje)),
+    occurrences: lista.map((item) => ocorrenciaVista(item, hoje)),
     situation: situacaoDoLancamento(entry, hoje),
     termsLocked: termosTravados(lista, entry.synced),
     nextDue: proximoVencimento(lista),
