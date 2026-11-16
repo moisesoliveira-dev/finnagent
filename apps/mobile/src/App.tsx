@@ -3,33 +3,39 @@ import { IonReactRouter } from "@ionic/react-router";
 import { App as AppNativo } from "@capacitor/app";
 import { calendarOutline, chatbubbleEllipsesOutline, documentTextOutline, ellipsisHorizontal, homeOutline, walletOutline } from "ionicons/icons";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, useLocation, useNavigate } from "react-router-dom";
 import { aoMudarASessao, carregarSessao, sessaoAtual } from "./api/sessao";
 import { Simbolo } from "./componentes/Simbolo";
 import { toque } from "./haptico";
 import { Movimento, curvaSaida, mola } from "./movimento";
-import { Agenda } from "./paginas/Agenda";
-import { Assistente } from "./paginas/Assistente";
-import { Contas } from "./paginas/Contas";
-import { DetalheDaConta } from "./paginas/contas/DetalheDaConta";
-import { Financas } from "./paginas/Financas";
-import { Configuracoes } from "./paginas/Configuracoes";
-import { ConfiguracaoDeIa } from "./paginas/configuracoes/ConfiguracaoDeIa";
-import { Eventos } from "./paginas/Eventos";
-import { Grupos } from "./paginas/Grupos";
-import { Relatorios } from "./paginas/Relatorios";
-import { Hoje } from "./paginas/Hoje";
-import { Inicio } from "./paginas/Inicio";
+import { rotaInterna } from "./navegacao";
 import { Login } from "./paginas/Login";
-import { Mais } from "./paginas/Mais";
-import { Metas } from "./paginas/Metas";
-import { Extratos } from "./paginas/Extratos";
-import { Notificacoes } from "./paginas/Notificacoes";
-import { Perfil } from "./paginas/Perfil";
 import { recontar } from "./notificacoes/contagem";
 import { ouvirPush } from "./notificacoes/push";
 import { TemaDaConta } from "./tema/TemaDaConta";
+
+const Agenda = lazy(() => import("./paginas/Agenda").then(({ Agenda }) => ({ default: Agenda })));
+const Assistente = lazy(() => import("./paginas/Assistente").then(({ Assistente }) => ({ default: Assistente })));
+const Contas = lazy(() => import("./paginas/Contas").then(({ Contas }) => ({ default: Contas })));
+const DetalheDaConta = lazy(() => import("./paginas/contas/DetalheDaConta").then(({ DetalheDaConta }) => ({ default: DetalheDaConta })));
+const Financas = lazy(() => import("./paginas/Financas").then(({ Financas }) => ({ default: Financas })));
+const Configuracoes = lazy(() => import("./paginas/Configuracoes").then(({ Configuracoes }) => ({ default: Configuracoes })));
+const ConfiguracaoDeIa = lazy(() => import("./paginas/configuracoes/ConfiguracaoDeIa").then(({ ConfiguracaoDeIa }) => ({ default: ConfiguracaoDeIa })));
+const Eventos = lazy(() => import("./paginas/Eventos").then(({ Eventos }) => ({ default: Eventos })));
+const Grupos = lazy(() => import("./paginas/Grupos").then(({ Grupos }) => ({ default: Grupos })));
+const Relatorios = lazy(() => import("./paginas/Relatorios").then(({ Relatorios }) => ({ default: Relatorios })));
+const Hoje = lazy(() => import("./paginas/Hoje").then(({ Hoje }) => ({ default: Hoje })));
+const Inicio = lazy(() => import("./paginas/Inicio").then(({ Inicio }) => ({ default: Inicio })));
+const Mais = lazy(() => import("./paginas/Mais").then(({ Mais }) => ({ default: Mais })));
+const Metas = lazy(() => import("./paginas/Metas").then(({ Metas }) => ({ default: Metas })));
+const Extratos = lazy(() => import("./paginas/Extratos").then(({ Extratos }) => ({ default: Extratos })));
+const Notificacoes = lazy(() => import("./paginas/Notificacoes").then(({ Notificacoes }) => ({ default: Notificacoes })));
+const Perfil = lazy(() => import("./paginas/Perfil").then(({ Perfil }) => ({ default: Perfil })));
+
+function Pagina({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<div className="tela-cheia centro">Carregando…</div>}>{children}</Suspense>;
+}
 
 type Estado = "carregando" | "entrou" | "saiu";
 
@@ -84,7 +90,7 @@ function AvisosDoApp() {
       if (isActive) void recontar();
     });
     const pararPush = ouvirPush(
-      (rota) => navegar(rota),
+      (rota) => navegar(rotaInterna(rota)),
       () => void recontar(),
     );
     return () => {
@@ -140,23 +146,23 @@ export function App() {
                 <IonTabs onIonTabsDidChange={() => toque()}>
                   <IonRouterOutlet>
                     <Route path="/" element={<Navigate to="/inicio" replace />} />
-                    <Route path="/inicio" element={<Inicio />} />
-                    <Route path="/inicio/hoje" element={<Hoje />} />
-                    <Route path="/financas" element={<Financas />} />
-                    <Route path="/financas/contas" element={<Contas />} />
-                    <Route path="/financas/contas/:id" element={<DetalheDaConta />} />
-                    <Route path="/financas/grupos" element={<Grupos />} />
-                    <Route path="/financas/relatorios" element={<Relatorios />} />
-                    <Route path="/agenda" element={<Agenda />} />
-                    <Route path="/assistente" element={<Assistente />} />
-                    <Route path="/mais" element={<Mais />} />
-                    <Route path="/metas" element={<Metas />} />
-                    <Route path="/perfil" element={<Perfil />} />
-                    <Route path="/configuracoes" element={<Configuracoes />} />
-                    <Route path="/configuracoes/ia" element={<ConfiguracaoDeIa />} />
-                    <Route path="/configuracoes/eventos" element={<Eventos />} />
-                    <Route path="/extratos" element={<Extratos />} />
-                    <Route path="/notificacoes" element={<Notificacoes />} />
+                    <Route path="/inicio" element={<Pagina><Inicio /></Pagina>} />
+                    <Route path="/inicio/hoje" element={<Pagina><Hoje /></Pagina>} />
+                    <Route path="/financas" element={<Pagina><Financas /></Pagina>} />
+                    <Route path="/financas/contas" element={<Pagina><Contas /></Pagina>} />
+                    <Route path="/financas/contas/:id" element={<Pagina><DetalheDaConta /></Pagina>} />
+                    <Route path="/financas/grupos" element={<Pagina><Grupos /></Pagina>} />
+                    <Route path="/financas/relatorios" element={<Pagina><Relatorios /></Pagina>} />
+                    <Route path="/agenda" element={<Pagina><Agenda /></Pagina>} />
+                    <Route path="/assistente" element={<Pagina><Assistente /></Pagina>} />
+                    <Route path="/mais" element={<Pagina><Mais /></Pagina>} />
+                    <Route path="/metas" element={<Pagina><Metas /></Pagina>} />
+                    <Route path="/perfil" element={<Pagina><Perfil /></Pagina>} />
+                    <Route path="/configuracoes" element={<Pagina><Configuracoes /></Pagina>} />
+                    <Route path="/configuracoes/ia" element={<Pagina><ConfiguracaoDeIa /></Pagina>} />
+                    <Route path="/configuracoes/eventos" element={<Pagina><Eventos /></Pagina>} />
+                    <Route path="/extratos" element={<Pagina><Extratos /></Pagina>} />
+                    <Route path="/notificacoes" element={<Pagina><Notificacoes /></Pagina>} />
                   </IonRouterOutlet>
                   <BarraDeAbas />
                 </IonTabs>
