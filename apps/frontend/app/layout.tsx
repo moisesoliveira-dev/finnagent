@@ -9,6 +9,8 @@ import "./globals.css";
 const orbiter = TASA_Orbiter({
   subsets: ["latin", "latin-ext"],
   variable: "--font-orbiter",
+  // Esta família não publica métricas de fallback para o Next calcular.
+  adjustFontFallback: false,
 });
 
 const mono = Geist_Mono({

@@ -177,11 +177,18 @@ export default function Conferencia() {
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>({});
   // Quantas linhas estão desenhadas. O mês pode ter centenas: o resto aparece ao rolar. Os totais e as ações em lote
   // usam sempre a lista inteira.
-  const [limite, setLimite] = useState(LINHAS_POR_JANELA);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   // No celular, cada linha mostra o essencial; as outras opções abrem por linha em "Mais opções".
   const [expandidas, setExpandidas] = useState<Record<string, boolean>>({});
-  useEffect(() => setLimite(LINHAS_POR_JANELA), [busca, situacao, movimento, conta, arquivo, year, month]);
+  const chaveDaJanela = `${busca}\u0000${situacao}\u0000${movimento}\u0000${conta}\u0000${arquivo}\u0000${year}-${month}`;
+  const [janela, setJanela] = useState({ chave: "", limite: LINHAS_POR_JANELA });
+  const limite = janela.chave === chaveDaJanela ? janela.limite : LINHAS_POR_JANELA;
+  function mudarLimite(proximo: number | ((atual: number) => number)) {
+    setJanela((atual) => {
+      const limiteAtual = atual.chave === chaveDaJanela ? atual.limite : LINHAS_POR_JANELA;
+      return { chave: chaveDaJanela, limite: typeof proximo === "function" ? proximo(limiteAtual) : proximo };
+    });
+  }
   // A mesma compra em outros meses importados: a série que vai nascer de uma linha, ou uma que já existe.
   const [serieNova, setSerieNova] = useState<{ linha: LinhaConferencia; sessionId: string; tipo: TipoDaLinha; nome?: string; pedido: PedidoDaSerie } | null>(null);
   const [serieExistente, setSerieExistente] = useState<{ serie: SerieComLinhas; pedido: PedidoDaSerie } | null>(null);
@@ -1310,8 +1317,8 @@ export default function Conferencia() {
               mostradas={limite}
               total={ordenadas.length}
               porVez={LINHAS_POR_JANELA}
-              aoMostrarMais={() => setLimite((atual) => atual + LINHAS_POR_JANELA)}
-              aoMostrarTodas={() => setLimite(ordenadas.length)}
+              aoMostrarMais={() => mudarLimite((atual) => atual + LINHAS_POR_JANELA)}
+              aoMostrarTodas={() => mudarLimite(ordenadas.length)}
             />
             </>
           ) : (

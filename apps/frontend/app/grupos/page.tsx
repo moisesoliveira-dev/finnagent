@@ -97,8 +97,10 @@ export default function Grupos() {
   const [encerradas, setEncerradas] = useState<Session[]>([]);
   const gruposRef = useRef<Group[]>([]);
   const sessoesRef = useRef<Session[]>([]);
-  gruposRef.current = groups;
-  sessoesRef.current = sessions;
+  useEffect(() => {
+    gruposRef.current = groups;
+    sessoesRef.current = sessions;
+  }, [groups, sessions]);
   const [ready, setReady] = useState(false);
   const [falhou, setFalhou] = useState(false);
   // Os grupos começam fechados: as sessões aparecem quando a pessoa abre o grupo, ou na busca.
