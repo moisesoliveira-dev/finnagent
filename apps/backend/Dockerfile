@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:22-bookworm AS build
 
 WORKDIR /repo
 
@@ -18,6 +18,33 @@ COPY . .
 WORKDIR /repo/apps/backend
 
 RUN pnpm exec prisma generate && pnpm exec nest build
+
+FROM node:22-bookworm AS runtime
+
+ENV NODE_ENV=production
+
+WORKDIR /repo
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/frontend/package.json apps/frontend/package.json
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/agents/package.json apps/agents/package.json
+COPY apps/mobile/package.json apps/mobile/package.json
+COPY packages/chat/package.json packages/chat/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+
+RUN corepack enable && corepack prepare pnpm@11.21.0 --activate \
+  && pnpm install --filter backend... --prod --frozen-lockfile
+
+COPY --from=build --chown=node:node /repo/apps/backend/dist ./apps/backend/dist
+COPY --from=build --chown=node:node /repo/apps/backend/prisma ./apps/backend/prisma
+COPY --from=build --chown=node:node /repo/packages/contracts/src ./packages/contracts/src
+
+WORKDIR /repo/apps/backend
+
+RUN pnpm exec prisma generate
+
+USER node
 
 EXPOSE 3000
 

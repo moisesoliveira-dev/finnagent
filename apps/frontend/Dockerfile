@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /repo
 
@@ -23,6 +23,22 @@ ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 
 RUN pnpm exec next build
 
+FROM node:22-bookworm-slim AS runtime
+
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+WORKDIR /repo
+
+COPY --from=build --chown=node:node /repo/apps/frontend/.next/standalone ./
+COPY --from=build --chown=node:node /repo/apps/frontend/.next/static ./apps/frontend/.next/static
+COPY --from=build --chown=node:node /repo/apps/frontend/public ./apps/frontend/public
+
+WORKDIR /repo/apps/frontend
+
+USER node
+
 EXPOSE 3000
 
-CMD ["pnpm", "exec", "next", "start", "-H", "0.0.0.0"]
+CMD ["node", "server.js"]

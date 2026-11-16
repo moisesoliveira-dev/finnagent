@@ -17,6 +17,7 @@ const cabecalhosDeSeguranca = [
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  output: "standalone",
   // O SDK do OpenTelemetry carrega exportadores por nome: fica fora do bundle e vem do node_modules.
   serverExternalPackages: ["@opentelemetry/sdk-node"],
   async headers() {
