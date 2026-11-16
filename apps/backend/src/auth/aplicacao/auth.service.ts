@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import {
   loginDispensado,
   type PerfilDoUsuario,
@@ -15,7 +15,7 @@ import {
   NaoAutenticado,
   TentativasEsgotadas,
 } from "../dominio/erros.js";
-import { Limitador } from "../dominio/limitador.js";
+import { LimitadorDeTentativas } from "../adaptadores/limitador-de-tentativas.js";
 import { interpretarCadastro, interpretarEntrada } from "../dominio/pedido.js";
 import { interpretarPerfil, interpretarTroca } from "../dominio/perfil.js";
 import { conferirSenha, gerarHash, hashDeReferencia } from "../dominio/senha.js";
@@ -75,15 +75,14 @@ export function hashDoToken(token: string) {
 
 @Injectable()
 export class AuthService {
-  // Teto por origem, antes de qualquer consulta ao banco: segura quem tenta e-mails em série.
-  private readonly porOrigem = new Limitador(30, 10 * 60 * 1000);
-  // Quem já está logado também não testa senhas à vontade na troca de senha.
-  private readonly porUsuario = new Limitador(TENTATIVAS_DE_SENHA, JANELA_DE_SENHA_MS);
-
-  constructor(@Inject(AUTH_REPOSITORIO) private readonly repositorio: AuthRepositorio) {}
+  // Compartilhado via Redis em produção; nos testes e sem Redis, mantém a mesma proteção localmente.
+  constructor(
+    @Inject(AUTH_REPOSITORIO) private readonly repositorio: AuthRepositorio,
+    @Optional() private readonly tentativas = new LimitadorDeTentativas(),
+  ) {}
 
   async cadastrar(corpo: unknown, origem: Origem): Promise<SessaoAberta> {
-    this.limitar(origem);
+    await this.limitar(origem);
     const pedido = interpretarCadastro(corpo);
     if (typeof pedido === "string") throw new PedidoInvalido(pedido);
     const dono = (process.env.AUTH_EMAIL_DONO ?? "").trim().toLowerCase();
@@ -100,7 +99,7 @@ export class AuthService {
   }
 
   async entrar(corpo: unknown, origem: Origem): Promise<SessaoAberta> {
-    this.limitar(origem);
+    await this.limitar(origem);
     const pedido = interpretarEntrada(corpo);
     if (typeof pedido === "string") throw new PedidoInvalido(pedido);
     const usuario = await this.repositorio.buscarPorEmail(pedido.email);
@@ -163,7 +162,7 @@ export class AuthService {
   /** Confere a senha atual, troca e encerra as outras sessões. A sessão de quem trocou continua. */
   async trocarSenha(userId: string, token: string, corpo: unknown) {
     this.exigirConta(userId);
-    const espera = this.porUsuario.registrar(userId);
+    const espera = await this.tentativas.registrar("usuario", userId, TENTATIVAS_DE_SENHA, JANELA_DE_SENHA_MS);
     if (espera > 0) throw new TentativasEsgotadas(espera);
     const usuario = await this.repositorio.buscarComSenha(userId);
     if (!usuario) throw new NaoAutenticado();
@@ -237,8 +236,8 @@ export class AuthService {
     if (resultado === "master") throw new MasterIntocavel();
   }
 
-  private limitar(origem: Origem) {
-    const espera = this.porOrigem.registrar(origem.ip);
+  private async limitar(origem: Origem) {
+    const espera = await this.tentativas.registrar("origem", origem.ip, 30, 10 * 60 * 1000);
     if (espera > 0) throw new TentativasEsgotadas(espera);
   }
 
