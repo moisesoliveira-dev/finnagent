@@ -47,6 +47,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       });
     } catch (error) {
       log.error({ err: error instanceof Error ? error.message : String(error) }, "não foi possível aplicar as migrations");
+      throw error;
     }
     await this.$connect();
   }

@@ -652,3 +652,18 @@ Arquivos:
 - `apps/backend/src/extratos/aplicacao/extratos.service.ts`
 - `apps/backend/src/extratos/extratos.controller.ts`
 - `apps/frontend/app/extratos/conferencia/page.tsx`
+
+## Qualidade, auditoria e endurecimento
+
+O que foi feito: o repositório ganha um portão de qualidade (`pnpm check`: lint, testes, e2e, build e auditoria) e um workflow de CI que o roda. As dependências com falha conhecida ficam fixadas por `overrides` no workspace. Os Dockerfiles passam a ter estágio de build e de runtime (só dependências de produção, usuário `node`), e o Compose usa `init: true`. No backend, o limite de tentativas de login passa a ser compartilhado pelo Redis (com fallback local sem Redis), o corpo JSON cai de 64 MB para 10 MB e a falha de migração derruba a subida. No frontend, as refs deixam de ser escritas durante o render e a janela de linhas da Conferência deixa de depender de um efeito. No celular, as páginas carregam sob demanda e a navegação interna ganha validação de rota.
+
+Motivo: reduzir vulnerabilidades e comportamento frágil sem mudar o que a pessoa vê.
+
+Arquivos:
+
+- `.github/workflows/quality.yml`
+- `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` e os `package.json` de `apps/*` e `packages/*`
+- `apps/*/Dockerfile`, `compose.yaml`, `.env.example`
+- `apps/backend/src/auth/`, `apps/backend/src/main.ts`, `apps/backend/src/persistencia/prisma.service.ts`
+- `apps/frontend/app/extratos/conferencia/page.tsx`, `apps/frontend/app/grupos/page.tsx`, `apps/frontend/app/layout.tsx`, `apps/frontend/components/ui/use-apagar-com-desfazer.ts`
+- `apps/mobile/src/App.tsx`, `apps/mobile/src/navegacao.ts`

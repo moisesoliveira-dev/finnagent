@@ -20,7 +20,10 @@ export function useApagarComDesfazer(aoTerminar: () => Promise<unknown>) {
   const [ocultos, setOcultos] = useState<string[]>([]);
   const pendente = useRef<Pendente | null>(null);
   const terminar = useRef(aoTerminar);
-  terminar.current = aoTerminar;
+
+  useEffect(() => {
+    terminar.current = aoTerminar;
+  }, [aoTerminar]);
 
   const enviar = useCallback(
     async (atual: Pendente) => {

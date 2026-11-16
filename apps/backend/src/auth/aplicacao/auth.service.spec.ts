@@ -156,6 +156,7 @@ describe("autenticação", () => {
 
   beforeEach(() => {
     delete process.env.AUTH_EMAIL_DONO;
+    delete process.env.REDIS_URL;
     repositorio = new Memoria();
     servico = new AuthService(repositorio);
   });

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "lint": "tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
     "sync": "cap sync",
@@ -33,7 +34,7 @@
     "react-dom": "19.2.8",
     "react-router": "^6.30.6",
     "react-router-dom": "^6.30.6",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -41,7 +42,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.1.2",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
     "vite": "^8.3.5",
     "vitest": "^4.1.11"
   }

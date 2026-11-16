@@ -1,5 +1,6 @@
 services:
   frontend:
+    init: true
     build:
       context: .
       dockerfile: apps/frontend/Dockerfile
@@ -22,6 +23,7 @@ services:
       - backend
 
   backend:
+    init: true
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
@@ -52,6 +54,7 @@ services:
         condition: service_started
 
   agents:
+    init: true
     build:
       context: .
       dockerfile: apps/agents/Dockerfile

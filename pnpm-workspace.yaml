@@ -5,6 +5,15 @@ packages:
   - apps/mobile
   - packages/*
 
+overrides:
+  body-parser: ">=2.4.0 <3"
+  deepmerge-ts: ">=8.0.0 <9"
+  glob: ">=14.0.2 <15"
+  minimatch: ">=11.0.1 <12"
+  multer: ">=2.5.0 <3"
+  qs: ">=6.16.1 <7"
+  undici: ">=6.29.1 <7"
+
 allowBuilds:
   "@prisma/client": true
   "@prisma/engines": true

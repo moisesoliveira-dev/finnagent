@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "exports": {
@@ -13,6 +14,7 @@
     "@finnagent/contracts": "workspace:*"
   },
   "devDependencies": {
+    "typescript": "^6.0.3",
     "vitest": "^4.1.11"
   }
 }

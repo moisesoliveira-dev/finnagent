@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { PersistenciaModule } from "../persistencia/persistencia.module.js";
+import { LimitadorDeTentativas } from "./adaptadores/limitador-de-tentativas.js";
 import { PrismaAuthRepositorio } from "./adaptadores/prisma-auth-repositorio.js";
 import { AuthService } from "./aplicacao/auth.service.js";
 import { AuthController } from "./auth.controller.js";
@@ -15,6 +16,7 @@ import { SessaoGuard } from "./sessao.guard.js";
   exports: [AuthService],
   providers: [
     PrismaAuthRepositorio,
+    LimitadorDeTentativas,
     { provide: AUTH_REPOSITORIO, useExisting: PrismaAuthRepositorio },
     AuthService,
     { provide: APP_GUARD, useClass: SessaoGuard },

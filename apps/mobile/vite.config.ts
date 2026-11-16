@@ -11,5 +11,27 @@ export default defineConfig({
     port: 5173,
     proxy: { "/api": { target: "http://localhost:3000", changeOrigin: false } },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "ionic",
+              test: /node_modules[\\/](@ionic|@stencil|ionicons)[\\/]/,
+              maxSize: 400 * 1024,
+              priority: 20,
+            },
+            {
+              name: "vendor",
+              test: /node_modules[\\/]/,
+              maxSize: 400 * 1024,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
   test: { environment: "node" },
 });
