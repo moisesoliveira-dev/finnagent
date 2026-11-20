@@ -11,6 +11,6 @@ export interface CaixinhasRepositorio {
   criar(tenantId: string, caixinha: Caixinha): Promise<Caixinha | "identificador" | "conta-ausente" | "cartao" | FalhaDaCaixinha>;
   atualizar(tenantId: string, id: string, pedido: PedidoDeCaixinha): Promise<Caixinha | "ausente" | FalhaDaCaixinha>;
   /** Liga a meta a esta caixinha (e tira de outra que a tinha). Sem caixinha, a meta fica sem nenhuma. */
-  ligarMeta(tenantId: string, goalId: string, boxId: string | null): Promise<"ok" | "ausente" | "meta-ausente">;
+  ligarMeta(tenantId: string, goalId: string, boxId: string | null): Promise<"ok" | "ausente" | "meta-ausente" | "ocupada">;
   excluir(tenantId: string, id: string): Promise<Caixinha | "ausente">;
 }

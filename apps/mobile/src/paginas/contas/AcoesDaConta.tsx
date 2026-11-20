@@ -10,7 +10,7 @@ import {
   type MovimentoDaCaixinha,
 } from "@finnagent/contracts";
 import { cardOutline, documentTextOutline, walletOutline } from "ionicons/icons";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { enviar, pedir } from "../../api/cliente";
 import { centavosDe, ehDataIso, hojeIso, MESES, paraCampo, reais } from "../../api/formato";
 import { Campo, CampoDeValor } from "../../componentes/Campo";
@@ -148,6 +148,8 @@ function Transferir({ conta, contas, aoPronto }: { conta: Conta; contas: Conta[]
   const [date, setDate] = useState(hojeIso());
   const [note, setNote] = useState("");
   const [erro, setErro] = useState("");
+  // A chave do pedido: repetir o envio (toque duplo, nova tentativa) não cria outra transferência.
+  const chave = useRef(crypto.randomUUID());
 
   async function salvar() {
     const cents = centavosDe(valor);
@@ -156,13 +158,17 @@ function Transferir({ conta, contas, aoPronto }: { conta: Conta; contas: Conta[]
     if (!ehDataIso(date)) return setErro("Informe a data.");
     setErro("");
     const corpo = {
+      id: chave.current,
       fromAccountId: sentido === "sai" ? conta.id : outra,
       toAccountId: sentido === "sai" ? outra : conta.id,
       cents,
       date,
       ...(note.trim() ? { note: note.trim() } : {}),
     };
-    if (await agir("transferir", () => enviar("/api/contas/transferencias", corpo), "Transferência registrada.")) await aoPronto();
+    if (await agir("transferir", () => enviar("/api/contas/transferencias", corpo), "Transferência registrada.")) {
+      chave.current = crypto.randomUUID();
+      await aoPronto();
+    }
   }
 
   if (outras.length === 0) return <p className="fraco">Cadastre outra conta para transferir entre elas.</p>;
@@ -200,6 +206,7 @@ function PagarFatura({ cartao, fatura, contas, aoPronto }: { cartao: Conta; fatu
   const [valor, setValor] = useState(paraCampo(Math.max(fatura.totalCents - fatura.paidCents, 0)));
   const [date, setDate] = useState(hojeIso());
   const [erro, setErro] = useState("");
+  const chave = useRef(crypto.randomUUID());
 
   async function salvar() {
     const cents = centavosDe(valor);
@@ -207,7 +214,10 @@ function PagarFatura({ cartao, fatura, contas, aoPronto }: { cartao: Conta; fatu
     if (!cents) return setErro("Informe o valor.");
     if (!ehDataIso(date)) return setErro("Informe a data.");
     setErro("");
-    if (await agir("pagar", () => enviar(`/api/contas/${cartao.id}/pagar-fatura`, { fromAccountId: origem, cents, date, month: fatura.month }), "Pagamento da fatura registrado.")) await aoPronto();
+    if (await agir("pagar", () => enviar(`/api/contas/${cartao.id}/pagar-fatura`, { id: chave.current, fromAccountId: origem, cents, date, month: fatura.month }), "Pagamento da fatura registrado.")) {
+      chave.current = crypto.randomUUID();
+      await aoPronto();
+    }
   }
 
   if (origens.length === 0) return <p className="fraco">Cadastre a conta de onde sai o pagamento.</p>;

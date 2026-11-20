@@ -79,10 +79,18 @@ export class CaixinhasService {
     const resultado = await this.caixinhas.ligarMeta(tenantId, goalId, boxId);
     if (resultado === "ausente") throw new NaoEncontrado("Caixinha não encontrada.");
     if (resultado === "meta-ausente") throw new NaoEncontrado("Meta não encontrada.");
+    if (resultado === "ocupada") throw new Conflito("Essa caixinha já guarda para outra meta. Desligue-a dela antes.");
   }
 
   /** Apaga a caixinha. A sessão dela sai junto se nunca recebeu lançamento; com lançamentos, fica como histórico. */
   async excluir(tenantId: string, id: string) {
+    // O saldo da caixinha é dinheiro da pessoa: excluir com saldo o tiraria do patrimônio sem voltar para a conta.
+    const atual = await this.caixinhas.obter(tenantId, id);
+    if (!atual) throw new NaoEncontrado("Caixinha não encontrada.");
+    const { entries: lancados } = await this.financas.listar(tenantId, true);
+    if (resumoDaCaixinha(atual, lancados, await this.financas.hoje(tenantId)).saldoCents > 0) {
+      throw new Conflito("A caixinha ainda tem saldo. Resgate o valor para a conta antes de excluí-la.");
+    }
     const apagada = await this.caixinhas.excluir(tenantId, id);
     if (apagada === "ausente") throw new NaoEncontrado("Caixinha não encontrada.");
     const { entries } = await this.financas.listar(tenantId, true);
@@ -101,6 +109,13 @@ export class CaixinhasService {
     const caixinha = await this.caixinhas.obter(tenantId, id);
     if (!caixinha) throw new NaoEncontrado("Caixinha não encontrada.");
     const rendimento = pedido.tipo === "rendimento";
+    // A caixinha não fica negativa: o que sai dela (resgate ou perda) não passa do saldo que ela tem na data.
+    if (pedido.tipo === "resgate" || (rendimento && pedido.cents < 0)) {
+      const { entries } = await this.financas.listar(tenantId);
+      if (Math.abs(pedido.cents) > resumoDaCaixinha(caixinha, entries, pedido.date).saldoCents) {
+        throw new Conflito(rendimento ? "A perda passa do saldo da caixinha." : "O resgate passa do saldo da caixinha.");
+      }
+    }
     const nome = rendimento
       ? `${pedido.cents < 0 ? "Perda" : "Rendimento"} da caixinha ${caixinha.name}`
       : pedido.tipo === "aplicacao"

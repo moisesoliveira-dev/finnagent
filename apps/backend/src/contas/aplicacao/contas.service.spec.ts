@@ -118,13 +118,37 @@ describe("faturas do cartão", () => {
     lancamento({ accountId: "k1", transfer: true, occurrences: pago("2026-11-03", 10_000) }),
   ];
 
-  it("cada compra entra no ciclo da data dela, o pagamento na última fatura fechada antes dele", () => {
+  it("cada compra entra no ciclo da data dela, e o pagamento quita a fatura mais antiga em aberto", () => {
     const faturas = faturasDoCartao(cartaoComCiclo, entries, "2026-11-09", 3);
+    // Os R$ 100,00 pagos em 3/11 quitam setembro (R$ 30,00) primeiro e o resto vai para outubro.
     expect(faturas.map((f) => [f.month, f.closingDate, f.dueDate, f.totalCents, f.paidCents, f.status])).toEqual([
-      ["2026-09", "2026-09-25", "2026-10-05", 3_000, 0, "vencida"],
-      ["2026-10", "2026-10-25", "2026-11-05", 10_000, 10_000, "paga"],
+      ["2026-09", "2026-09-25", "2026-10-05", 3_000, 3_000, "paga"],
+      ["2026-10", "2026-10-25", "2026-11-05", 10_000, 7_000, "vencida"],
       ["2026-11", "2026-11-25", "2026-12-05", 5_000, 0, "aberta"],
     ]);
+  });
+
+  it("pagar a fatura vencida hoje a quita, mesmo com outra fechada depois dela", () => {
+    const compras = [
+      lancamento({ accountId: "k1", occurrences: pago("2026-09-10", -3_000) }),
+      lancamento({ accountId: "k1", occurrences: pago("2026-10-20", -10_000) }),
+      lancamento({ accountId: "k1", transfer: true, occurrences: pago("2026-11-03", 3_000) }),
+    ];
+    const faturas = faturasDoCartao(cartaoComCiclo, compras, "2026-11-09", 3);
+    expect(faturas.map((f) => [f.month, f.paidCents, f.status])).toEqual([
+      ["2026-09", 3_000, "paga"],
+      ["2026-10", 0, "vencida"],
+      ["2026-11", 0, "aberta"],
+    ]);
+  });
+
+  it("o que passa de tudo o que havia a pagar fica na última fatura fechada", () => {
+    const compras = [
+      lancamento({ accountId: "k1", occurrences: pago("2026-10-20", -10_000) }),
+      lancamento({ accountId: "k1", transfer: true, occurrences: pago("2026-11-03", 12_000) }),
+    ];
+    const faturas = faturasDoCartao(cartaoComCiclo, compras, "2026-11-09", 3);
+    expect(faturas.find((f) => f.month === "2026-10")?.paidCents).toBe(12_000);
   });
 
   it("o limite usa o que o cartão deve hoje", () => {

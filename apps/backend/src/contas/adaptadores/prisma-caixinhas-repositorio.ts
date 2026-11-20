@@ -56,7 +56,10 @@ export class PrismaCaixinhasRepositorio implements CaixinhasRepositorio {
   async ligarMeta(tenantId: string, goalId: string, boxId: string | null) {
     return this.banco().$transaction(async (tx) => {
       if (!(await tx.goal.findFirst({ where: { id: goalId, tenantId }, select: { id: true } }))) return "meta-ausente" as const;
-      if (boxId && !(await tx.accountBox.findFirst({ where: { id: boxId, tenantId }, select: { id: true } }))) return "ausente" as const;
+      const alvo = boxId ? await tx.accountBox.findFirst({ where: { id: boxId, tenantId }, select: { id: true, goalId: true } }) : null;
+      if (boxId && !alvo) return "ausente" as const;
+      // Uma caixinha guarda para uma meta só: tomá-la de outra deixaria essa meta sem o saldo, sem a pessoa saber.
+      if (alvo?.goalId && alvo.goalId !== goalId) return "ocupada" as const;
       await tx.accountBox.updateMany({ where: { tenantId, goalId }, data: { goalId: null } });
       if (boxId) await tx.accountBox.updateMany({ where: { id: boxId, tenantId }, data: { goalId } });
       const payload = { goalId, boxId };

@@ -15,11 +15,16 @@ import {
 } from "@nestjs/common";
 import { TIPOS_DE_CONTA } from "@finnagent/contracts";
 import { z } from "zod";
+import { dataValida } from "../financas/dominio/transacao.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { ContasService } from "./aplicacao/contas.service.js";
 
 const tenantId = z.uuid();
-const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Só data que existe no calendário: 2026-02-31 passa no formato, mas não vira uma data gravável.
+const dataIso = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(dataValida);
 const conta = z.object({
   name: z.string().trim().min(1).max(80),
   kind: z.enum(TIPOS_DE_CONTA).default("conta"),
@@ -32,6 +37,8 @@ const conta = z.object({
   limitCents: z.number().int().min(0).max(2_147_483_647).nullable().optional(),
 });
 const transferencia = z.object({
+  // Opcional: a chave do pedido. Repetir o mesmo id devolve o par já criado em vez de criar outro.
+  id: z.uuid().optional(),
   fromAccountId: z.uuid(),
   toAccountId: z.uuid(),
   cents: z.number().int().min(1).max(2_147_483_647),
@@ -39,10 +46,13 @@ const transferencia = z.object({
   note: z.string().trim().max(160).optional(),
 });
 const pagamentoDaFatura = z.object({
+  id: z.uuid().optional(),
   fromAccountId: z.uuid(),
   cents: z.number().int().min(1).max(2_147_483_647),
   date: dataIso,
-  month: z.string().regex(/^\d{4}-\d{2}$/),
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/),
 });
 const criarConta = conta.extend({ id: z.uuid() });
 const ajuste = z.object({

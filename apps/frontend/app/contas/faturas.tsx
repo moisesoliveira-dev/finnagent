@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ROTULO_DO_STATUS_DA_FATURA,
   faturasDoCartao,
@@ -189,6 +189,8 @@ function CorpoDoPagamento({
   const [valor, setValor] = useState(centavosParaReais(falta));
   const [date, setDate] = useState(hoje);
   const [salvando, setSalvando] = useState(false);
+  // A chave do pedido: repetir o envio (clique duplo, nova tentativa) não cria outro pagamento.
+  const chave = useRef(crypto.randomUUID());
 
   async function pagar(event: React.FormEvent) {
     event.preventDefault();
@@ -200,8 +202,9 @@ function CorpoDoPagamento({
     }
     setSalvando(true);
     try {
-      await api(`/api/contas/${cartao.id}/pagar-fatura`, { method: "POST", body: JSON.stringify({ fromAccountId, cents, date, month: fatura.month }) });
+      await api(`/api/contas/${cartao.id}/pagar-fatura`, { method: "POST", body: JSON.stringify({ id: chave.current, fromAccountId, cents, date, month: fatura.month }) });
       toast.sucesso(`Fatura de ${nomeDoMes(fatura.month)} paga: ${formatarReais(cents)} saíram da conta e entraram no cartão.`);
+      chave.current = crypto.randomUUID();
       onFechar();
       await onPago();
     } catch (error) {

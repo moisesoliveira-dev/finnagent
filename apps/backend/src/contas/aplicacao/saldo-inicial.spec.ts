@@ -120,6 +120,22 @@ describe("informar o saldo da caixinha", () => {
     return { servico: new CaixinhasService(repo as never, { listar: async () => [] } as never, {} as never, financas as never), gravacoes, registrados };
   }
 
+  it("não deixa resgatar nem perder mais do que a caixinha tem na data", async () => {
+    const comSaldo = { ...caixinha, openingCents: 10_000 };
+    const { servico: caixinhas, registrados } = servico([], comSaldo);
+    await expect(caixinhas.movimentar(TENANT, comSaldo.id, { tipo: "resgate", cents: 10_001, date: HOJE })).rejects.toThrow("O resgate passa do saldo");
+    await expect(caixinhas.movimentar(TENANT, comSaldo.id, { tipo: "rendimento", cents: -10_001, date: HOJE })).rejects.toThrow("A perda passa do saldo");
+    expect(registrados).toEqual([]);
+    await caixinhas.movimentar(TENANT, comSaldo.id, { tipo: "resgate", cents: 10_000, date: HOJE });
+    expect(registrados).toHaveLength(1);
+  });
+
+  it("só exclui a caixinha com saldo zero", async () => {
+    const comSaldo = { ...caixinha, openingCents: 10_000 };
+    const { servico: caixinhas } = servico([], comSaldo);
+    await expect(caixinhas.excluir(TENANT, comSaldo.id)).rejects.toThrow("ainda tem saldo");
+  });
+
   it("na primeira vez, o saldo informado é o que já estava lá: saldo inicial, e não rendimento de entrada", async () => {
     const { servico: caixinhas, gravacoes, registrados } = servico([]);
     const resultado = await caixinhas.informarSaldo(TENANT, caixinha.id, { saldoCents: 1_000_000, date: HOJE });

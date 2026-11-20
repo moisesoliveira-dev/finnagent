@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import {
   evolucaoDoPatrimonio,
@@ -29,6 +29,12 @@ import { GruposService } from "../../grupos/aplicacao/grupos.service.js";
 import { Conflito, NaoEncontrado } from "../../grupos/dominio/erros.js";
 import { CAIXINHAS_REPOSITORIO, type CaixinhasRepositorio } from "../portas/caixinhas-repositorio.js";
 import { CONTAS_REPOSITORIO, type ContasRepositorio } from "../portas/contas-repositorio.js";
+
+/** Um id estável para cada lado do par, a partir da chave do pedido: repetir o pedido bate na chave primária. */
+function idDoLado(chave: string, lado: "saida" | "entrada") {
+  const hex = createHash("sha1").update(`${chave}:${lado}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 const NOME_DO_MES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
@@ -164,6 +170,7 @@ export class ContasService {
     const [ano, mes] = pedido.month.split("-").map(Number) as [number, number];
     const nomeDoMes = `${NOME_DO_MES[mes - 1] ?? pedido.month}/${ano}`;
     return this.criarPar(tenantId, {
+      id: pedido.id,
       origem,
       destino: cartao,
       cents: pedido.cents,
@@ -182,6 +189,7 @@ export class ContasService {
     if (!origem || !destino) throw new NaoEncontrado("Conta não encontrada.");
     if (origem.id === destino.id) throw new Conflito("Escolha duas contas diferentes.");
     return this.criarPar(tenantId, {
+      id: pedido.id,
       origem,
       destino,
       cents: pedido.cents,
@@ -198,11 +206,16 @@ export class ContasService {
    */
   async criarPar(
     tenantId: string,
-    par: { origem: { id: string }; destino: { id: string }; cents: number; date: string; description: string; nomeDaSaida: string; nomeDaEntrada: string },
+    par: { id?: string; origem: { id: string }; destino: { id: string }; cents: number; date: string; description: string; nomeDaSaida: string; nomeDaEntrada: string },
   ): Promise<ParDeTransferencia> {
     if (par.cents <= 0) throw new Conflito("Informe o valor da transferência.");
     const sessionId = await this.sessaoDasTransferencias(tenantId);
-    const pairId = randomUUID();
+    // Com chave no pedido, repetir o mesmo pedido (clique duplo, nova tentativa depois de falha de rede) devolve o par
+    // que já existe. Sem chave, cada pedido cria um par novo.
+    const pairId = par.id ?? randomUUID();
+    const ids = par.id
+      ? { saida: idDoLado(pairId, "saida"), entrada: idDoLado(pairId, "entrada") }
+      : { saida: randomUUID(), entrada: randomUUID() };
     const base = {
       sessionId,
       description: par.description.slice(0, 160),
@@ -224,12 +237,31 @@ export class ContasService {
       transfer: true,
       pairId,
     } satisfies Partial<PedidoLancamento>;
-    const saida = await this.financas.registrar(tenantId, { ...base, id: randomUUID(), name: par.nomeDaSaida.slice(0, 160), mode: "outflows", accountId: par.origem.id });
+    const existente = async () => {
+      if (!par.id) return null;
+      const { entries } = await this.financas.listar(tenantId, true);
+      return { saida: entries.find((item) => item.id === ids.saida), entrada: entries.find((item) => item.id === ids.entrada) };
+    };
+    const feitos = await existente();
+    if (feitos?.saida && feitos.entrada) return { pairId, saida: feitos.saida, entrada: feitos.entrada };
+    const criar = async (id: string, name: string, mode: "inflows" | "outflows", accountId: string) => {
+      try {
+        return await this.financas.registrar(tenantId, { ...base, id, name: name.slice(0, 160), mode, accountId });
+      } catch (error) {
+        // Outro pedido com a mesma chave chegou primeiro (a chave primária ou a transação concorrente recusou o
+        // segundo): vale o lançamento dele.
+        const outro = par.id ? (await existente())?.[mode === "outflows" ? "saida" : "entrada"] : undefined;
+        if (outro) return outro;
+        throw error;
+      }
+    };
+    const saida = feitos?.saida ?? (await criar(ids.saida, par.nomeDaSaida, "outflows", par.origem.id));
     try {
-      const entrada = await this.financas.registrar(tenantId, { ...base, id: randomUUID(), name: par.nomeDaEntrada.slice(0, 160), mode: "inflows", accountId: par.destino.id });
+      const entrada = feitos?.entrada ?? (await criar(ids.entrada, par.nomeDaEntrada, "inflows", par.destino.id));
       return { pairId, saida, entrada };
     } catch (error) {
-      await this.financas.excluir(tenantId, saida.id).catch(() => undefined);
+      // Sem chave, o primeiro lado é desfeito. Com chave, ele fica: a nova tentativa completa o par.
+      if (!par.id) await this.financas.excluir(tenantId, saida.id).catch(() => undefined);
       throw error;
     }
   }
@@ -245,14 +277,41 @@ export class ContasService {
   }
 
   private async sessaoFixa(tenantId: string, grupo: string, sessao: string, descricaoDoGrupo: string, justificativa: string) {
-    const { groups, sessions } = await this.grupos.listar(tenantId);
-    const existente = groups.find((item) => item.name.toLowerCase() === grupo.toLowerCase());
-    const groupId = existente?.id ?? (await this.grupos.criarGrupo(tenantId, randomUUID(), grupo, descricaoDoGrupo)).id;
-    const aberta = sessions.find((item) => item.groupId === groupId && item.name.toLowerCase() === sessao.toLowerCase() && !item.endedAt);
+    const achar = async () => {
+      const { groups, sessions } = await this.grupos.listar(tenantId);
+      const existente = groups.find((item) => item.name.toLowerCase() === grupo.toLowerCase());
+      const aberta = existente
+        ? sessions.find((item) => item.groupId === existente.id && item.name.toLowerCase() === sessao.toLowerCase() && !item.endedAt)
+        : undefined;
+      return { existente, aberta };
+    };
+    const criar = async (groupId: string | undefined) => {
+      const grupoId = groupId ?? (await this.grupos.criarGrupo(tenantId, randomUUID(), grupo, descricaoDoGrupo)).id;
+      const sessionId = randomUUID();
+      await this.grupos.criarSessao(tenantId, sessionId, { groupId: grupoId, name: sessao, description: "", justification: justificativa }, "acumulo");
+      return sessionId;
+    };
+    const { existente, aberta } = await achar();
     if (aberta) return aberta.id;
-    const sessionId = randomUUID();
-    await this.grupos.criarSessao(tenantId, sessionId, { groupId, name: sessao, description: "", justification: justificativa }, "acumulo");
-    return sessionId;
+    try {
+      return await criar(existente?.id);
+    } catch (error) {
+      // Dois pedidos na primeira vez criam o grupo e a sessão ao mesmo tempo: o que perdeu espera o outro terminar e
+      // usa o que ele criou (ou completa o que falta).
+      for (let tentativa = 0; tentativa < 8; tentativa += 1) {
+        await new Promise((resolver) => setTimeout(resolver, 40));
+        const agora = await achar();
+        if (agora.aberta) return agora.aberta.id;
+        if (agora.existente) {
+          try {
+            return await criar(agora.existente.id);
+          } catch {
+            // outra tentativa
+          }
+        }
+      }
+      throw error;
+    }
   }
 
   async atualizar(tenantId: string, id: string, pedido: PedidoDeConta) {

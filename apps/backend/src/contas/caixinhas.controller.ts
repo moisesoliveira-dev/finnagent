@@ -14,11 +14,16 @@ import {
 } from "@nestjs/common";
 import { MOVIMENTOS_DA_CAIXINHA } from "@finnagent/contracts";
 import { z } from "zod";
+import { dataValida } from "../financas/dominio/transacao.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../grupos/dominio/erros.js";
 import { CaixinhasService } from "./aplicacao/caixinhas.service.js";
 
 const tenantId = z.uuid();
-const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Só data que existe no calendário: 2026-02-31 passa no formato, mas não vira uma data gravável.
+const dataIso = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(dataValida);
 const caixinha = z.object({
   name: z.string().trim().min(1).max(60),
   openingCents: z.number().int().min(0).max(2_147_483_647).default(0),
