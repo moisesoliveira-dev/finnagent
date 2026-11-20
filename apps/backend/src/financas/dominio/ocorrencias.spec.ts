@@ -4,6 +4,7 @@ import {
   centavosNoMes,
   gradeDoLancamento,
   mesclarGrade,
+  parcelaAtual,
   ocorrenciasDoLancamento,
   situacaoDaOcorrencia,
   situacaoDoLancamento,
@@ -30,6 +31,34 @@ describe("ocorrências do lançamento", () => {
         );
       }
     }
+  });
+
+  it("começa a grade na parcela em andamento e guarda a parcela do contrato", () => {
+    const grade = gradeDoLancamento({ ...notebook, installments: 4, installmentNumber: 3 });
+    expect(grade.map((item) => [item.number, item.parcel])).toEqual([
+      [1, 3],
+      [2, 4],
+    ]);
+    // A data segue o mês de início: a primeira ocorrência cai no mês da data informada.
+    const inteira = gradeDoLancamento({ ...notebook, installments: 4 });
+    expect(grade.map((item) => item.dueDate)).toEqual(inteira.slice(0, 2).map((item) => item.dueDate));
+    expect(parcelaAtual(grade)).toBe(3);
+  });
+
+  it("trata a parcela atual fora da faixa como a primeira ou a última", () => {
+    const base = { ...notebook, installments: 3 };
+    expect(gradeDoLancamento({ ...base, installmentNumber: 0 })).toHaveLength(3);
+    expect(gradeDoLancamento({ ...base, installmentNumber: 9 }).map((item) => item.parcel)).toEqual([3]);
+  });
+
+  it("conta a parcela atual pela parcela do contrato, mesmo depois de pagar em parte", () => {
+    const [primeira, ...resto] = gradeDoLancamento({ ...notebook, installments: 3 });
+    const emParte = [
+      { ...primeira!, status: "completed" as const, plannedCents: -400, paidCents: -400 },
+      { ...primeira!, number: 2, plannedCents: -600 },
+      ...resto.map((item) => ({ ...item, number: item.number + 1 })),
+    ];
+    expect(parcelaAtual(emParte)).toBe(1);
   });
 
   it("tira do mês a ocorrência cancelada e mantém as outras", () => {
