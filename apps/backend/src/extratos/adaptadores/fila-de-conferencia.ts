@@ -31,7 +31,7 @@ export class FilaDeConferencia implements OnModuleInit, OnModuleDestroy {
     const url = process.env.REDIS_URL;
     if (!url || !this.prisma.ativo) return;
     try {
-      this.queue = new Queue(FILA, { connection: this.abrirRedis(url) });
+      this.queue = new Queue(FILA, { connection: this.abrirRedis(url, true) });
       this.worker = new Worker<PedidoDeDesfazer>(FILA, (job) => this.rodar(job.name, job.data), { connection: this.abrirRedis(url) });
       this.queue.on("error", registrarFalha);
       this.worker.on("error", registrarFalha);
@@ -53,18 +53,24 @@ export class FilaDeConferencia implements OnModuleInit, OnModuleDestroy {
    */
   async desfazerConferencia(pedido: PedidoDeDesfazer): Promise<"enfileirado" | "ja-rodando" | "sem-fila"> {
     if (!this.queue) return "sem-fila";
-    // O id do trabalho não aceita dois-pontos no BullMQ.
-    const jobId = `${DESFAZER}-${pedido.tenantId}`;
-    const anterior = await this.queue.getJob(jobId);
-    if (anterior) {
-      const estado = await anterior.getState();
-      if (estado === "active" || estado === "waiting" || estado === "delayed" || estado === "prioritized") return "ja-rodando";
-      // Terminou (ou falhou) e ainda não saiu da fila: dá lugar ao novo.
-      await anterior.remove().catch(() => undefined);
+    try {
+      // O id do trabalho não aceita dois-pontos no BullMQ.
+      const jobId = `${DESFAZER}-${pedido.tenantId}`;
+      const anterior = await this.queue.getJob(jobId);
+      if (anterior) {
+        const estado = await anterior.getState();
+        if (estado === "active" || estado === "waiting" || estado === "delayed" || estado === "prioritized") return "ja-rodando";
+        // Terminou (ou falhou) e ainda não saiu da fila: dá lugar ao novo.
+        await anterior.remove().catch(() => undefined);
+      }
+      await this.queue.add(DESFAZER, pedido, { jobId, removeOnComplete: true, removeOnFail: true });
+      log.info({ tenant: pedido.tenantId }, "desfazer a conferência entrou na fila");
+      return "enfileirado";
+    } catch (error) {
+      // Redis fora do ar: faz na hora, como quando não há Redis, em vez de deixar o pedido esperando.
+      registrarFalha(error);
+      return "sem-fila";
     }
-    await this.queue.add(DESFAZER, pedido, { jobId, removeOnComplete: true, removeOnFail: true });
-    log.info({ tenant: pedido.tenantId }, "desfazer a conferência entrou na fila");
-    return "enfileirado";
   }
 
   private async rodar(nome: string, pedido: PedidoDeDesfazer) {
@@ -82,8 +88,13 @@ export class FilaDeConferencia implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private abrirRedis(url: string) {
-    const conexao = new Redis(url, { maxRetriesPerRequest: null });
+  /**
+   * `produtor`: a conexão de quem só coloca trabalho na fila. Com o Redis fora, o pedido falha na hora em vez de
+   * esperar para sempre pela volta dele, e quem pediu decide o que fazer (tentar de novo, ou fazer sem fila). O worker
+   * precisa da espera sem limite e fica com a conexão de sempre.
+   */
+  private abrirRedis(url: string, produtor = false) {
+    const conexao = new Redis(url, produtor ? { enableOfflineQueue: false, maxRetriesPerRequest: 1 } : { maxRetriesPerRequest: null });
     conexao.on("error", registrarFalha);
     this.conexoes.push(conexao);
     return conexao;

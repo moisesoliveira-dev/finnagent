@@ -24,7 +24,7 @@ export class OutboxPublicador implements OnApplicationBootstrap, OnModuleDestroy
     const url = process.env.REDIS_URL;
     if (!url || !this.prisma.ativo) return;
     try {
-      const conexaoFila = this.abrirRedis(url);
+      const conexaoFila = this.abrirRedis(url, true);
       const conexaoWorker = this.abrirRedis(url);
       this.queue = new Queue(fila, { connection: conexaoFila });
       this.worker = new Worker(
@@ -82,19 +82,30 @@ export class OutboxPublicador implements OnApplicationBootstrap, OnModuleDestroy
     await Promise.all(this.conexoes.map((conexao) => conexao.quit()));
   }
 
-  private abrirRedis(url: string) {
-    const conexao = new Redis(url, { maxRetriesPerRequest: null });
+  /**
+   * `produtor`: a conexão de quem só coloca trabalho na fila. Com o Redis fora, o pedido falha na hora em vez de
+   * esperar para sempre pela volta dele, e quem pediu decide o que fazer (tentar de novo, ou fazer sem fila). O worker
+   * precisa da espera sem limite e fica com a conexão de sempre.
+   */
+  private abrirRedis(url: string, produtor = false) {
+    const conexao = new Redis(url, produtor ? { enableOfflineQueue: false, maxRetriesPerRequest: 1 } : { maxRetriesPerRequest: null });
     conexao.on("error", registrarFalha);
     this.conexoes.push(conexao);
     return conexao;
   }
 
+  private publicando = false;
+
   private async publicar() {
-    if (!this.queue || !this.prisma.ativo) return;
+    // Uma rodada por vez: com a fila lenta ou fora, as rodadas não se empilham a cada 2 segundos.
+    if (!this.queue || !this.prisma.ativo || this.publicando) return;
+    this.publicando = true;
     try {
       await this.enviarPendentes();
     } catch (error) {
       registrarFalha(error);
+    } finally {
+      this.publicando = false;
     }
   }
 

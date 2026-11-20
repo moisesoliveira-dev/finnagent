@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Grupo, Sessao, TipoSessao, ViradaGrupo, ViradaResposta } from "@finnagent/contracts";
 import { Prisma } from "@prisma/client";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
+import { bloquear } from "../../persistencia/bloquear.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado, PedidoInvalido } from "../dominio/erros.js";
@@ -103,6 +104,8 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
   async criarGrupo(tenantId: string, id: string, name: string, description: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // Criar e renomear grupos e sessões do mesmo tenant ao mesmo tempo disputava o nome e a posição.
+      await bloquear(tx, `${tenantId}:grupos`);
       const atual = await tx.group.findFirst({ where: { id, tenantId } });
       if (atual) {
         if (atual.name === name && atual.description === description) return grupoDe(atual);
@@ -123,6 +126,8 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
   async atualizarGrupo(tenantId: string, id: string, name: string, description: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // Criar e renomear grupos e sessões do mesmo tenant ao mesmo tempo disputava o nome e a posição.
+      await bloquear(tx, `${tenantId}:grupos`);
       const atual = await tx.group.findFirst({ where: { id, tenantId } });
       if (!atual) return "ausente" as const;
       const ocupado = await nomeDeGrupoOcupado(tx, tenantId, name, id);
@@ -190,6 +195,8 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
   ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // Criar e renomear grupos e sessões do mesmo tenant ao mesmo tempo disputava o nome e a posição.
+      await bloquear(tx, `${tenantId}:grupos`);
       const atual = await tx.session.findFirst({ where: { id, tenantId }, select: sessaoCompleta });
       if (atual) {
         if (sessaoIgual(atual, dados, kind, cents)) return sessaoDe(atual);
@@ -231,6 +238,8 @@ export class PrismaGruposRepositorio implements GruposRepositorio {
   async atualizarSessao(tenantId: string, id: string, dados: DadosDaSessao, kind?: TipoSessao) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // Criar e renomear grupos e sessões do mesmo tenant ao mesmo tempo disputava o nome e a posição.
+      await bloquear(tx, `${tenantId}:grupos`);
       const atual = await tx.session.findFirst({ where: { id, tenantId } });
       if (!atual) return "ausente" as const;
       if (!(await grupoDoTenant(tx, tenantId, dados.groupId))) {
