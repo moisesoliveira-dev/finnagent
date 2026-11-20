@@ -7,6 +7,8 @@ export const TABELAS_QUE_ZERAM = [
   "statement",
   "accountBox",
   "account",
+  "task",
+  "appointmentDone",
   "appointment",
   "entry",
   "sessionAddition",

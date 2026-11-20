@@ -190,4 +190,102 @@ describe("pacote de dados", () => {
     });
     expect(interpretarPacote(quebrado)).toBe("O arquivo está incompleto ou corrompido.");
   });
+
+  it("leva as tarefas e a divisão das metas, e renova os vínculos delas", () => {
+    const lido = interpretarPacote({
+      app: "finnagent",
+      version: 1,
+      exportedAt: dia,
+      data: {
+        ...((pacote() as { data: Record<string, unknown> }).data),
+        appointments: [
+          { id: "a1", title: "Dentista", description: "", location: "", startAt: dia, endAt: dia, allDay: false, status: "undone", year: 2026, month: 10, day: 5, hour: 10, minute: 0, calendar: "Pessoal", category: "fixed", endYear: null, endMonth: null, endDay: null, entryId: null, sessionId: null, askSpending: true },
+        ],
+        goals: [{ id: "m1", name: "Viagem", targetCents: 1000, savedCents: 0, dueYear: null, dueMonth: null }],
+        tasks: [
+          { id: "t2", title: "Filha", date: dia, createdAt: dia, parentId: "t1", appointmentId: null },
+          { id: "t1", title: "Mãe", date: dia, createdAt: dia, parentId: null, appointmentId: null },
+          { id: "t3", title: "Item do checklist", date: dia, createdAt: dia, parentId: null, appointmentId: "a1" },
+        ],
+        goalAllocations: [{ goalId: "m1", year: 2026, month: 10, percent: 30 }],
+      },
+    });
+    expect(typeof lido).toBe("object");
+    if (typeof lido === "string") return;
+    const novos = renovarIdentificadores(lido.data);
+    const mae = novos.tasks.find((item) => item.title === "Mãe")!;
+    const filha = novos.tasks.find((item) => item.title === "Filha")!;
+    const checklist = novos.tasks.find((item) => item.title === "Item do checklist")!;
+    expect(filha.parentId).toBe(mae.id);
+    expect([mae.id, filha.id].includes("t1")).toBe(false);
+    expect(checklist.appointmentId).toBe(novos.appointments[0]!.id);
+    expect(novos.goalAllocations[0]!.goalId).toBe(novos.goals[0]!.id);
+    expect(novos.goalAllocations[0]!.approvedCents).toBeNull();
+  });
+
+  it("recusa tarefa que aponta para mãe ou compromisso fora do arquivo, e divisão de meta sem a meta", () => {
+    const base = (pacote() as { data: Record<string, unknown> }).data;
+    const com = (extra: Record<string, unknown>) => interpretarPacote({ app: "finnagent", version: 1, exportedAt: dia, data: { ...base, ...extra } });
+    const tarefa = { id: "t1", title: "x", date: dia, createdAt: dia };
+    expect(com({ tasks: [{ ...tarefa, parentId: "sumiu" }] })).toBe("O arquivo está incompleto ou corrompido.");
+    expect(com({ tasks: [{ ...tarefa, appointmentId: "sumiu" }] })).toBe("O arquivo está incompleto ou corrompido.");
+    expect(com({ goalAllocations: [{ goalId: "sumiu", year: 2026, month: 10, percent: 10 }] })).toBe("O arquivo está incompleto ou corrompido.");
+  });
+
+  it("leva a cobertura entre lançamentos e renova o vínculo", () => {
+    const base = (pacote() as { data: Record<string, unknown> }).data;
+    const primeiro = (base.entries as Record<string, unknown>[])[0]!;
+    const lido = interpretarPacote({
+      app: "finnagent",
+      version: 1,
+      exportedAt: dia,
+      data: { ...base, entries: [primeiro, { ...primeiro, id: "e2", name: "Cobre", coveredById: "e1" }] },
+    });
+    expect(typeof lido).toBe("object");
+    if (typeof lido === "string") return;
+    const novos = renovarIdentificadores(lido.data);
+    const alvo = novos.entries.find((item) => item.name === "Aluguel")!;
+    expect(novos.entries.find((item) => item.name === "Cobre")!.coveredById).toBe(alvo.id);
+    expect(interpretarPacote({ app: "finnagent", version: 1, exportedAt: dia, data: { ...base, entries: [{ ...primeiro, coveredById: "sumiu" }] } })).toBe(
+      "O arquivo está incompleto ou corrompido.",
+    );
+  });
+
+  it("guarda a ordem dos grupos e das sessões, e completa com zero nos pacotes antigos", () => {
+    const base = (pacote() as { data: Record<string, unknown> }).data;
+    const comOrdem = interpretarPacote({
+      app: "finnagent",
+      version: 1,
+      exportedAt: dia,
+      data: {
+        ...base,
+        groups: [{ id: "g1", name: "Casa", description: "", position: 3 }],
+        sessions: [{ ...(base.sessions as Record<string, unknown>[])[0], position: 2 }],
+      },
+    });
+    expect(typeof comOrdem).toBe("object");
+    if (typeof comOrdem === "string") return;
+    expect(comOrdem.data.groups[0]!.position).toBe(3);
+    expect(comOrdem.data.sessions[0]!.position).toBe(2);
+    expect(renovarIdentificadores(comOrdem.data).groups[0]!.position).toBe(3);
+    expect(ler(pacote()).groups[0]!.position).toBe(0);
+  });
+
+  it("leva as ocorrências feitas dos compromissos que repetem e renova o vínculo", () => {
+    const base = (pacote() as { data: Record<string, unknown> }).data;
+    const compromisso = (base.appointments as Record<string, unknown>[])[0]!;
+    const lido = interpretarPacote({
+      app: "finnagent",
+      version: 1,
+      exportedAt: dia,
+      data: { ...base, appointmentDone: [{ appointmentId: compromisso.id, date: dia }] },
+    });
+    expect(typeof lido).toBe("object");
+    if (typeof lido === "string") return;
+    const novos = renovarIdentificadores(lido.data);
+    expect(novos.appointmentDone[0]!.appointmentId).toBe(novos.appointments[0]!.id);
+    expect(interpretarPacote({ app: "finnagent", version: 1, exportedAt: dia, data: { ...base, appointmentDone: [{ appointmentId: "sumiu", date: dia }] } })).toBe(
+      "O arquivo está incompleto ou corrompido.",
+    );
+  });
 });

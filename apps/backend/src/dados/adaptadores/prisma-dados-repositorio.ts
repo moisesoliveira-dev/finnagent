@@ -40,6 +40,9 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           goals,
           accountBoxes,
           holidays,
+          tasks,
+          goalAllocations,
+          appointmentDone,
           preferencia,
           workflow,
         ] = await Promise.all([
@@ -62,6 +65,9 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           tx.goal.findMany({ ...onde, orderBy: { id: "asc" } }),
           tx.accountBox.findMany({ ...onde, orderBy: { id: "asc" } }),
           tx.holiday.findMany({ ...onde, orderBy: { id: "asc" } }),
+          tx.task.findMany({ ...onde, orderBy: { id: "asc" } }),
+          tx.goalAllocation.findMany(onde),
+          tx.appointmentDone.findMany(onde),
           tx.preference.findUnique({ where: { tenantId } }),
           tx.workflow.findUnique({ where: { tenantId } }),
         ]);
@@ -89,6 +95,9 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           goals: goals.map(({ tenantId: _, ...resto }) => resto),
           accountBoxes: accountBoxes.map(({ tenantId: _, ...resto }) => resto),
           holidays: holidays.map(({ id, name, day, month }) => ({ id, name, day, month })),
+          tasks: tasks.map(({ tenantId: _, ...resto }) => resto),
+          goalAllocations: goalAllocations.map(({ tenantId: _, ...resto }) => resto),
+          appointmentDone: appointmentDone.map(({ tenantId: _, ...resto }) => resto),
           preferences: preferencia
             ? {
                 name: preferencia.name,
@@ -136,7 +145,15 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
         // O vínculo com o compromisso é texto solto (sem chave estrangeira), então a ordem é livre.
         // As contas antes dos lançamentos: o lançamento aponta para a conta dele.
         await gravar(dados.accounts.length, (data) => tx.account.createMany({ data }), com(dados.accounts));
-        await gravar(dados.entries.length, (data) => tx.entry.createMany({ data }), com(dados.entries));
+        // A cobertura aponta para outro lançamento do mesmo arquivo: entra depois que todos existem.
+        await gravar(
+          dados.entries.length,
+          (data) => tx.entry.createMany({ data }),
+          com(dados.entries.map((item) => ({ ...item, coveredById: null }))),
+        );
+        for (const item of dados.entries.filter((entrada) => entrada.coveredById)) {
+          await tx.entry.updateMany({ where: { id: item.id, tenantId }, data: { coveredById: item.coveredById } });
+        }
         await gravar(
           dados.entryOccurrences.length,
           (data) => tx.entryOccurrence.createMany({ data }),
@@ -157,6 +174,7 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
           (data) => tx.appointment.createMany({ data }),
           com(dados.appointments),
         );
+        await gravar(dados.appointmentDone.length, (data) => tx.appointmentDone.createMany({ data }), com(dados.appointmentDone));
         await gravar(dados.calendars.length, (data) => tx.calendar.createMany({ data }), com(dados.calendars));
         await gravar(
           dados.statements.length,
@@ -182,6 +200,9 @@ export class PrismaDadosRepositorio implements DadosRepositorio {
         await gravar(dados.goals.length, (data) => tx.goal.createMany({ data }), com(dados.goals));
         await gravar(dados.accountBoxes.length, (data) => tx.accountBox.createMany({ data }), com(dados.accountBoxes));
         await gravar(dados.holidays.length, (data) => tx.holiday.createMany({ data }), com(dados.holidays));
+        // A atividade-mãe antes da filha: a chave do pai não deixa gravar a filha primeiro.
+        await gravar(dados.tasks.length, (data) => tx.task.createMany({ data }), com(paisPrimeiro(dados.tasks)));
+        await gravar(dados.goalAllocations.length, (data) => tx.goalAllocation.createMany({ data }), com(dados.goalAllocations));
         // Credenciais do Google e chave da IA são de quem usa a conta; só as preferências vêm do arquivo.
         if (dados.preferences) {
           await tx.preference.upsert({
@@ -230,15 +251,29 @@ async function apagar(tx: Prisma.TransactionClient, tenantId: string) {
   await tx.statement.deleteMany(onde);
   await tx.accountBox.deleteMany(onde);
   await tx.account.deleteMany(onde);
+  await tx.task.deleteMany(onde);
+  await tx.appointmentDone.deleteMany(onde);
   await tx.appointment.deleteMany(onde);
   await tx.entry.deleteMany(onde);
   await tx.sessionAddition.deleteMany(onde);
   await tx.session.deleteMany(onde);
   await tx.group.deleteMany(onde);
+  await tx.goalAllocation.deleteMany(onde);
   await tx.goal.deleteMany(onde);
   await tx.holiday.deleteMany(onde);
   await tx.yearStay.deleteMany(onde);
   await tx.calendar.deleteMany(onde);
+}
+
+/** Ordena as tarefas de modo que cada uma venha depois da mãe dela. */
+function paisPrimeiro<T extends { id: string; parentId: string | null }>(tarefas: T[]) {
+  const porId = new Map(tarefas.map((item) => [item.id, item]));
+  const profundidade = (item: T): number => {
+    let nivel = 0;
+    for (let atual: T | undefined = item; atual?.parentId && nivel <= tarefas.length; atual = porId.get(atual.parentId)) nivel += 1;
+    return nivel;
+  };
+  return [...tarefas].sort((a, b) => profundidade(a) - profundidade(b));
 }
 
 async function gravar<T>(total: number, escrever: (lote: T[]) => Promise<unknown>, itens: T[]) {
