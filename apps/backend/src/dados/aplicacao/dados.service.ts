@@ -28,7 +28,15 @@ export class DadosService {
     if (typeof pacote === "string") throw new PedidoInvalido(pacote);
     const dados = renovarIdentificadores(pacote.data);
     const resumo = resumoDe(dados);
-    await this.dados.importar(tenantId, dados, resumo);
+    try {
+      await this.dados.importar(tenantId, dados, resumo);
+    } catch (error) {
+      // Nome repetido ou vínculo para algo que não está no arquivo só estoura ao gravar. A transação desfaz tudo, e a
+      // pessoa recebe o motivo em vez de um erro interno.
+      const codigo = typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";
+      if (codigo === "P2002" || codigo === "P2003") throw new PedidoInvalido("O arquivo tem registros repetidos ou ligações quebradas. Nada foi importado.");
+      throw error;
+    }
     return resumo;
   }
 

@@ -20,6 +20,7 @@ import {
   STATUS_COMPROMISSO,
 } from "@finnagent/contracts";
 import { z } from "zod";
+import { dataValida } from "../financas/dominio/transacao.js";
 import { AgendaService } from "./aplicacao/agenda.service.js";
 import { PedidoInvalido } from "./dominio/erros.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
@@ -69,8 +70,13 @@ const fuso = z.object({
   name: z.enum(AGENDAS),
   timezone: z.enum(FUSOS_AGENDA),
 });
-const status = z.object({ status: z.enum(STATUS_COMPROMISSO) });
-const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Só data que existe no calendário: 2026-02-31 e 2026-13-01 passam no formato, mas não viram uma data gravável.
+const dataIso = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(dataValida);
+// `date`: o dia da ocorrência. Obrigatório no compromisso que repete, ignorado no que não repete.
+const status = z.object({ status: z.enum(STATUS_COMPROMISSO), date: dataIso.optional() });
 const gasto = z.object({
   id: z.uuid(),
   date: dataIso,
@@ -208,7 +214,7 @@ export class AgendaController {
     if (!identificador.success) throw new BadRequestException("Compromisso não encontrado.");
     if (!pedido.success) throw new BadRequestException("Escolha o status do compromisso.");
     return this.executar(() =>
-      this.agenda.atualizarStatus(this.tenant(tenant), identificador.data, pedido.data.status),
+      this.agenda.atualizarStatus(this.tenant(tenant), identificador.data, pedido.data.status, pedido.data.date),
     );
   }
 

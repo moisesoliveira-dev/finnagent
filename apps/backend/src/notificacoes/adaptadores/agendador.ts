@@ -36,7 +36,7 @@ export class AgendadorDeNotificacoes implements OnModuleInit, OnModuleDestroy {
     const url = process.env.REDIS_URL;
     if (!url || !this.prisma.ativo) return;
     try {
-      this.queue = new Queue(FILA, { connection: this.abrirRedis(url) });
+      this.queue = new Queue(FILA, { connection: this.abrirRedis(url, true) });
       this.worker = new Worker(FILA, () => this.varredura.varrer(), { connection: this.abrirRedis(url) });
       this.queue.on("error", registrarFalha);
       this.worker.on("error", registrarFalha);
@@ -53,8 +53,13 @@ export class AgendadorDeNotificacoes implements OnModuleInit, OnModuleDestroy {
     await Promise.all(this.conexoes.map((conexao) => conexao.quit()));
   }
 
-  private abrirRedis(url: string) {
-    const conexao = new Redis(url, { maxRetriesPerRequest: null });
+  /**
+   * `produtor`: a conexão de quem só coloca trabalho na fila. Com o Redis fora, o pedido falha na hora em vez de
+   * esperar para sempre pela volta dele, e quem pediu decide o que fazer (tentar de novo, ou fazer sem fila). O worker
+   * precisa da espera sem limite e fica com a conexão de sempre.
+   */
+  private abrirRedis(url: string, produtor = false) {
+    const conexao = new Redis(url, produtor ? { enableOfflineQueue: false, maxRetriesPerRequest: 1 } : { maxRetriesPerRequest: null });
     conexao.on("error", registrarFalha);
     this.conexoes.push(conexao);
     return conexao;

@@ -53,6 +53,20 @@ describe("leitura de extrato", () => {
     expect(lido.leitura.endDate).toBe("2026-09-12");
   });
 
+  it("lê CSV em Windows-1252 sem trocar o acento por caractere inválido", () => {
+    const bytes = Buffer.from("Data;Descrição;Valor\n05/03/2026;Pão e açúcar;-3,00\n", "latin1");
+    const lido = lerArquivo(bytes, "banco.csv", null);
+    expect("leitura" in lido && lido.leitura.lines[0]?.description).toBe("Pão e açúcar");
+  });
+
+  it("continua lendo CSV em UTF-8, com ou sem BOM", () => {
+    const texto = "Data;Descrição;Valor\n05/03/2026;Pão e açúcar;-3,00\n";
+    for (const bytes of [Buffer.from(texto, "utf8"), Buffer.from(`\uFEFF${texto}`, "utf8")]) {
+      const lido = lerArquivo(bytes, "banco.csv", null);
+      expect("leitura" in lido && lido.leitura.lines[0]?.description).toBe("Pão e açúcar");
+    }
+  });
+
   it("falha quando o mapeamento não encontra coluna", () => {
     const lido = lerArquivo(Buffer.from(csv), "itau.csv", { date: 8, description: 8, amount: 8 });
     if (!("leitura" in lido)) throw new Error(lido.message);

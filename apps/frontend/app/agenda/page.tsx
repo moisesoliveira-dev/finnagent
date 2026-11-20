@@ -466,12 +466,12 @@ export default function Agenda() {
     }
   }
 
-  async function atualizarStatus(id: string, status: StatusCompromisso) {
+  async function atualizarStatus(id: string, status: StatusCompromisso, date: string) {
     try {
       const response = await fetch(`/api/compromissos/${id}/status`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, date }),
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(body.message || "Não foi possível atualizar o status.");
@@ -589,7 +589,7 @@ export default function Agenda() {
                   month={mesVisivel}
                   itens={itens}
                   feriados={feriados}
-                  onStatus={(id, status) => void atualizarStatus(id, status)}
+                  onStatus={(id, status, day) => void atualizarStatus(id, status, `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`)}
                   onEdit={abrirCompromisso}
                 />
               )}
@@ -683,7 +683,7 @@ export default function Agenda() {
         <div className="dialog-corpo">
           <PainelDoDia
             itens={doDia}
-            onStatus={(id, status) => void atualizarStatus(id, status)}
+            onStatus={(id, status, day) => void atualizarStatus(id, status, `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`)}
             onEdit={abrirCompromisso}
             onDelete={(id) => void apagarCompromisso(id)}
           />

@@ -24,7 +24,9 @@ test.describe("Finanças", () => {
       await expect(dialogo.getByRole("heading", { name: "Novo lançamento" })).toBeVisible();
       await dialogo.getByLabel("Sessão", { exact: true }).selectOption(sessao.id);
       await dialogo.getByLabel("Nome", { exact: true }).fill(nome);
+      await dialogo.getByRole("tab", { name: "Tipo" }).click();
       await dialogo.getByLabel("Categoria", { exact: true }).selectOption("unique");
+      await dialogo.getByRole("tab", { name: "Principal" }).click();
       const valor = dialogo.getByLabel("Valor", { exact: true });
       await valor.fill("12345");
       await expect(valor).toHaveValue("123,45");

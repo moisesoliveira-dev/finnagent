@@ -47,6 +47,9 @@ export class PrismaExtratosRepositorio implements ExtratosRepositorio {
   async criar(tenantId: string, pedido: GravacaoExtrato) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // Duas importações da mesma conta ao mesmo tempo (clique duplo) esperam uma pela outra: a segunda já enxerga o
+      // extrato da primeira e cai na checagem de repetido.
+      await bloquearConta(tx, tenantId, pedido.accountId ?? pedido.accountName ?? "");
       const atual = await tx.statement.findFirst({ where: { id: pedido.id, tenantId }, select: selecao });
       if (atual) {
         if (atual.contentHash === pedido.contentHash) return extratoDe(atual);
@@ -698,6 +701,11 @@ async function contaDe(
   const existente = await tx.account.findFirst({ where: { tenantId, name }, select: { id: true } });
   if (existente) return existente;
   return tx.account.create({ data: { id: randomUUID(), tenantId, name }, select: { id: true } });
+}
+
+/** Trava, até o fim da transação, quem mexe nos extratos desta conta (pelo id ou, na conta nova, pelo nome). */
+async function bloquearConta(tx: ParametroTransacao, tenantId: string, conta: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}:extratos:${conta.toLowerCase()}`}))`;
 }
 
 async function arquivoRepetido(

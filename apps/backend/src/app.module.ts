@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
-import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
+import { SentryModule } from '@sentry/nestjs/setup';
+import { FiltroDeErrosDoBanco } from './persistencia/filtro-de-erros-do-banco.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AgendaModule } from './agenda/agenda.module.js';
@@ -46,6 +47,6 @@ import { RelatoriosModule } from './relatorios/relatorios.module.js';
   ],
   controllers: [AppController],
   // O erro que escapa de um controlador vai para o Sentry e segue para a resposta padrão do Nest.
-  providers: [AppService, { provide: APP_FILTER, useClass: SentryGlobalFilter }],
+  providers: [AppService, { provide: APP_FILTER, useClass: FiltroDeErrosDoBanco }],
 })
 export class AppModule {}

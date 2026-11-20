@@ -108,7 +108,13 @@ function textoDoArquivo(bytes: Buffer) {
   if (charset === "1252" || charset === "iso-8859-1" || charset === "latin1") {
     return bytes.toString("latin1");
   }
-  return bytes.toString("utf8").replace(/^\uFEFF/, "");
+  // CSV de banco costuma vir em Windows-1252 sem avisar. Se os bytes não são UTF-8 válido, lê como Windows-1252 em vez
+  // de trocar cada acento por "�".
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, "");
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
 }
 
 function lerOfx(texto: string) {

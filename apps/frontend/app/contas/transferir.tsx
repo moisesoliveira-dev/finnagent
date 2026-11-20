@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Conta, ParDeTransferencia } from "@finnagent/contracts";
 import { Button } from "../../components/ui/button";
 import { campo, cn } from "../../components/ui/cn";
@@ -46,6 +46,8 @@ function Corpo({ contas, origem, hoje, onFechar, onFeito }: { contas: Conta[]; o
   const [date, setDate] = useState(hoje);
   const [note, setNote] = useState("");
   const [salvando, setSalvando] = useState(false);
+  // A chave do pedido: repetir o envio (clique duplo, nova tentativa) não cria outra transferência.
+  const chave = useRef(crypto.randomUUID());
 
   async function salvar(event: React.FormEvent) {
     event.preventDefault();
@@ -57,8 +59,9 @@ function Corpo({ contas, origem, hoje, onFechar, onFeito }: { contas: Conta[]; o
     }
     setSalvando(true);
     try {
-      const par = await api<ParDeTransferencia>("/api/contas/transferencias", { method: "POST", body: JSON.stringify({ fromAccountId: de, toAccountId: para, cents, date, note: note.trim() || undefined }) });
+      const par = await api<ParDeTransferencia>("/api/contas/transferencias", { method: "POST", body: JSON.stringify({ id: chave.current, fromAccountId: de, toAccountId: para, cents, date, note: note.trim() || undefined }) });
       toast.sucesso(`${formatarReais(par.saida.cents)} transferidos. Os dois lados ficaram em Transferências › Entre contas.`);
+      chave.current = crypto.randomUUID();
       onFechar();
       await onFeito();
     } catch (error) {

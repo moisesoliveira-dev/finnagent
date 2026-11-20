@@ -920,7 +920,10 @@ type ContratoLancamento = Pick<
   | "recurrenceInterval"
   | "adjustments"
   | "dueRule"
->;
+> & {
+  /** Parcela e empréstimo: a parcela em andamento ao criar. A grade nasce dela até a última. Ausente, parte da 1. */
+  installmentNumber?: number | null;
+};
 
 export function ocorrenciasDoLancamento(entry: Lancamento) {
   if (entry.occurrences && entry.occurrences.length > 0) return entry.occurrences;
@@ -966,14 +969,18 @@ export function gradeDoLancamento(
     );
   }
   const total = entry.installments ?? 0;
+  // A parcela em andamento é a primeira da grade: as anteriores já passaram e não geram vencimento. O número da
+  // ocorrência recomeça em 1 (e a data segue o mês de início), enquanto `parcel` guarda a parcela do contrato.
+  const primeira = Math.min(Math.max(entry.installmentNumber ?? 1, 1), Math.max(total, 1)) - 1;
   const lista: Ocorrencia[] = [];
-  for (let parcela = 0; parcela < total; parcela += 1) {
-    const absoluto = indice(entry.startYear, entry.startMonth - 1) + parcela;
+  for (let parcela = primeira; parcela < total; parcela += 1) {
+    const salto = parcela - primeira;
+    const absoluto = indice(entry.startYear, entry.startMonth - 1) + salto;
     const year = Math.floor(absoluto / 12);
     const month = (absoluto % 12) + 1;
     lista.push({
       ...montarOcorrencia(
-        parcela + 1,
+        salto + 1,
         dataPelaRegra(year, month, entry.day, entry.dueRule ?? REGRA_SEM_AJUSTE, calendario),
         entry.type === "empréstimo" ? centavosDaPrestacao(entry.cents) : entry.cents,
         entry,
@@ -1022,10 +1029,11 @@ export function statusAgregado(lista: Ocorrencia[]): StatusTransacao {
 }
 
 export function parcelaAtual(lista: Ocorrencia[]) {
-  const aberta = lista.find((item) => item.status === "pending");
-  if (aberta) return aberta.number;
-  const ultima = lista[lista.length - 1];
-  return ultima ? ultima.number : null;
+  // A parcela do contrato, não a posição na lista: o pagamento em parte e a multa criam ocorrências a mais.
+  const aberta = lista.find((item) => item.status === "pending" && item.kind !== "multa");
+  if (aberta) return aberta.parcel ?? aberta.number;
+  const ultima = [...lista].reverse().find((item) => item.kind !== "multa") ?? lista[lista.length - 1];
+  return ultima ? (ultima.parcel ?? ultima.number) : null;
 }
 
 export function proximoVencimento(lista: Ocorrencia[]) {
@@ -1548,13 +1556,13 @@ export type LimiteDoCartao = {
 
 export type FaturasResposta = { faturas: Fatura[]; limite: LimiteDoCartao };
 
-export type PedidoDePagamentoDaFatura = { fromAccountId: string; cents: number; date: string; month: string };
+export type PedidoDePagamentoDaFatura = { id?: string; fromAccountId: string; cents: number; date: string; month: string };
 /** Os dois lados de uma transferência: a saída na conta de origem e a entrada na de destino, com o mesmo `pairId`. */
 export type ParDeTransferencia = { pairId: string; saida: Lancamento; entrada: Lancamento };
 export type PagamentoDaFatura = ParDeTransferencia;
 
 /** Transferir entre duas contas da própria pessoa. `note` é o texto livre que vira a descrição. */
-export type PedidoDeTransferencia = { fromAccountId: string; toAccountId: string; cents: number; date: string; note?: string };
+export type PedidoDeTransferencia = { id?: string; fromAccountId: string; toAccountId: string; cents: number; date: string; note?: string };
 
 /** A linha do extrato é uma transferência com a conta `accountId`: saída da conta do extrato para ela, ou entrada vinda dela. */
 export type PedidoDeTransferenciaDaLinha = { statementId: string; line: number; accountId: string };
@@ -1585,7 +1593,8 @@ export function vencimentoDaFatura(conta: Pick<Conta, "closingDay" | "dueDay">, 
 
 /**
  * As últimas faturas do cartão, da mais antiga à atual (a que ainda está aberta). A compra entra na fatura do ciclo
- * da data dela; o pagamento (transferência para o cartão) entra na última fatura fechada antes da data dele.
+ * da data dela; o pagamento (transferência para o cartão) quita a fatura mais antiga em aberto entre as já fechadas
+ * na data dele.
  */
 export function faturasDoCartao(conta: Conta, entries: Lancamento[], hoje: string, quantas = 6): Fatura[] {
   if (conta.kind !== "cartao" || !conta.closingDay || !conta.dueDay) return [];
@@ -1593,6 +1602,7 @@ export function faturasDoCartao(conta: Conta, entries: Lancamento[], hoje: strin
   const fechamentos: string[] = [];
   for (let atras = quantas - 1; atras >= 0; atras -= 1) fechamentos.push(diaDoMes(ano, mes - 1 - atras, conta.closingDay));
   const somas = new Map(fechamentos.map((data) => [data, { total: 0, pago: 0, itens: 0 }]));
+  const pagamentos: Array<{ data: string; valor: number }> = [];
   for (const entry of entries) {
     if (entry.accountId !== conta.id) continue;
     for (const item of ocorrenciasDoLancamento(entry)) {
@@ -1600,9 +1610,7 @@ export function faturasDoCartao(conta: Conta, entries: Lancamento[], hoje: strin
       const data = dataContabil(item);
       const valor = item.status === "completed" && item.paidCents != null ? item.paidCents : item.plannedCents;
       if (entry.transfer) {
-        const fechada = [...fechamentos].reverse().find((fechamento) => fechamento < data);
-        const soma = fechada ? somas.get(fechada) : undefined;
-        if (soma && valor > 0) soma.pago += valor;
+        if (valor > 0) pagamentos.push({ data, valor });
         continue;
       }
       const soma = somas.get(fechamentoDoCiclo(conta, data) as string);
@@ -1610,6 +1618,21 @@ export function faturasDoCartao(conta: Conta, entries: Lancamento[], hoje: strin
       soma.total -= valor;
       soma.itens += 1;
     }
+  }
+  // O pagamento quita a fatura mais antiga ainda em aberto entre as que já tinham fechado na data dele, e o que
+  // sobra passa para a seguinte. Assim pagar uma fatura vencida com a data de hoje a quita, em vez de cair na mais
+  // recente. O que passa de tudo o que havia a pagar fica na última fatura fechada, para o excesso aparecer.
+  for (const { data, valor } of pagamentos.sort((a, b) => a.data.localeCompare(b.data))) {
+    const fechadas = fechamentos.filter((fechamento) => fechamento < data);
+    let resta = valor;
+    for (const fechamento of fechadas) {
+      const soma = somas.get(fechamento) as { total: number; pago: number };
+      const parte = Math.min(resta, Math.max(soma.total - soma.pago, 0));
+      soma.pago += parte;
+      resta -= parte;
+    }
+    const ultima = fechadas[fechadas.length - 1];
+    if (resta > 0 && ultima) (somas.get(ultima) as { pago: number }).pago += resta;
   }
   return fechamentos.map((closingDate) => {
     const soma = somas.get(closingDate) as { total: number; pago: number; itens: number };

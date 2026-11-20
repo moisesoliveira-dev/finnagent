@@ -20,7 +20,7 @@ import {
   type Tema,
 } from "@finnagent/contracts";
 import type { Preference, Prisma } from "@prisma/client";
-import { WORKFLOW_INICIAL } from "../../financas/dominio/exemplo.js";
+import { diaNoFuso } from "../../financas/dominio/vista.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
@@ -45,7 +45,10 @@ export class PrismaConfiguracoesRepositorio implements ConfiguracoesRepositorio 
     ]);
     const pessoal = calendarios.find((calendario) => calendario.name === "Pessoal");
     const timezone = fusoDe(preferencia?.timezone ?? pessoal?.timezone ?? FUSO_PADRAO);
-    return preferenciasDe(preferencia, timezone, fluxo ?? WORKFLOW_INICIAL);
+    // Tenant que ainda não abriu Finanças não tem fluxo de trabalho: o início é este mês, como Finanças criaria. Um
+    // início fixo no passado (o do exemplo) seria gravado por quem salvasse as configurações e puxaria a sobra para trás.
+    const [year, month] = diaNoFuso(timezone).split("-").map(Number) as [number, number];
+    return preferenciasDe(preferencia, timezone, fluxo ?? { year, month, day: 1 });
   }
 
   async salvar(tenantId: string, preferencias: Preferencias, data: DataDoWorkflow) {

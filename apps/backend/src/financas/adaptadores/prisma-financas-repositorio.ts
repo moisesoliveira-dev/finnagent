@@ -35,6 +35,7 @@ import {
 } from "@finnagent/contracts";
 import type { PedidoDePagamento } from "@finnagent/contracts";
 import type { OpcoesDoPagamento } from "../portas/financas-repositorio.js";
+import { bloquear } from "../../persistencia/bloquear.js";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { desligarCompromissos } from "../../persistencia/desligar-compromissos.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
@@ -66,6 +67,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async garantirWorkflow(tenantId: string, hoje: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // A primeira leitura de um tenant novo cria o fluxo de trabalho: leituras simultâneas esperam uma pela outra.
+      await bloquear(tx, `${tenantId}:workflow`);
       const atual = await tx.workflow.findUnique({ where: { tenantId } });
       if (atual) return { year: atual.year, month: atual.month, day: atual.day };
       // A sobra começa no mês em que a pessoa entrou. Importar um extrato anterior recua o início.
@@ -80,6 +83,8 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async recuarInicioDoWorkflow(tenantId: string, year: number, month: number) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      // A primeira leitura de um tenant novo cria o fluxo de trabalho: leituras simultâneas esperam uma pela outra.
+      await bloquear(tx, `${tenantId}:workflow`);
       const atual = await tx.workflow.findUnique({ where: { tenantId } });
       const comeca = atual ? atual.year * 12 + atual.month : Number.POSITIVE_INFINITY;
       if (atual && comeca <= year * 12 + month) return { year: atual.year, month: atual.month, day: atual.day };
@@ -208,6 +213,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async criar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis, emPartes = false) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, pedido.id);
       const atual = await tx.entry.findFirst({
         where: { id: pedido.id, tenantId },
         include: {
@@ -281,11 +287,16 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async atualizar(tenantId: string, pedido: NovoLancamento, calendario: CalendarioDeDiasUteis) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, pedido.id);
       const atual = await this.buscar(tx, tenantId, pedido.id);
       if (!atual) return "ausente" as const;
       if (igual(atual, pedido)) return lancamentoDe(atual);
       if (alterouIdentidade(baseDaLinha(atual), pedido)) return "base" as const;
       const regenerar = alterouTermos(termosDaLinha(atual), termosDoPedido(pedido));
+      // Nada pendente para receber o valor ou a data novos: mudar só o contrato deixaria a lista e a Base com um valor
+      // e o saldo com outro. O que já foi pago, cancelado ou estornado permanece.
+      const gravadas = efetivasDaLinha(atual);
+      if (regenerar && gravadas.length > 0 && gravadas.every((item) => item.status !== "pending")) return "ocorrencia" as const;
       // A grade nova nasce pendente. O que já foi pago, cancelado ou estornado permanece na mescla.
       const grade = regenerar
         ? mesclarGrade(efetivasDaLinha(atual), gradeDoPedido({ ...pedido, status: "pending" }, calendario))
@@ -520,6 +531,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async associarCompromisso(tenantId: string, id: string, commitmentId: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, id);
       const atual = await this.buscar(tx, tenantId, id);
       if (!atual) return "ausente" as const;
       if (atual.commitmentId === commitmentId) return lancamentoDe(atual);
@@ -641,6 +653,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async atualizarValorFixo(tenantId: string, valores: ValorFixo[]) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      for (const idDoValor of [...new Set(valores.map((item) => item.id))].sort()) await bloquearLancamento(tx, tenantId, idDoValor);
       for (const valor of valores) {
         const atual = await this.buscar(tx, tenantId, valor.id);
         if (!atual) return "ausente" as const;
@@ -679,6 +692,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async seguirValorDaSerie(tenantId: string, id: string, centavos: number) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, id);
       const atual = await this.buscar(tx, tenantId, id);
       if (!atual) return "ausente" as const;
       if (atual.category !== "fixed" && atual.category !== "installment") return "categoria" as const;
@@ -706,6 +720,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   ) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, id);
       const atual = await this.buscar(tx, tenantId, id);
       if (!atual) return "ausente" as const;
       const mudanca = await aplicar(tx, atual);
@@ -875,6 +890,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async excluir(tenantId: string, id: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, id);
       const atual = await tx.entry.findFirst({
         where: { id, tenantId },
         select: { id: true, _count: { select: { statementLines: true } } },
@@ -890,6 +906,7 @@ export class PrismaFinancasRepositorio implements FinancasRepositorio {
   async excluirOcorrencia(tenantId: string, id: string, number: number) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
+      await bloquearLancamento(tx, tenantId, id);
       const atual = await this.buscar(tx, tenantId, id);
       if (!atual) return "ausente" as const;
       const lista = efetivasDaLinha(atual);
@@ -1027,6 +1044,16 @@ function contratoDoPagamento(atual: Linha): ContratoDoPagamento {
     installments: atual.installments,
     principalCents: atual.principalCents,
   };
+}
+
+/**
+ * Uma mudança por vez em cada lançamento, até o fim da transação. Duas baixas, dois estornos ou duas edições do mesmo
+ * lançamento ao mesmo tempo leem o mesmo estado e regravam as ocorrências uma por cima da outra: o banco recusava a
+ * segunda com um erro de chave repetida (500). Com a trava, a segunda espera, lê o que a primeira gravou e aplica a
+ * regra de novo. Vale entre réplicas, porque a trava é do Postgres.
+ */
+async function bloquearLancamento(tx: Prisma.TransactionClient, tenantId: string, id: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}:lancamento:${id}`}))`;
 }
 
 /** O vencimento de um mês para o lançamento, pela regra de dia útil dele. */
@@ -1281,6 +1308,7 @@ function gradeDoPedido(pedido: NovoLancamento, calendario: CalendarioDeDiasUteis
     startYear: pedido.startYear,
     startMonth: pedido.startMonth,
     installments: pedido.installments,
+    installmentNumber: pedido.installmentNumber,
     status: pedido.status,
     months: mesesDoPedido(pedido),
     recurrence: pedido.recurrence,

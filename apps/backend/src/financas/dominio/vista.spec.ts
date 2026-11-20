@@ -188,3 +188,28 @@ describe("dia no fuso", () => {
     expect(diaNoFuso("UTC", agora)).toBe("2026-10-24");
   });
 });
+
+describe("total do mês da Base", () => {
+  it("não soma a transferência, que muda o dinheiro de lugar e não entra na sobra", () => {
+    const filtroDoMes = { ...filtro, month: 3 };
+    const comum = { ...salario, id: "comum", transfer: false };
+    const transferencia = { ...salario, id: "transf", name: "Ajuste fora da sobra", transfer: true, cents: -5_000, occurrences: undefined };
+    const sem = montarBase({ ...base, entries: [comum] }, "2026-03-01", filtroDoMes);
+    const com = montarBase({ ...base, entries: [comum, transferencia] }, "2026-03-01", filtroDoMes);
+    expect(com.rows.length).toBeGreaterThan(sem.rows.length);
+    expect(com.totalCents).toBe(sem.totalCents);
+  });
+});
+
+describe("totais do ano na Geral", () => {
+  it("conta a sobra levada uma vez só, no mês de onde ela veio", () => {
+    const luz = EXEMPLO[4]!;
+    // A sobra de março (R$ 1.000,00) volta em abril como entrada, só para a coluna mostrar o que a pessoa tem.
+    const levada: Lancamento = { ...luz, id: "levada", name: "Sobra de março", carryOf: "2026-03", months: [{ year: 2026, month: 4, cents: 100_000 }], cents: 0, mode: "inflows", category: "unique", type: "variável" };
+    const sem = montarGeral({ ...base, entries: [luz] }, 2026);
+    const com = montarGeral({ ...base, entries: [luz, levada] }, 2026);
+    expect(com.totals.inflows[1]).toBe((sem.totals.inflows[1] ?? 0) + 100_000);
+    expect(com.totals.inflowsCents).toBe(sem.totals.inflowsCents);
+    expect(com.totals.surplusCents).toBe(sem.totals.surplusCents);
+  });
+});

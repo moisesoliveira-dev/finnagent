@@ -1,3 +1,4 @@
+import { FilaPorChave } from "../dominio/fila-por-chave.js";
 import { createHash, randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { REGRA_SEM_AJUSTE, ehSerie, erroDoTipoDaLinha, parcelaDaDescricao } from "@finnagent/contracts";
@@ -136,6 +137,18 @@ export class ExtratosService {
     private readonly ia: IaService,
     private readonly anexos: AnexosService,
   ) {}
+
+  /**
+   * Uma ação por vez em cada linha do extrato. Dois cliques, ou dois aparelhos, na mesma linha ao mesmo tempo liam a
+   * linha ainda solta e criavam um lançamento cada: o saldo da conta caía duas vezes. Com a fila, o segundo pedido
+   * já enxerga a linha cruzada e recebe o erro "já foi cruzada". Há uma réplica do backend, então a fila em memória
+   * basta.
+   */
+  private readonly filasDeLinha = new FilaPorChave();
+
+  private emFilaDaLinha<T>(tenantId: string, statementId: string, line: number, acao: () => Promise<T>): Promise<T> {
+    return this.filasDeLinha.executar(`${tenantId}:${statementId}:${line}`, acao);
+  }
 
   listar(tenantId: string): Promise<ExtratosResposta> {
     return this.extratos.listar(tenantId);
@@ -369,7 +382,18 @@ export class ExtratosService {
     };
   }
 
-  async confirmar(
+  confirmar(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    entryId: string,
+    valor?: ValorDoMes,
+    diferenca?: DiferencaDoPagamento,
+  ) {
+    return this.emFilaDaLinha(tenantId, statementId, line, () => this.confirmarNaFila(tenantId, statementId, line, entryId, valor, diferenca));
+  }
+
+  private async confirmarNaFila(
     tenantId: string,
     statementId: string,
     line: number,
@@ -481,12 +505,22 @@ export class ExtratosService {
    * chamou vai apagar em seguida: esses não são reabertos nem apagados aqui. `tolerante` segue adiante quando um
    * lançamento não pode mais ser reaberto ou apagado (a linha fica solta do mesmo jeito).
    */
-  private async desfazerLinha(
+  private desfazerLinha(
     tenantId: string,
     statementId: string,
     line: number,
     emExclusao: ReadonlySet<string> = new Set(),
     tolerante = false,
+  ) {
+    return this.emFilaDaLinha(tenantId, statementId, line, () => this.desfazerLinhaNaFila(tenantId, statementId, line, emExclusao, tolerante));
+  }
+
+  private async desfazerLinhaNaFila(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    emExclusao: ReadonlySet<string>,
+    tolerante: boolean,
   ) {
     const gravada = await this.extratos.obterLinha(tenantId, statementId, line);
     // No desfazer em lote, a linha que outro desfazer já soltou (ou que sumiu) não é erro: só segue.
@@ -544,7 +578,25 @@ export class ExtratosService {
       await this.cruzar(tenantId, statementId, line, entryId, gravada.description).catch(() => undefined);
       throw error;
     }
+    await this.restaurarSerieSeguida(tenantId, entryId, data, gravada.cents);
     return { year, month };
+  }
+
+  /**
+   * Cruzar uma fixa no valor do extrato faz os meses seguintes, ainda pendentes, passarem a prever esse valor. Ao
+   * desfazer, o mês volta ao valor de antes e esses meses voltam junto, desde que ainda estejam no valor do extrato:
+   * o que a pessoa ajustou à mão depois fica como está.
+   */
+  private async restaurarSerieSeguida(tenantId: string, entryId: string, data: string, extratoCents: number) {
+    const entry = await this.financas.obterAberto(tenantId, entryId).catch(() => null);
+    if (!entry || entry.category !== "fixed") return;
+    const ocorrencias = entry.occurrences ?? [];
+    const reaberta = ocorrencias.find((item) => item.status === "pending" && item.dueDate.startsWith(data.slice(0, 7)));
+    if (!reaberta || reaberta.plannedCents === extratoCents) return;
+    for (const item of ocorrencias) {
+      if (item.status !== "pending" || item.dueDate <= reaberta.dueDate || item.plannedCents !== extratoCents) continue;
+      await this.financas.atualizarOcorrencia(tenantId, entryId, item.number, { plannedCents: Math.abs(reaberta.plannedCents) }).catch(() => undefined);
+    }
   }
 
   /**
@@ -603,7 +655,7 @@ export class ExtratosService {
    * ela (e valores diferentes pedem a escolha da pessoa), e a sessão não recebe outra linha, a menos que a pessoa
    * marque `emPartes`.
    */
-  private async lancarLinha(
+  private lancarLinha(
     tenantId: string,
     statementId: string,
     line: number,
@@ -611,7 +663,20 @@ export class ExtratosService {
     opcoes: OpcoesDoLancamento = {},
     ja?: LinhaGravada,
   ) {
-    const lida = ja ?? (await this.extratos.obterLinha(tenantId, statementId, line));
+    return this.emFilaDaLinha(tenantId, statementId, line, () => this.lancarLinhaNaFila(tenantId, statementId, line, sessionId, opcoes, ja));
+  }
+
+  private async lancarLinhaNaFila(
+    tenantId: string,
+    statementId: string,
+    line: number,
+    sessionId: string,
+    opcoes: OpcoesDoLancamento,
+    ja?: LinhaGravada,
+  ) {
+    // Lê de novo já dentro da fila: o `ja` de quem chamou pode ter sido lido antes de outro pedido cruzar a linha.
+    void ja;
+    const lida = await this.extratos.obterLinha(tenantId, statementId, line);
     if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
     const gravada = { ...lida, date: lida.date };
     if (gravada.entryId) throw new Conflito("Essa linha já foi cruzada.");
@@ -647,7 +712,11 @@ export class ExtratosService {
    * dela. Nasce o par de lançamentos fora da sobra, a linha cruza com o lado dela, e a linha espelho no extrato da
    * outra conta (mesmo valor, sinal trocado, até três dias de diferença) cruza com o outro lado.
    */
-  async transferirLinha(tenantId: string, statementId: string, line: number, accountId: string): Promise<TransferenciaDaLinha> {
+  transferirLinha(tenantId: string, statementId: string, line: number, accountId: string): Promise<TransferenciaDaLinha> {
+    return this.emFilaDaLinha(tenantId, statementId, line, () => this.transferirLinhaNaFila(tenantId, statementId, line, accountId));
+  }
+
+  private async transferirLinhaNaFila(tenantId: string, statementId: string, line: number, accountId: string): Promise<TransferenciaDaLinha> {
     const lida = await this.extratos.obterLinha(tenantId, statementId, line);
     if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
     const gravada = { ...lida, date: lida.date };
@@ -781,7 +850,11 @@ export class ExtratosService {
    * da linha. A parte que vai para uma sessão Fixo já lançada paga a transação dela com o valor da parte, em vez de
    * criar outra. Se uma parte falhar, o que já foi feito é desfeito e a linha fica como estava.
    */
-  async dividir(tenantId: string, statementId: string, line: number, partes: ParteDaLinha[]) {
+  dividir(tenantId: string, statementId: string, line: number, partes: ParteDaLinha[]) {
+    return this.emFilaDaLinha(tenantId, statementId, line, () => this.dividirNaFila(tenantId, statementId, line, partes));
+  }
+
+  private async dividirNaFila(tenantId: string, statementId: string, line: number, partes: ParteDaLinha[]) {
     const lida = await this.extratos.obterLinha(tenantId, statementId, line);
     if (lida === "ausente" || !lida.date) throw new NaoEncontrado("Linha não encontrada.");
     const gravada = { ...lida, date: lida.date };

@@ -15,7 +15,7 @@ import {
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
-import { partesNoFuso } from "../dominio/fuso.js";
+import { instanteNoFuso, partesNoFuso } from "../dominio/fuso.js";
 import type { EventoGoogle } from "../dominio/sincronizar.js";
 import type { AgendaRepositorio, NovoCompromisso, RespostaDeGasto } from "../portas/agenda-repositorio.js";
 import type { Prisma } from "@prisma/client";
@@ -170,13 +170,29 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     });
   }
 
-  async atualizarStatus(tenantId: string, id: string, status: StatusCompromisso) {
+  async atualizarStatus(tenantId: string, id: string, status: StatusCompromisso, date?: string) {
     const db = this.banco();
     return db.$transaction(async (tx) => {
       const atual = await tx.appointment.findFirst({ where: { id, tenantId } });
       if (!atual) return "ausente" as const;
       const fusos = await this.mapaDeFusos(tx, tenantId);
       const timezone = fusos.get(atual.calendar) ?? FUSO_PADRAO;
+      if (date) {
+        // Compromisso que repete: a ocorrência daquele dia, e só ela.
+        const dia = new Date(`${date}T00:00:00.000Z`);
+        if (status === "done") {
+          await tx.appointmentDone.upsert({
+            where: { appointmentId_date: { appointmentId: id, date: dia } },
+            create: { tenantId, appointmentId: id, date: dia },
+            update: {},
+          });
+        } else {
+          await tx.appointmentDone.deleteMany({ where: { tenantId, appointmentId: id, date: dia } });
+        }
+        const payload = { id, status, date };
+        await gravarOutbox(tx, tenantId, "atualizar-status-compromisso", id, payload, marcaDe({ ...payload, em: Date.now() }));
+        return compromissoDe(atual, timezone);
+      }
       if (atual.status === status) return compromissoDe(atual, timezone);
       await tx.appointment.updateMany({ where: { id, tenantId }, data: { status } });
       const salvo = await tx.appointment.findFirst({ where: { id, tenantId } });
@@ -185,6 +201,14 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
       await gravarOutbox(tx, tenantId, "atualizar-status-compromisso", id, payload, marcaDe(payload));
       return compromissoDe(salvo, timezone);
     });
+  }
+
+  async diasFeitos(tenantId: string, desde: string, ate: string) {
+    const linhas = await this.banco().appointmentDone.findMany({
+      where: { tenantId, date: { gte: new Date(`${desde}T00:00:00.000Z`), lte: new Date(`${ate}T00:00:00.000Z`) } },
+      select: { appointmentId: true, date: true },
+    });
+    return new Set(linhas.map((linha) => `${linha.appointmentId}:${linha.date.toISOString().slice(0, 10)}`));
   }
 
   async aplicarGoogle(tenantId: string, eventos: EventoGoogle[]) {
@@ -241,6 +265,37 @@ export class PrismaAgendaRepositorio implements AgendaRepositorio {
     }
     if (atual.timezone === timezone) return;
     await tx.calendar.updateMany({ where: { id: atual.id, tenantId }, data: { timezone } });
+    await this.reancorar(tx, tenantId, name, timezone);
+  }
+
+  /**
+   * Trocar o fuso da agenda não pode deixar o dia num fuso e a hora no outro. O compromisso com horário é um instante
+   * e continua o mesmo instante: o dia e a hora locais passam a ser os do fuso novo (23:30 em São Paulo vira 22:30 em
+   * Manaus, no mesmo dia). O de dia inteiro continua no mesmo dia, e o instante dele passa a ser a meia-noite do fuso
+   * novo.
+   */
+  private async reancorar(tx: Prisma.TransactionClient, tenantId: string, name: NomeAgenda, timezone: FusoAgenda) {
+    const linhas = await tx.appointment.findMany({
+      where: { tenantId, calendar: name },
+      select: { id: true, allDay: true, startAt: true, year: true, month: true, day: true },
+    });
+    for (const linha of linhas) {
+      if (linha.allDay) {
+        await tx.appointment.updateMany({
+          where: { id: linha.id, tenantId },
+          data: {
+            startAt: instanteNoFuso(linha.year, linha.month, linha.day, 0, 0, timezone),
+            endAt: instanteNoFuso(linha.year, linha.month, linha.day, 23, 59, timezone),
+          },
+        });
+        continue;
+      }
+      const local = partesNoFuso(linha.startAt, timezone);
+      await tx.appointment.updateMany({
+        where: { id: linha.id, tenantId },
+        data: { year: local.year, month: local.month, day: local.day, hour: local.hour, minute: local.minute },
+      });
+    }
   }
 
   private async alinharVinculo(

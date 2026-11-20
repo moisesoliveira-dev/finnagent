@@ -11,6 +11,11 @@ describe("zerar os dados", () => {
     expect(fica.has("user")).toBe(true);
   });
 
+  it("apaga as tarefas, que são dado da pessoa e não configuração", () => {
+    expect(TABELAS_QUE_ZERAM).toContain("task");
+    expect(TABELAS_QUE_FICAM).not.toContain("task");
+  });
+
   it("solta a cobertura antes de apagar os lançamentos e segue a ordem", async () => {
     const chamadas: string[] = [];
     const apaga = (nome: string) => ({

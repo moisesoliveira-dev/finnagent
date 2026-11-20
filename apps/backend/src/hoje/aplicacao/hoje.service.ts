@@ -35,13 +35,16 @@ export function sobraLivre(
   if (!metas || metas.year !== year || metas.month !== month) return null;
   const diasDoMes = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const daysLeft = Math.max(diasDoMes - day + 1, 1);
+  // A sobra das metas não conta o que foi separado para elas; o que a pessoa tem livre para gastar é a sobra menos o
+  // separado, o mesmo número da tela de Metas.
+  const livre = metas.surplusCents - metas.separatedCents;
   return {
-    cents: metas.surplusCents,
+    cents: livre,
     monthCents: metas.monthSurplusCents,
     carriedCents: metas.carriedCents,
     separatedCents: metas.separatedCents,
     daysLeft,
-    perDayCents: Math.floor(Math.max(metas.surplusCents, 0) / daysLeft),
+    perDayCents: Math.floor(Math.max(livre, 0) / daysLeft),
   };
 }
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];

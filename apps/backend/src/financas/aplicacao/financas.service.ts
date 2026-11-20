@@ -3,6 +3,7 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import { FeriadosService } from "../../feriados/aplicacao/feriados.service.js";
 import {
   ajustarTransacao,
+  ocorrenciasDoLancamento,
   regraPadrao,
   usoDosLimites,
   type BaseResposta,
@@ -126,7 +127,33 @@ export class FinancasService {
   async editar(tenantId: string, pedido: PedidoLancamento) {
     const atual = await this.financas.obter(tenantId, pedido.id);
     if (!atual) throw new NaoEncontrado("Lançamento não encontrado.");
-    return this.atualizar(tenantId, this.validado(pedidoDaEdicao(atual, pedido, false)));
+    // Movimento e categoria vêm da criação e não mudam. Mandar outros é um erro, não um 200 que ignora o pedido.
+    if (pedido.category !== atual.category || ajustarTransacao(pedido).mode !== atual.mode) {
+      throw new Conflito("Movimento e categoria não podem ser alterados.");
+    }
+    const proprio = this.validado(pedidoDaEdicao(atual, pedido, false));
+    // Os dois lados de uma transferência andam juntos: valor e data mudam nos dois, senão uma conta perde um valor
+    // e a outra ganha outro. O outro lado é validado antes de gravar o primeiro.
+    const par = await this.ladoOposto(tenantId, atual);
+    const doPar = par
+      ? this.validado(
+          pedidoDaEdicao(
+            par,
+            { ...formularioDoLancamento(par), id: par.id, date: pedido.date, cents: Math.abs(pedido.cents) },
+            false,
+          ),
+        )
+      : null;
+    const salvo = await this.atualizar(tenantId, proprio);
+    if (doPar) await this.atualizar(tenantId, doPar);
+    return salvo;
+  }
+
+  /** O outro lado da transferência do lançamento, ou null se ele não é um lado de transferência. */
+  private async ladoOposto(tenantId: string, lancamento: { id: string; pairId?: string | null }) {
+    if (!lancamento.pairId) return null;
+    const { entries } = await this.financas.listar(tenantId, true);
+    return entries.find((item) => item.pairId === lancamento.pairId && item.id !== lancamento.id) ?? null;
   }
 
   /** O formulário do lançamento gravado, para a edição que manda só os campos que mudam. */
@@ -222,8 +249,19 @@ export class FinancasService {
     return resultado;
   }
 
-  atualizarStatus(tenantId: string, id: string, status: StatusTransacao) {
-    return this.um(this.financas.atualizarStatus(tenantId, id, status));
+  async atualizarStatus(tenantId: string, id: string, status: StatusTransacao) {
+    const antes = await this.financas.obter(tenantId, id);
+    const atualizado = await this.um(this.financas.atualizarStatus(tenantId, id, status));
+    // Transição que o motor recusa (concluída para cancelada, estornada para pendente) não muda nada: avisa em vez de
+    // devolver sucesso. A tela só oferece os estados de `next`.
+    const situacao = (item: Parameters<typeof ocorrenciasDoLancamento>[0]) => ocorrenciasDoLancamento(item).map((o) => o.status).join();
+    if (antes && antes.status !== status && situacao(antes) === situacao(atualizado)) {
+      throw new Conflito("Essa transação não pode mudar para esse status.");
+    }
+    // O outro lado da transferência segue o mesmo estado: paga, estornada ou cancelada nos dois.
+    const par = await this.ladoOposto(tenantId, atualizado);
+    if (par) await this.um(this.financas.atualizarStatus(tenantId, par.id, status));
+    return atualizado;
   }
 
   atualizarOcorrencia(

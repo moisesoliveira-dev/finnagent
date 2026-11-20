@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HojeService } from "./hoje.service.js";
+import { HojeService, sobraLivre } from "./hoje.service.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 
@@ -135,5 +135,26 @@ describe("o checklist do compromisso", () => {
     const servico = montar();
     await servico.dia(TENANT, "2026-11-06");
     expect(servico.pedidosDoDia).toEqual([["c1"]]);
+  });
+});
+
+describe("sobra livre do dia", () => {
+  const metas = { year: 2026, month: 11, surplusCents: 300_000, monthSurplusCents: 300_000, carriedCents: 0, separatedCents: 100_000 };
+
+  it("desconta o que foi separado para as metas, como a tela de Metas", () => {
+    const livre = sobraLivre(metas, 2026, 11, 20);
+    expect(livre).toMatchObject({ cents: 200_000, separatedCents: 100_000, daysLeft: 11 });
+    expect(livre?.perDayCents).toBe(Math.floor(200_000 / 11));
+  });
+
+  it("não dá valor por dia quando o separado passa da sobra", () => {
+    const livre = sobraLivre({ ...metas, separatedCents: 400_000 }, 2026, 11, 20);
+    expect(livre?.cents).toBe(-100_000);
+    expect(livre?.perDayCents).toBe(0);
+  });
+
+  it("só vale para o mês atual", () => {
+    expect(sobraLivre(metas, 2026, 12, 1)).toBeNull();
+    expect(sobraLivre(null, 2026, 11, 1)).toBeNull();
   });
 });

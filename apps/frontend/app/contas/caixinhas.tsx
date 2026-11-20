@@ -262,7 +262,7 @@ function CorpoDaCaixinha({
           <h2 id="titulo-caixinha" className="font-display text-lg">
             Excluir a caixinha {atual.name}?
           </h2>
-          <p>O rendimento, as aplicações e os resgates já lançados continuam na sessão dela, no grupo Conta. Não pode ser desfeito.</p>
+          <p>O rendimento, as aplicações e os resgates já lançados continuam na sessão dela, no grupo Conta. A caixinha só pode ser excluída com saldo zero: resgate o valor antes. Não pode ser desfeito.</p>
         </div>
         <div className="dialog-acoes">
           <Button variant="quiet" onClick={() => setExcluir(false)} disabled={salvando}>

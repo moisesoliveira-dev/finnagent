@@ -116,7 +116,7 @@ export function Hoje() {
     dados ? agir(`copiar-${item.id}`, () => enviar(`/api/compromissos/${item.id}/checklist/copiar`, { date: dados.date }), "Não foi possível trazer o checklist.") : Promise.resolve(false);
 
   const marcarCompromisso = (item: CompromissoDoDia, done: boolean) =>
-    agir(item.id, () => enviar(`/api/compromissos/${item.id}/status`, { status: done ? "done" : "undone" }, "PATCH"), "Não foi possível marcar o compromisso.");
+    agir(item.id, () => enviar(`/api/compromissos/${item.id}/status`, { status: done ? "done" : "undone", date: dados?.date }, "PATCH"), "Não foi possível marcar o compromisso.");
 
   // Marcar paga na data de hoje: a parcela e o empréstimo registram um pagamento (desmarcar desfaz esse pagamento);
   // a única e a recorrente mudam a ocorrência para paga, no dia de hoje.

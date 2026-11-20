@@ -176,7 +176,9 @@ export function montarBase(base: FinancasResposta, hoje: string, filtro: FiltroB
       if (day != null && dia !== day) continue;
       if (ano === workflow.year && mes === workflow.month && dia < workflow.day) continue;
       const cents = valorDaOcorrencia(item);
-      if (item.status === "pending" || item.status === "completed") totalCents += cents;
+      // O total do mês é o resultado do mês: transferência, ajuste fora da sobra e aplicação em caixinha aparecem na lista,
+      // mas mudam o dinheiro de lugar e não entram na soma, como não entram na sobra do Dashboard e dos Relatórios.
+      if ((item.status === "pending" || item.status === "completed") && !entry.transfer) totalCents += cents;
       rows.push({
         entryId: entry.id,
         number: item.number,
@@ -276,6 +278,13 @@ export function montarGeral(base: FinancasResposta, year: number): GeralResposta
   const inflows = porMes.map((mes) => mes.entradas);
   const outflows = porMes.map((mes) => mes.saidas);
   const surplus = porMes.map((mes) => mes.sobra);
+  // A sobra levada aparece no mês seguinte como entrada (ou falta), para a coluna mostrar o que a pessoa tem. Ela já
+  // foi contada no mês de onde veio: nos totais do ano entra uma vez só, como nos Relatórios e no Dashboard.
+  const levadas = colunas.map((indice) =>
+    entries.filter((entry) => entry.carryOf).reduce((soma, entry) => soma + (centavosNoMes(entry, workflow, year, indice) ?? 0), 0),
+  );
+  const levadasPositivas = somaDosCentavos(levadas.filter((valor) => valor > 0));
+  const levadasNegativas = somaDosCentavos(levadas.filter((valor) => valor < 0));
   return {
     year,
     months: colunas.map((indice) => indice + 1),
@@ -284,9 +293,9 @@ export function montarGeral(base: FinancasResposta, year: number): GeralResposta
       inflows,
       outflows,
       surplus,
-      inflowsCents: somaDosCentavos(inflows),
-      outflowsCents: somaDosCentavos(outflows),
-      surplusCents: somaDosCentavos(surplus),
+      inflowsCents: somaDosCentavos(inflows) - levadasPositivas,
+      outflowsCents: somaDosCentavos(outflows) - levadasNegativas,
+      surplusCents: somaDosCentavos(surplus) - somaDosCentavos(levadas),
     },
   };
 }

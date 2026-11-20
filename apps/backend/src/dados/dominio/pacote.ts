@@ -17,7 +17,8 @@ const id = z.string().min(1).max(80);
 const idOuNulo = id.nullable();
 const lista = <T extends z.ZodType>(item: T) => z.array(item).max(500_000).default([]);
 
-const grupo = z.object({ id, name: texto, description: texto });
+// A ordem que a pessoa deu aos grupos e às sessões. Pacotes antigos não a traziam.
+const grupo = z.object({ id, name: texto, description: texto, position: inteiro.default(0) });
 const sessao = z.object({
   id,
   groupId: id,
@@ -28,6 +29,7 @@ const sessao = z.object({
   endedAt: dataOuNulo,
   cents: inteiro,
   kind: texto,
+  position: inteiro.default(0),
 });
 const acrescimo = z.object({ id, sessionId: id, cents: inteiro, note: texto, createdAt: data });
 const permanencia = z.object({ year: inteiro, decidedAt: data });
@@ -40,6 +42,8 @@ const lancamento = z.object({
   accountId: idOuNulo.default(null),
   transfer: z.boolean().default(false),
   pairId: idOuNulo.default(null),
+  // Pacotes antigos não traziam a cobertura entre lançamentos.
+  coveredById: idOuNulo.default(null),
   carryOf: z.string().max(7).nullable().default(null),
   day: inteiro,
   cents: inteiro,
@@ -198,6 +202,27 @@ const preferencias = z.object({
   showHolidays: z.boolean().default(true),
   showOptionalHolidays: z.boolean().default(true),
 });
+// Pacotes antigos não traziam tarefas nem a divisão das metas.
+const tarefa = z.object({
+  id,
+  title: texto,
+  date: data,
+  doneOn: dataOuNulo.default(null),
+  position: inteiro.default(0),
+  createdAt: data,
+  repeat: texto.nullable().default(null),
+  parentId: idOuNulo.default(null),
+  appointmentId: idOuNulo.default(null),
+});
+// As ocorrências já feitas de cada compromisso que repete. Pacotes antigos não as traziam.
+const ocorrenciaFeita = z.object({ appointmentId: id, date: data });
+const divisaoDeMeta = z.object({
+  goalId: id,
+  year: inteiro,
+  month: inteiro,
+  percent: inteiro,
+  approvedCents: inteiro.nullable().default(null),
+});
 const feriadoLocal = z.object({ id, name: texto, day: inteiro.min(1).max(31), month: inteiro.min(1).max(12) });
 const fluxo = z.object({ year: inteiro, month: inteiro, day: inteiro });
 
@@ -221,6 +246,9 @@ const dados = z.object({
   goals: lista(meta),
   accountBoxes: lista(caixinha),
   holidays: lista(feriadoLocal),
+  tasks: lista(tarefa),
+  appointmentDone: lista(ocorrenciaFeita),
+  goalAllocations: lista(divisaoDeMeta),
   preferences: preferencias.nullable().default(null),
   workflow: fluxo.nullable().default(null),
 });
@@ -255,6 +283,8 @@ function referenciasConsistentes(dados: DadosDoPacote) {
   const contas = new Set(dados.accounts.map((item) => item.id));
   const extratos = new Set(dados.statements.map((item) => item.id));
   const metas = new Set(dados.goals.map((item) => item.id));
+  const tarefas = new Set(dados.tasks.map((item) => item.id));
+  const compromissos = new Set(dados.appointments.map((item) => item.id));
   return (
     dados.accountBoxes.every(
       (item) => contas.has(item.accountId) && sessoes.has(item.sessionId) && (!item.goalId || metas.has(item.goalId)),
@@ -262,7 +292,9 @@ function referenciasConsistentes(dados: DadosDoPacote) {
     dados.goals.every((item) => !item.sessionId || sessoes.has(item.sessionId)) &&
     dados.sessions.every((item) => grupos.has(item.groupId)) &&
     dados.sessionAdditions.every((item) => sessoes.has(item.sessionId)) &&
-    dados.entries.every((item) => sessoes.has(item.sessionId) && (!item.accountId || contas.has(item.accountId))) &&
+    dados.entries.every(
+      (item) => sessoes.has(item.sessionId) && (!item.accountId || contas.has(item.accountId)) && (!item.coveredById || lancamentos.has(item.coveredById)),
+    ) &&
     dados.entryOccurrences.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAdjustments.every((item) => lancamentos.has(item.entryId)) &&
     dados.entryAmounts.every((item) => lancamentos.has(item.entryId)) &&
@@ -276,7 +308,10 @@ function referenciasConsistentes(dados: DadosDoPacote) {
     dados.statementAliases.every(
       (item) => sessoes.has(item.sessionId) && (!item.entryId || lancamentos.has(item.entryId)),
     ) &&
-    dados.statementLineParts.every((item) => extratos.has(item.statementId) && lancamentos.has(item.entryId))
+    dados.statementLineParts.every((item) => extratos.has(item.statementId) && lancamentos.has(item.entryId)) &&
+    dados.tasks.every((item) => (!item.parentId || tarefas.has(item.parentId)) && (!item.appointmentId || compromissos.has(item.appointmentId))) &&
+    dados.goalAllocations.every((item) => metas.has(item.goalId)) &&
+    dados.appointmentDone.every((item) => compromissos.has(item.appointmentId))
   );
 }
 
@@ -293,6 +328,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
   const contas = novoMapa(dados.accounts);
   const extratos = novoMapa(dados.statements);
   const metas = novoMapa(dados.goals);
+  const tarefas = novoMapa(dados.tasks);
   const pares = novoMapa(dados.entries.flatMap((item) => (item.pairId ? [{ id: item.pairId }] : [])));
   const de = (mapa: Map<string, string>, antigo: string | null) =>
     antigo === null ? null : (mapa.get(antigo) ?? null);
@@ -316,6 +352,7 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       sessionId: para(sessoes, item.sessionId),
       accountId: de(contas, item.accountId),
       pairId: de(pares, item.pairId),
+      coveredById: de(lancamentos, item.coveredById),
       commitmentId: de(compromissos, item.commitmentId),
     })),
     entryOccurrences: dados.entryOccurrences.map((item) => ({
@@ -367,6 +404,14 @@ export function renovarIdentificadores(dados: DadosDoPacote): DadosDoPacote {
       goalId: de(metas, item.goalId),
     })),
     holidays: dados.holidays.map((item) => ({ ...item, id: randomUUID() })),
+    tasks: dados.tasks.map((item) => ({
+      ...item,
+      id: para(tarefas, item.id),
+      parentId: de(tarefas, item.parentId),
+      appointmentId: de(compromissos, item.appointmentId),
+    })),
+    goalAllocations: dados.goalAllocations.map((item) => ({ ...item, goalId: para(metas, item.goalId) })),
+    appointmentDone: dados.appointmentDone.map((item) => ({ ...item, appointmentId: para(compromissos, item.appointmentId) })),
   };
 }
 

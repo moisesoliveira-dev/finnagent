@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { REPETICOES_DE_TAREFA, type PedidoDeMovimento, type PedidoDeTarefa, type RepeticaoDeTarefa, type Tarefa } from "@finnagent/contracts";
 import { BancoIndisponivel } from "../../grupos/dominio/erros.js";
+import { bloquear } from "../../persistencia/bloquear.js";
 import { gravarOutbox, marcaDe } from "../../persistencia/gravar-outbox.js";
 import { PrismaService } from "../../persistencia/prisma.service.js";
 import { proximaData } from "../dominio/repeticao.js";
@@ -82,8 +83,12 @@ export class PrismaTarefasRepositorio implements TarefasRepositorio {
 
   async concluir(tenantId: string, id: string, doneOn: string | null) {
     return this.banco().$transaction(async (tx) => {
+      // Dois toques na mesma tarefa ao mesmo tempo: o segundo espera e vê a tarefa já feita.
+      await bloquear(tx, `${tenantId}:tarefas`);
       const alvo = await tx.task.findFirst({ where: { id, tenantId }, select: selecao });
       if (!alvo) return "ausente" as const;
+      // Concluir o que já está feito não muda nada, e não faz a tarefa que repete nascer de novo.
+      if (doneOn && alvo.doneOn) return tarefaDe(alvo);
       const arvore = await this.arvoreDe(tx, tenantId, id);
       const mudancas = mudancasAoConcluir(arvore, id, doneOn);
       for (const mudanca of mudancas) {
@@ -195,6 +200,12 @@ export class PrismaTarefasRepositorio implements TarefasRepositorio {
   /** Cria a próxima ocorrência de uma tarefa que repete: a raiz no próximo dia e a árvore abaixo dela, toda aberta. */
   private async renascer(tx: Transacao, tenantId: string, arvore: Tarefa[], feita: Tarefa, doneOn: string) {
     const date = proximaData(feita.date, feita.repeat as RepeticaoDeTarefa, doneOn);
+    // Reabrir e concluir de novo não duplica: se a próxima já está aberta nessa data, ela vale.
+    const jaExiste = await tx.task.findFirst({
+      where: { tenantId, parentId: null, appointmentId: null, title: feita.title, repeat: feita.repeat, date: dataPrisma(date), doneOn: null },
+      select: { id: true },
+    });
+    if (jaExiste) return { id: jaExiste.id, date };
     const ultima = await tx.task.aggregate({ where: { tenantId, parentId: null }, _max: { position: true } });
     const novaRaiz = randomUUID();
     await tx.task.create({
