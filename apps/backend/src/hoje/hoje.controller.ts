@@ -16,11 +16,16 @@ import {
 } from "@nestjs/common";
 import { REPETICOES_DE_TAREFA } from "@finnagent/contracts";
 import { z } from "zod";
+import { dataValida } from "../financas/dominio/transacao.js";
 import { BancoIndisponivel, Conflito, NaoEncontrado } from "../grupos/dominio/erros.js";
 import { HojeService } from "./aplicacao/hoje.service.js";
 
 const tenantId = z.uuid();
-const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Só data que existe no calendário: 2026-02-31 e 2026-13-01 passam no formato, mas não viram uma data gravável.
+const dataIso = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(dataValida);
 const tarefa = z.object({
   title: z.string().trim().min(1).max(160),
   date: dataIso,
