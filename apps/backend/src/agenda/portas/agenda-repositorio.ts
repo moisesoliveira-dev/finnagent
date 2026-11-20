@@ -59,11 +59,15 @@ export interface AgendaRepositorio {
     name: NomeAgenda,
     timezone: FusoAgenda,
   ): Promise<Calendario>;
+  /** Sem `date`, o status é do compromisso (o que não repete). Com `date`, é da ocorrência daquele dia. */
   atualizarStatus(
     tenantId: string,
     id: string,
     status: StatusCompromisso,
+    date?: string,
   ): Promise<Compromisso | "ausente">;
+  /** Os dias já marcados como feitos de cada compromisso que repete, de `desde` em diante ("AAAA-MM-DD"). */
+  diasFeitos(tenantId: string, desde: string, ate: string): Promise<Set<string>>;
   aplicarGoogle(tenantId: string, eventos: EventoGoogle[]): Promise<{ atualizados: number }>;
   /** As respostas de `desde` em diante ("AAAA-MM-DD"). */
   respostasDeGasto(tenantId: string, desde: string): Promise<RespostaDeGasto[]>;

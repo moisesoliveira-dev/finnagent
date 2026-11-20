@@ -69,7 +69,21 @@ export class AgendaService {
 
   async ocorrencias(tenantId: string, year: number, month: number) {
     const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
-    return definicoes.flatMap((item) => ocorrenciasNoMes(item, year, month));
+    return this.comFeitos(tenantId, year, month, definicoes.flatMap((item) => ocorrenciasNoMes(item, year, month)));
+  }
+
+  /**
+   * O que repete é feito dia a dia: a ocorrência vale como feita só se aquele dia foi marcado. O que não repete usa o
+   * status do próprio compromisso.
+   */
+  private async comFeitos(tenantId: string, year: number, month: number, lista: Compromisso[]) {
+    if (!lista.some((item) => item.category !== "fixed")) return lista;
+    const ultimo = new Date(year, month, 0).getDate();
+    const mes = `${year}-${String(month).padStart(2, "0")}`;
+    const feitos = await this.agenda.diasFeitos(tenantId, `${mes}-01`, `${mes}-${String(ultimo).padStart(2, "0")}`);
+    return lista.map((item) =>
+      item.category === "fixed" ? item : { ...item, status: feitos.has(`${item.id}:${dataDoCompromisso(item)}`) ? ("done" as const) : ("undone" as const) },
+    );
   }
 
   async listar(tenantId: string, year: number, month: number): Promise<AgendaResposta> {
@@ -78,8 +92,7 @@ export class AgendaService {
     const calendars = await this.agenda.listarCalendarios(tenantId);
     const definicoes = await this.agenda.listarQueAlcancam(tenantId, year, month);
     const { rotulos, abertas } = await this.sessoes(tenantId);
-    const appointments = definicoes
-      .flatMap((item) => ocorrenciasNoMes(item, year, month))
+    const appointments = (await this.comFeitos(tenantId, year, month, definicoes.flatMap((item) => ocorrenciasNoMes(item, year, month))))
       .map((item) => comSessao(comVinculo(item, entries), base.entries, rotulos))
       .sort((a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title));
     const config = await this.configuracoes.obter(tenantId);
@@ -216,8 +229,16 @@ export class AgendaService {
     return this.agenda.atualizarFuso(tenantId, name, timezone);
   }
 
-  async atualizarStatus(tenantId: string, id: string, status: StatusCompromisso) {
-    const resultado = await this.agenda.atualizarStatus(tenantId, id, status);
+  async atualizarStatus(tenantId: string, id: string, status: StatusCompromisso, date?: string) {
+    const definicao = await this.agenda.obter(tenantId, id);
+    if (!definicao) throw new NaoEncontrado("Compromisso não encontrado.");
+    // Compromisso que repete é marcado por ocorrência; o que não repete tem um status só.
+    const repete = definicao.category !== "fixed";
+    if (repete) {
+      if (!date) throw new PedidoInvalido("Esse compromisso repete: informe o dia da ocorrência.");
+      await this.ocorrenciaNoDia(tenantId, id, date);
+    }
+    const resultado = await this.agenda.atualizarStatus(tenantId, id, status, repete ? date : undefined);
     if (resultado === "ausente") throw new NaoEncontrado("Compromisso não encontrado.");
     return resultado;
   }

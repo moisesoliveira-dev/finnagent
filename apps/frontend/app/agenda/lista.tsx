@@ -35,7 +35,7 @@ export function ListaMes({
   month: number;
   itens: ItemDia[];
   feriados: Feriado[];
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onStatus: (id: string, status: StatusCompromisso, day: number) => void;
   onEdit: (id: string) => void;
 }) {
   const diasComFeriado = feriados.map((item) => Number(item.data.slice(8, 10)));
@@ -101,7 +101,7 @@ export function PainelDoDia({
   onDelete,
 }: {
   itens: ItemDia[];
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onStatus: (id: string, status: StatusCompromisso, day: number) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -141,7 +141,7 @@ function ItemDoDia({
   onExcluir,
 }: {
   item: ItemDia;
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onStatus: (id: string, status: StatusCompromisso, day: number) => void;
   onEdit: (id: string) => void;
   confirmar: boolean;
   onExcluir: () => void;
@@ -203,7 +203,7 @@ function ItemDoDia({
                 <Chip tone={item.status === "done" ? "ok" : "default"}>{rotuloDoStatus(item.status)}</Chip>
               ) : null}
             </div>
-            {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
+            {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo, item.day)} /> : null}
           </div>
         </div>
       </div>
@@ -264,7 +264,7 @@ export function ListaDoDia({
   onEdit,
 }: {
   itens: ItemDia[];
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onStatus: (id: string, status: StatusCompromisso, day: number) => void;
   onEdit: (id: string) => void;
 }) {
   if (itens.length === 0) {
@@ -291,7 +291,7 @@ function Linha({
   onEdit,
 }: {
   item: ItemDia;
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onStatus: (id: string, status: StatusCompromisso, day: number) => void;
   onEdit: (id: string) => void;
 }) {
   const pagamento = item.link?.situation ?? null;
@@ -322,7 +322,7 @@ function Linha({
       <div className="flex shrink-0 flex-col items-end gap-1">
         {valor !== null ? <Money cents={valor} strong /> : null}
         {pagamento ? <Chip tone={tomDaSituacao(pagamento)}>{rotuloDaSituacao(pagamento)}</Chip> : null}
-        {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo)} /> : null}
+        {item.status ? <OkCompromisso feito={item.status === "done"} onChange={() => onStatus(item.id, proximo, item.day)} /> : null}
       </div>
     </li>
   );

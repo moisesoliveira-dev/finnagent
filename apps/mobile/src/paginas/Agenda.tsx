@@ -160,7 +160,7 @@ export function Agenda() {
                 onClick={() =>
                   void fazer(
                     "status",
-                    () => enviar(`/api/compromissos/${aberto.id}/status`, { status: aberto.status === "done" ? "undone" : "done" }, "PATCH"),
+                    () => enviar(`/api/compromissos/${aberto.id}/status`, { status: aberto.status === "done" ? "undone" : "done", date: `${aberto.year}-${String(aberto.month).padStart(2, "0")}-${String(aberto.day).padStart(2, "0")}` }, "PATCH"),
                     aberto.status === "done" ? "Voltou a pendente." : "Marcado como feito.",
                     true,
                   )

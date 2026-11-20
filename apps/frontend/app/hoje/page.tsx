@@ -270,7 +270,7 @@ export default function Hoje() {
   const compromisso = (item: CompromissoDoDia, done: boolean) =>
     agir(
       item.id,
-      () => api(`/api/compromissos/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status: done ? "done" : "undone" }) }),
+      () => api(`/api/compromissos/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status: done ? "done" : "undone", date: dados?.date }) }),
       "Não foi possível marcar o compromisso.",
     );
 
